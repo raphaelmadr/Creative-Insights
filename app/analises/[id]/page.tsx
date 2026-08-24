@@ -91,8 +91,8 @@ export default async function CampaignAnalysisPage({ params }: { params: Promise
                   }}>
                     {thumb ? (
                       <div style={{ position: "relative", width: "100%", height: "100%" }}>
-                        <SafeImage src={thumb} alt={item.adName || "Criativo"} fill style={{ objectFit: "cover" }} />
-                      </div>
+                      <SafeImage src={thumb} alt={item.adName || "Criativo"} style={{ objectFit: "cover", width: "100%", height: "100%" }} />
+                    </div>
                     ) : (
                       <Sparkles size={24} opacity={0.3} />
                     )}

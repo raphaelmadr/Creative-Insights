@@ -46,7 +46,7 @@ export async function GET(req: Request) {
         winnerReturn: 1000,
         winnerCpa: 60,
         updatedAt: new Date()
-      };
+      } as any;
     }
 
     const SUPER_WINNER_SPEND_THRESHOLD = settings.superWinnerSpend;

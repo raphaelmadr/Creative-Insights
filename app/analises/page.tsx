@@ -114,8 +114,7 @@ export default async function AnalisesListPage() {
                           <SafeImage
                             src={thumb}
                             alt="Criativo analisado"
-                            fill
-                            style={{ objectFit: "cover" }}
+                            style={{ objectFit: "cover", width: "100%", height: "100%" }}
                           />
                         </div>
                       ))
