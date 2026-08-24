@@ -135,15 +135,15 @@ model SystemSettings {
   marketInsightsPrompt String? @db.Text
   
   metaAdAccountId   String?
-  metaAccessToken   String?
-  geminiApiKey      String?
-  openaiApiKey      String?
-  anthropicApiKey   String?
-  tavilyApiKey      String?
-  groqApiKey        String?
-  openRouterApiKey  String?
-  cohereApiKey      String?
-  huggingFaceApiKey String?
+  metaAccessToken   String?  @db.Text
+  geminiApiKey      String?  @db.Text
+  openaiApiKey      String?  @db.Text
+  anthropicApiKey   String?  @db.Text
+  tavilyApiKey      String?  @db.Text
+  groqApiKey        String?  @db.Text
+  openRouterApiKey  String?  @db.Text
+  cohereApiKey      String?  @db.Text
+  huggingFaceApiKey String?  @db.Text
   slackBotToken     String?
   slackChannelId    String?
   
