@@ -413,12 +413,19 @@ export async function runMetaSync(
     }
   }
 
-  const DB_BATCH_SIZE = 500;
+  const DB_BATCH_SIZE = 100;
   for (let i = 0; i < dbOperations.length; i += DB_BATCH_SIZE) {
     const batchOps = dbOperations.slice(i, i + DB_BATCH_SIZE);
     const perc = 75 + Math.floor((i / dbOperations.length) * 25);
     if (onProgress) onProgress(`Gravando no banco de dados (${i}/${dbOperations.length})...`, perc);
-    await prisma.$transaction(batchOps);
+    try {
+      await prisma.$transaction(batchOps, { timeout: 30000 });
+    } catch (e) {
+      console.error(`Erro no lote ${i} do DB, tentando individualmente...`, e);
+      for (const op of batchOps) {
+        await op;
+      }
+    }
   }
 
   const updateData: any = { lastSyncAt: new Date() };
