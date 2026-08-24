@@ -332,12 +332,13 @@ export async function runMetaSync(
   }
 
   if (onProgress) onProgress(`Preparando dados para o banco...`, 75);
-  const dbOperations: any[] = [];
+  const creativeOps: any[] = [];
+  const metricsOps: any[] = [];
 
   for (const data of creativeUpdates) {
     const { adId, designer, imageUrl, thumbnailUrl, videoUrl, mediaType, publisherPlatforms, needsCreativeRefresh, adName, adsetName, campaignName, status, createdTime } = data;
     
-    dbOperations.push(prisma.adCreative.upsert({
+    creativeOps.push(prisma.adCreative.upsert({
       where: { id: adId },
       update: {
         adName: adName || "Sem nome",
@@ -404,7 +405,7 @@ export async function runMetaSync(
 
       const date = new Date(`${row.date_start}T00:00:00Z`);
 
-      dbOperations.push(prisma.adDailyMetrics.upsert({
+      metricsOps.push(prisma.adDailyMetrics.upsert({
         where: { adCreativeId_date: { adCreativeId: adId, date: date } },
         update: { spend, roas: purchaseRoas, cpm, ctr, cpc, impressions, clicks, purchases, netOrders, riskApprovedValue, grossValue, messages },
         create: { adCreativeId: adId, date: date, spend, roas: purchaseRoas, cpm, ctr, cpc, impressions, clicks, purchases, netOrders, riskApprovedValue, grossValue, messages }
@@ -414,12 +415,17 @@ export async function runMetaSync(
   }
 
   const DB_BATCH_SIZE = 100;
-  for (let i = 0; i < dbOperations.length; i += DB_BATCH_SIZE) {
-    const batchOps = dbOperations.slice(i, i + DB_BATCH_SIZE);
-    const perc = 75 + Math.floor((i / dbOperations.length) * 25);
-    if (onProgress) onProgress(`Gravando no banco de dados (${i}/${dbOperations.length})...`, perc);
-    
-    // Executa em paralelo (Concurrency) - o Prisma distribui pelas conexões do pool
+  for (let i = 0; i < creativeOps.length; i += DB_BATCH_SIZE) {
+    const batchOps = creativeOps.slice(i, i + DB_BATCH_SIZE);
+    const perc = 75 + Math.floor((i / (creativeOps.length + metricsOps.length)) * 25);
+    if (onProgress) onProgress(`Gravando Criativos (${i}/${creativeOps.length})...`, perc);
+    await Promise.all(batchOps);
+  }
+
+  for (let i = 0; i < metricsOps.length; i += DB_BATCH_SIZE) {
+    const batchOps = metricsOps.slice(i, i + DB_BATCH_SIZE);
+    const perc = 75 + Math.floor(((creativeOps.length + i) / (creativeOps.length + metricsOps.length)) * 25);
+    if (onProgress) onProgress(`Gravando Métricas (${i}/${metricsOps.length})...`, perc);
     await Promise.all(batchOps);
   }
 
