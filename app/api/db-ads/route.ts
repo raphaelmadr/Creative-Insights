@@ -18,10 +18,10 @@ export async function GET(req: Request) {
     const endDate = new Date(`${toParam}T23:59:59.999Z`);
 
     // Define the status filter dynamically based on the toggle
-    const statusFilter = statusParam === "ALL" 
-      ? undefined 
-      : statusParam === "INACTIVE" 
-        ? { not: "ACTIVE" } 
+    const statusFilter = statusParam === "ALL"
+      ? undefined
+      : statusParam === "INACTIVE"
+        ? { not: "ACTIVE" }
         : "ACTIVE";
 
     const ads = await prisma.adCreative.findMany({
@@ -52,7 +52,8 @@ export async function GET(req: Request) {
     const SUPER_WINNER_SPEND_THRESHOLD = settings!.superWinnerSpend;
     const SUPER_WINNER_VALUE_THRESHOLD = settings!.superWinnerReturn;
     const SUPER_WINNER_MAX_CPA = settings!.superWinnerCpa || 50;
-    
+
+
     const WINNER_SPEND_THRESHOLD = settings!.winnerSpend;
     const WINNER_VALUE_THRESHOLD = settings!.winnerReturn;
     const WINNER_MAX_CPA = settings!.winnerCpa || 60;
@@ -119,13 +120,13 @@ export async function GET(req: Request) {
 
       const cpa = netOrders > 0 ? (spend / netOrders) : spend; // se não tem aprovação, o custo é o spend inteiro
 
-      const isSuperWinner = 
-        spend >= SUPER_WINNER_SPEND_THRESHOLD && 
+      const isSuperWinner =
+        spend >= SUPER_WINNER_SPEND_THRESHOLD &&
         riskApprovedValue >= SUPER_WINNER_VALUE_THRESHOLD &&
         cpa <= SUPER_WINNER_MAX_CPA;
 
-      const isWinner = 
-        spend >= WINNER_SPEND_THRESHOLD && 
+      const isWinner =
+        spend >= WINNER_SPEND_THRESHOLD &&
         riskApprovedValue >= WINNER_VALUE_THRESHOLD &&
         cpa <= WINNER_MAX_CPA;
 
