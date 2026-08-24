@@ -333,11 +333,14 @@ export default function CreativeView({ dateFrom, dateTo, statusFilter, onMetrics
 
     if (!isMatch) return false;
 
-    // Regra estrita: Quando um usuário específico é selecionado,
-    // contabilizar apenas os anúncios que foram efetivamente criados dentro do período selecionado.
+    // Regra estrita (COM tolerância de véspera): 
+    // Aceita anúncios criados no mês atual OU até 5 dias antes (ex: 26 a 31 do mês anterior),
+    // pois o gestor publica a campanha de um mês nos últimos dias do mês anterior.
     if (creative.createdTime) {
       const createdDate = new Date(creative.createdTime);
       const start = new Date(`${dateFrom}T00:00:00Z`);
+      start.setDate(start.getDate() - 5); // 5 dias de tolerância
+      
       const end = new Date(`${dateTo}T23:59:59.999Z`);
       if (createdDate < start || createdDate > end) {
         return false;
