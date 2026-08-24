@@ -418,14 +418,9 @@ export async function runMetaSync(
     const batchOps = dbOperations.slice(i, i + DB_BATCH_SIZE);
     const perc = 75 + Math.floor((i / dbOperations.length) * 25);
     if (onProgress) onProgress(`Gravando no banco de dados (${i}/${dbOperations.length})...`, perc);
-    try {
-      await prisma.$transaction(batchOps, { timeout: 30000 });
-    } catch (e) {
-      console.error(`Erro no lote ${i} do DB, tentando individualmente...`, e);
-      for (const op of batchOps) {
-        await op;
-      }
-    }
+    
+    // Executa em paralelo (Concurrency) - o Prisma distribui pelas conexões do pool
+    await Promise.all(batchOps);
   }
 
   const updateData: any = { lastSyncAt: new Date() };
