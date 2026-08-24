@@ -49,13 +49,13 @@ export async function GET(req: Request) {
       } as any;
     }
 
-    const SUPER_WINNER_SPEND_THRESHOLD = settings.superWinnerSpend;
-    const SUPER_WINNER_VALUE_THRESHOLD = settings.superWinnerReturn;
-    const SUPER_WINNER_MAX_CPA = settings.superWinnerCpa || 50;
+    const SUPER_WINNER_SPEND_THRESHOLD = settings!.superWinnerSpend;
+    const SUPER_WINNER_VALUE_THRESHOLD = settings!.superWinnerReturn;
+    const SUPER_WINNER_MAX_CPA = settings!.superWinnerCpa || 50;
     
-    const WINNER_SPEND_THRESHOLD = settings.winnerSpend;
-    const WINNER_VALUE_THRESHOLD = settings.winnerReturn;
-    const WINNER_MAX_CPA = settings.winnerCpa || 60;
+    const WINNER_SPEND_THRESHOLD = settings!.winnerSpend;
+    const WINNER_VALUE_THRESHOLD = settings!.winnerReturn;
+    const WINNER_MAX_CPA = settings!.winnerCpa || 60;
 
     const superWinners: any[] = [];
     const winners: any[] = [];
