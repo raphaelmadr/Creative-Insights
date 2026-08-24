@@ -268,7 +268,7 @@ function InfiniteScrollTrigger({ remaining, onLoadMore, label = "Carregando mais
 
 export default function CreativeView({ dateFrom, dateTo, statusFilter, onMetricsUpdate, selectedDesigner, creators = [] }: { dateFrom: string; dateTo: string; statusFilter?: string; onMetricsUpdate?: (metrics: any) => void; selectedDesigner: string | null; creators: any[] }) {
   const { syncCounter } = useNotifications();
-  const [data, setData] = useState<{superWinners: any[], winners: any[], testes: Record<string, any[]>} | null>(null);
+  const [data, setData] = useState<{superWinners: any[], winners: any[], testes: Record<string, any[]>, settings?: any} | null>(null);
   const [loading, setLoading] = useState(true);
   const [hoveredPreview, setHoveredPreview] = useState<{url: string, isVideo?: boolean, adName: string, cardId: string} | null>(null);
   const [superWinnersVisible, setSuperWinnersVisible] = useState(PAGE_SIZE);

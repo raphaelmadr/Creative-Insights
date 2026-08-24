@@ -11,6 +11,7 @@ export interface UpdateItem {
   urgency: string;
   category: string;
   sourceUrl?: string | null;
+  thumbnailUrl?: string | null;
   timestamp: string; // ISO String
 }
 

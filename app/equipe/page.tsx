@@ -52,7 +52,7 @@ export default function EquipePage() {
       }
       
       // Empurrar "UNKNOWN" / Parcerias para o final
-      unifiedStats.sort((a, b) => {
+      unifiedStats.sort((a: any, b: any) => {
         if (a.acronym.includes("UNKNOWN") && !b.acronym.includes("UNKNOWN")) return 1;
         if (b.acronym.includes("UNKNOWN") && !a.acronym.includes("UNKNOWN")) return -1;
         return b.riskApprovedValue - a.riskApprovedValue; // Default by revenue
