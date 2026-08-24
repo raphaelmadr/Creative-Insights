@@ -333,9 +333,19 @@ export default function CreativeView({ dateFrom, dateTo, statusFilter, onMetrics
 
     if (!isMatch) return false;
 
-    // Removida a Regra estrita de data de criação.
-    // Agora o designer vê qualquer anúncio que ele criou (mesmo meses atrás), 
-    // desde que tenha gasto/resultados no mês selecionado.
+    // Regra estrita: Quando um usuário específico é selecionado,
+    // contabilizar apenas os anúncios que foram efetivamente criados dentro do período selecionado.
+    if (creative.createdTime) {
+      const createdDate = new Date(creative.createdTime);
+      const start = new Date(`${dateFrom}T00:00:00Z`);
+      const end = new Date(`${dateTo}T23:59:59.999Z`);
+      if (createdDate < start || createdDate > end) {
+        return false;
+      }
+    } else {
+      return false; // Sem data de criação, não contabiliza
+    }
+    
     return true;
   }, [selectedDesigner, creators, dateFrom, dateTo]);
 
