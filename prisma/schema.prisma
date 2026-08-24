@@ -84,9 +84,9 @@ model AdCreative {
   adsetName       String
   campaignName    String
   designer        String?
-  imageUrl        String?
-  thumbnailUrl    String?
-  videoUrl        String?
+  imageUrl        String?  @db.Text
+  thumbnailUrl    String?  @db.Text
+  videoUrl        String?  @db.Text
   mediaType       String   @default("image")
   publisherPlatforms String?
   status          String?
