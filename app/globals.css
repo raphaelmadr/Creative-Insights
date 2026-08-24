@@ -1,26 +1,300 @@
-@import "tailwindcss";
+@import url('https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,200..800&family=Inter:wght@400;500;600;700&display=swap');
 
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  --background-main: #F9FAFB;
+  --topbar-bg: rgba(249, 250, 251, 0.8);
+  --foreground: #111827;
+  
+  --card-bg: #FFFFFF;
+  --card-border: #E5E7EB;
+  --card-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+  
+  --primary: #27AE60;
+  --primary-hover: #2ECC71;
+  --primary-glow: rgba(39, 174, 96, 0.15);
+  
+  --success: #27AE60;
+  --danger: #EF4444;
+  --warning: #F59E0B;
+  
+  --font-sans: 'Inter', -apple-system, sans-serif;
+  --font-heading: 'Bricolage Grotesque', -apple-system, sans-serif;
 }
 
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+[data-theme='dark'] {
+  --background-main: #0A0A0C;
+  --topbar-bg: rgba(10, 10, 12, 0.8);
+  --foreground: #FFFFFF;
+  
+  --card-bg: rgba(255, 255, 255, 0.04);
+  --card-border: rgba(255, 255, 255, 0.12);
+  --card-shadow: 0 4px 16px rgba(0, 0, 0, 0.2);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
 }
 
 body {
-  background: var(--background);
+  background-color: var(--background-main);
   color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  font-family: var(--font-sans);
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  overflow-x: hidden;
+  -webkit-font-smoothing: antialiased;
 }
+
+a {
+  color: inherit;
+  text-decoration: none;
+}
+
+button {
+  font-family: inherit;
+  cursor: pointer;
+  border: none;
+  background: none;
+}
+
+h1, h2, h3, h4, h5, h6 {
+  font-family: var(--font-heading);
+  letter-spacing: -0.02em;
+}
+
+.lowercase-title {
+  text-transform: lowercase;
+}
+
+.dot-green {
+  color: var(--primary);
+}
+
+/* Scrollbar */
+::-webkit-scrollbar { width: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: #D1D5DB; border-radius: 3px; }
+[data-theme='dark'] ::-webkit-scrollbar-thumb { background: #374151; }
+::-webkit-scrollbar-thumb:hover { background: #9CA3AF; }
+
+/* Utilities for premium design */
+.glass-panel {
+  background: var(--card-bg);
+  border: 1px solid var(--card-border);
+  border-radius: 8px;
+  transition: all 0.2s ease;
+}
+
+.glass-panel:hover {
+  border-color: var(--primary);
+  box-shadow: 0 4px 12px rgba(0,0,0,0.05);
+}
+
+[data-theme='dark'] .glass-panel:hover {
+  box-shadow: 0 4px 12px rgba(0,0,0,0.2);
+}
+
+.fixed-grid-4 {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 1rem;
+}
+
+.team-grid-3 {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 1.5rem;
+}
+
+@media (max-width: 1024px) {
+  .fixed-grid-4 {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .team-grid-3 {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 640px) {
+  .fixed-grid-4,
+  .team-grid-3 {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+/* Allu Copy Lab specific styles */
+.dashboard-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-end;
+  gap: 1.5rem;
+  flex-wrap: wrap;
+}
+
+@media (max-width: 768px) {
+  .dashboard-header {
+    align-items: flex-start;
+  }
+}
+
+.dashboard-filters {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  flex-wrap: nowrap;
+  overflow-x: auto;
+  max-width: 100%;
+  padding-bottom: 0.5rem;
+  margin-bottom: -0.5rem;
+  scrollbar-width: none;
+}
+.dashboard-filters::-webkit-scrollbar {
+  display: none;
+}
+
+.dashboard-container {
+  padding: 2rem;
+  display: flex;
+  gap: 2rem;
+  flex: 1;
+  max-width: 1400px;
+  margin: 0 auto;
+  width: 100%;
+}
+
+@media (max-width: 768px) {
+  .dashboard-container {
+    padding: 1rem;
+    flex-direction: column;
+  }
+  .mobile-only-overlay {
+    display: block !important;
+  }
+}
+
+.mobile-overlay-wrapper {
+  display: none !important;
+}
+
+@media (max-width: 768px) {
+  .mobile-overlay-wrapper {
+    display: flex !important;
+    position: fixed !important;
+    inset: 0 !important;
+    background: rgba(0,0,0,0.6);
+    z-index: 9999;
+    align-items: center;
+    justify-content: center;
+  }
+}
+
+.settings-modal {
+  background: var(--card-bg);
+  width: 95%;
+  max-width: 700px;
+  max-height: 90vh;
+  display: flex;
+  flex-direction: column;
+  border-radius: 16px;
+  padding: 2rem;
+  position: relative;
+  box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
+  margin: 0 auto;
+}
+
+.section-header {
+  display: flex;
+  align-items: baseline;
+  gap: 0.5rem;
+  margin-bottom: 1rem;
+  flex-wrap: wrap;
+}
+
+.section-number {
+  font-family: var(--font-mono, monospace);
+  font-size: 0.75rem;
+  opacity: 0.5;
+  font-weight: 600;
+}
+
+.section-title {
+  font-size: 1.25rem;
+  font-weight: 700;
+  text-transform: lowercase;
+}
+
+.section-subtitle {
+  font-size: 0.875rem;
+  color: #6B7280;
+  font-weight: 400;
+  text-transform: lowercase;
+}
+
+.allu-card {
+  background: var(--card-bg);
+  border: 1px solid var(--card-border);
+  border-radius: 8px;
+  padding: 1.25rem;
+  display: flex;
+  flex-direction: column;
+}
+
+.allu-card-label {
+  font-size: 0.65rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: #4B5563;
+  font-weight: 600;
+  margin-bottom: 0.5rem;
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+}
+
+[data-theme='dark'] .allu-card-label {
+  color: #9CA3AF;
+}
+
+.allu-card-value {
+  font-size: 1.75rem;
+  font-weight: 800;
+  font-family: var(--font-heading);
+  color: var(--foreground);
+  margin-bottom: 0.25rem;
+  line-height: 1;
+}
+
+.allu-card-subtext {
+  font-size: 0.75rem;
+  color: #6B7280;
+  line-height: 1.4;
+}
+
+.allu-card-highlight {
+  border-color: var(--primary);
+}
+
+.allu-card-highlight .allu-card-label {
+  color: var(--primary);
+}
+
+.allu-card-highlight .allu-card-value {
+  color: var(--primary);
+}
+
+@keyframes spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.spin {
+  animation: spin 1s linear infinite;
+}
+

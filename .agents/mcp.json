@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "motionapp": {
+      "type": "sse",
+      "url": "https://projects.motionapp.com/mcp"
+    }
+  }
+}

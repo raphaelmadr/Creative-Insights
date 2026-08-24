@@ -1,0 +1,12 @@
+{
+  "crons": [
+    {
+      "path": "/api/insights/news/cron",
+      "schedule": "0 */3 * * *"
+    },
+    {
+      "path": "/api/cron/sync-meta",
+      "schedule": "*/30 * * * *"
+    }
+  ]
+}

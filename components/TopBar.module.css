@@ -1,0 +1,198 @@
+.topbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 1rem 2rem;
+  background-color: var(--topbar-bg);
+  backdrop-filter: blur(70px);
+  -webkit-backdrop-filter: blur(70px);
+  border-bottom: 1px solid var(--sidebar-border);
+  position: sticky;
+  top: 0;
+  z-index: 100;
+  flex-wrap: wrap;
+  gap: 1rem;
+}
+
+@media (max-width: 768px) {
+  .topbar {
+    padding: 1rem;
+  }
+  .desktopNav {
+    display: none !important;
+  }
+  .mobileMenuBtn {
+    display: flex !important;
+  }
+  .desktopSync {
+    display: none !important;
+  }
+}
+
+.mobileMenuBtn {
+  display: none;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  color: var(--foreground);
+  background-color: transparent;
+  border: none;
+  cursor: pointer;
+  transition: background-color 0.2s;
+}
+
+.notificationsPopup {
+  position: absolute;
+  top: 100%;
+  right: 0;
+  margin-top: 0.5rem;
+  width: 320px;
+  background-color: var(--background-main);
+  border: 1px solid var(--card-border);
+  border-radius: 12px;
+  box-shadow: 0 4px 15px rgba(0,0,0,0.1);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  z-index: 101;
+}
+
+.desktopOnlyPopup {
+  display: flex;
+}
+
+@media (max-width: 768px) {
+  .desktopOnlyPopup {
+    display: none !important;
+  }
+}
+
+.mobileMenuBtn:hover {
+  background-color: var(--card-border);
+}
+
+.mobileMenuOverlay {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  width: 100%;
+  background-color: var(--background-main);
+  border-bottom: 1px solid var(--sidebar-border);
+  display: flex;
+  flex-direction: column;
+  padding: 1rem;
+  gap: 1rem;
+  box-shadow: 0 10px 30px rgba(0,0,0,0.2);
+  z-index: 99;
+  animation: slideDown 0.2s ease-out forwards;
+}
+
+@keyframes slideDown {
+  from { opacity: 0; transform: translateY(-10px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.mobileMenuOverlay .navLink {
+  padding: 0.75rem 1rem;
+  font-size: 1rem;
+  border-radius: 8px;
+  background-color: rgba(255,255,255,0.02);
+}
+
+.mobileMenuOverlay .navLink:hover {
+  background-color: rgba(255,255,255,0.05);
+}
+
+.logo {
+  display: flex;
+  align-items: center;
+}
+
+.actions {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+}
+
+.navLink {
+  font-size: 0.8rem;
+  font-weight: 500;
+  color: var(--foreground);
+  opacity: 0.8;
+  transition: opacity 0.2s;
+}
+
+.navLink:hover {
+  opacity: 1;
+}
+
+.iconButton {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  color: var(--foreground);
+  background-color: transparent;
+  transition: background-color 0.2s;
+}
+
+.iconButton:hover {
+  background-color: var(--card-border);
+}
+
+.auth {
+  margin-left: 1rem;
+  padding-left: 1rem;
+  border-left: 1px solid var(--sidebar-border);
+}
+
+.userProfile {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.avatar {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  object-fit: cover;
+}
+
+.userInfo {
+  display: flex;
+  flex-direction: column;
+}
+
+.userName {
+  font-size: 0.875rem;
+  font-weight: 500;
+}
+
+.logoutBtn {
+  font-size: 0.75rem;
+  color: var(--danger);
+  text-align: left;
+}
+
+.logoutBtn:hover {
+  text-decoration: underline;
+}
+
+.loginBtn {
+  background-color: var(--primary);
+  color: white;
+  padding: 0.5rem 1rem;
+  border-radius: 8px;
+  font-size: 0.875rem;
+  font-weight: 600;
+  transition: background-color 0.2s;
+}
+
+.loginBtn:hover {
+  background-color: var(--primary-hover);
+}
