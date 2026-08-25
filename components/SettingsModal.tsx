@@ -4,7 +4,9 @@ import React, { useState, useEffect } from "react";
 import { X, Save, Loader2, Plus, Trash2 } from "lucide-react";
 
 export default function SettingsModal({ isOpen, onClose, onSave }: { isOpen: boolean; onClose: () => void; onSave: () => void }) {
-  const [activeTab, setActiveTab] = useState<"sistema" | "metas" | "ia" | "api" | "equipe">("sistema");
+  const [activeTab, setActiveTab] = useState<"sistema" | "metas" | "ia" | "api" | "equipe" | "logs">("sistema");
+  const [sysLogs, setSysLogs] = useState<any[]>([]);
+  const [fetchingLogs, setFetchingLogs] = useState(false);
   const [loading, setLoading] = useState(false);
   const [fetching, setFetching] = useState(true);
   const [creators, setCreators] = useState<any[]>([]);
@@ -90,6 +92,28 @@ export default function SettingsModal({ isOpen, onClose, onSave }: { isOpen: boo
       const res = await fetch("/api/creators");
       const json = await res.json();
       if (json.data) setCreators(json.data);
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  const fetchLogs = async () => {
+    setFetchingLogs(true);
+    try {
+      const res = await fetch("/api/logs");
+      const json = await res.json();
+      if (Array.isArray(json)) setSysLogs(json);
+    } catch (err) {
+      console.error(err);
+    }
+    setFetchingLogs(false);
+  };
+
+  const clearLogs = async () => {
+    if (!confirm("Tem certeza que deseja apagar todos os logs?")) return;
+    try {
+      await fetch("/api/logs", { method: "DELETE" });
+      setSysLogs([]);
     } catch (err) {
       console.error(err);
     }
@@ -258,6 +282,18 @@ export default function SettingsModal({ isOpen, onClose, onSave }: { isOpen: boo
                   paddingBottom: "0.5rem", marginBottom: "-0.5rem"
                 }}>
                 Integrações (API)
+              </button>
+              <button 
+                type="button" 
+                onClick={() => { setActiveTab("logs"); fetchLogs(); }}
+                style={{ 
+                  background: "none", border: "none", cursor: "pointer", 
+                  fontWeight: activeTab === "logs" ? 600 : 400,
+                  color: activeTab === "logs" ? "var(--foreground)" : "var(--foreground-muted)",
+                  borderBottom: activeTab === "logs" ? "2px solid var(--foreground)" : "2px solid transparent",
+                  paddingBottom: "0.5rem", marginBottom: "-0.5rem"
+                }}>
+                Logs do Sistema
               </button>
 
             </div>
@@ -677,6 +713,56 @@ export default function SettingsModal({ isOpen, onClose, onSave }: { isOpen: boo
 
           </form>
         )}
+
+            {activeTab === "logs" && (
+              <div style={{ display: "flex", flexDirection: "column", gap: "1.5rem" }}>
+                <div style={{ background: "var(--background-main)", borderRadius: "12px", border: "1px solid var(--card-border)", padding: "1.5rem", display: "flex", flexDirection: "column", gap: "1.5rem" }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                    <h3 style={{ fontSize: "1rem", fontWeight: 600, color: "var(--foreground)", margin: 0 }}>
+                      Logs do Servidor e Interface
+                    </h3>
+                    <button type="button" onClick={clearLogs} style={{ background: "none", border: "none", color: "var(--danger, #ef4444)", cursor: "pointer", fontSize: "0.9rem", display: "flex", alignItems: "center", gap: "0.5rem" }}>
+                      <Trash2 size={16} /> Limpar Logs
+                    </button>
+                  </div>
+                  
+                  {fetchingLogs ? (
+                    <div style={{ textAlign: "center", padding: "2rem", color: "var(--foreground-muted)" }}>
+                      <Loader2 size={24} className="animate-spin mx-auto" />
+                    </div>
+                  ) : sysLogs.length === 0 ? (
+                    <div style={{ textAlign: "center", padding: "3rem 1rem", color: "var(--foreground-muted)", background: "var(--background)", borderRadius: "8px" }}>
+                      Nenhum log registrado.
+                    </div>
+                  ) : (
+                    <div style={{ display: "flex", flexDirection: "column", gap: "0.75rem", maxHeight: "60vh", overflowY: "auto", paddingRight: "0.5rem" }}>
+                      {sysLogs.map((log: any) => (
+                        <div key={log.id} style={{ 
+                          padding: "1rem", 
+                          borderRadius: "8px", 
+                          background: "var(--background)",
+                          borderLeft: `4px solid ${log.level === 'ERROR' ? '#ef4444' : log.level === 'WARNING' ? '#f59e0b' : '#3b82f6'}`,
+                          display: "flex", flexDirection: "column", gap: "0.5rem"
+                        }}>
+                          <div style={{ display: "flex", justifyContent: "space-between", fontSize: "0.85rem", color: "var(--foreground-muted)" }}>
+                            <span style={{ fontWeight: 600, color: "var(--foreground)" }}>[{log.source}] {log.level}</span>
+                            <span>{new Date(log.createdAt).toLocaleString()}</span>
+                          </div>
+                          <div style={{ fontSize: "0.95rem", fontWeight: 500 }}>{log.message}</div>
+                          {log.url && <div style={{ fontSize: "0.8rem", color: "var(--foreground-muted)" }}>URL: {log.url}</div>}
+                          {log.stack && (
+                            <pre style={{ fontSize: "0.75rem", background: "rgba(0,0,0,0.2)", padding: "0.75rem", borderRadius: "6px", overflowX: "auto", color: "#a1a1aa", marginTop: "0.5rem" }}>
+                              {log.stack}
+                            </pre>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+
       </div>
     </div>
   );

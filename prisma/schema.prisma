@@ -157,3 +157,13 @@ model SystemSettings {
   lastCronSyncAt    DateTime?
   updatedAt         DateTime @updatedAt
 }
+
+model SystemLog {
+  id        String   @id @default(uuid())
+  level     String   // "INFO", "WARNING", "ERROR"
+  source    String   // "FRONTEND", "BACKEND", "CRON", "SYNC", etc.
+  message   String   @db.Text
+  stack     String?  @db.Text
+  url       String?  // A URL onde o erro ocorreu (se aplicável)
+  createdAt DateTime @default(now())
+}

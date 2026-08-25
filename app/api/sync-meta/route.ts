@@ -33,6 +33,11 @@ export async function POST(req: Request) {
 
       } catch (error: any) {
         console.error("Meta API Sync Error:", error);
+        
+        // Registrar o erro no nosso sistema interno
+        const { logError } = require('@/lib/logger');
+        logError('BACKEND_SYNC', error, '/api/sync-meta');
+
         sendEvent('error', { error: error.message || "Erro desconhecido durante a sincronização." });
         controller.close();
       }
