@@ -415,11 +415,14 @@ export async function runMetaSync(
       }
     }
     
-    // Insere os anúncios PRIMEIRO, para evitar erro de Foreign Key
-    await Promise.all(creativeDbOps);
-    
-    // Depois insere as métricas associadas aos anúncios
-    await Promise.all(metricsDbOps);
+    // Executa as operações em pequenos lotes (chunks) para não sobrecarregar o Connection Pool nem o Banco (evitando erro 503)
+    const CHUNK_SIZE = 10;
+    for (let j = 0; j < creativeDbOps.length; j += CHUNK_SIZE) {
+      await Promise.all(creativeDbOps.slice(j, j + CHUNK_SIZE));
+    }
+    for (let j = 0; j < metricsDbOps.length; j += CHUNK_SIZE) {
+      await Promise.all(metricsDbOps.slice(j, j + CHUNK_SIZE));
+    }
   }
 
   const updateData: any = { lastSyncAt: new Date() };
