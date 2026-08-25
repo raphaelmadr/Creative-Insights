@@ -58,6 +58,7 @@ export default function Home() {
   const [statusFilter, setStatusFilter] = useState("ALL");
   const [selectedDesigner, setSelectedDesigner] = useState<string | null>(null);
   const [creators, setCreators] = useState<any[]>([]);
+  const [hideOldAds, setHideOldAds] = useState(true);
 
   useEffect(() => {
     fetch("/api/creators")
@@ -200,6 +201,29 @@ export default function Home() {
                 )}
               </div>
 
+              {/* Filtro de Safra (Hide Old Ads) */}
+              <div 
+                onClick={() => setHideOldAds(!hideOldAds)}
+                style={{ 
+                  display: "flex", alignItems: "center", gap: "0.6rem", background: "var(--card-bg)", padding: "0.4rem 0.75rem", 
+                  borderRadius: "8px", border: "1px solid var(--card-border)", boxShadow: "var(--card-shadow)", whiteSpace: "nowrap", cursor: "pointer", userSelect: "none",
+                  fontSize: "0.85rem", fontWeight: 600, color: "var(--foreground)", flexShrink: 0, height: "36px"
+                }}
+              >
+                <div style={{
+                  width: "36px", height: "20px", borderRadius: "100px", background: hideOldAds ? "var(--primary)" : "var(--muted)", 
+                  position: "relative", transition: "background 0.2s ease-in-out", opacity: hideOldAds ? 1 : 0.4
+                }}>
+                  <div style={{
+                    position: "absolute", top: "2px", left: hideOldAds ? "18px" : "2px",
+                    width: "16px", height: "16px", borderRadius: "50%", background: "#fff",
+                    transition: "left 0.2s cubic-bezier(0.4, 0.0, 0.2, 1)", boxShadow: "0 1px 3px rgba(0,0,0,0.3)"
+                  }} />
+                </div>
+                <span style={{ opacity: 0.8 }}>Apenas criativos lançados no mês</span>
+              </div>
+
+
               <button 
                 onClick={() => analyzeCampaigns(dateFrom, dateTo)} 
                 disabled={isSearching}
@@ -276,7 +300,15 @@ export default function Home() {
           </div>
           
           <div style={{ flex: 1, marginTop: "-1rem" }}>
-             <CreativeView dateFrom={dateFrom} dateTo={dateTo} statusFilter={statusFilter} onMetricsUpdate={setMetrics} selectedDesigner={selectedDesigner} creators={creators} />
+            <CreativeView 
+              dateFrom={dateFrom} 
+              dateTo={dateTo} 
+              statusFilter={statusFilter} 
+              selectedDesigner={selectedDesigner}
+              creators={creators}
+              hideOldAds={hideOldAds}
+              onMetricsUpdate={setMetrics} 
+            />
           </div>
         </section>
       </div>

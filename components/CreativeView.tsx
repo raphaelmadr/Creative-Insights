@@ -266,7 +266,7 @@ function InfiniteScrollTrigger({ remaining, onLoadMore, label = "Carregando mais
   );
 }
 
-export default function CreativeView({ dateFrom, dateTo, statusFilter, onMetricsUpdate, selectedDesigner, creators = [] }: { dateFrom: string; dateTo: string; statusFilter?: string; onMetricsUpdate?: (metrics: any) => void; selectedDesigner: string | null; creators: any[] }) {
+export default function CreativeView({ dateFrom, dateTo, statusFilter, onMetricsUpdate, selectedDesigner, creators = [], hideOldAds = true }: { dateFrom: string; dateTo: string; statusFilter?: string; onMetricsUpdate?: (metrics: any) => void; selectedDesigner: string | null; creators: any[]; hideOldAds?: boolean }) {
   const { syncCounter } = useNotifications();
   const [data, setData] = useState<{superWinners: any[], winners: any[], testes: Record<string, any[]>, settings?: any} | null>(null);
   const [loading, setLoading] = useState(true);
@@ -333,29 +333,15 @@ export default function CreativeView({ dateFrom, dateTo, statusFilter, onMetrics
 
     if (!isMatch) return false;
 
-    // Regra estrita (COM tolerância de véspera): 
-    // Aceita anúncios criados no mês atual OU até 5 dias antes (ex: 26 a 31 do mês anterior),
-    // pois o gestor publica a campanha de um mês nos últimos dias do mês anterior.
-    if (creative.createdTime) {
-      const createdDate = new Date(creative.createdTime);
-      const start = new Date(`${dateFrom}T00:00:00Z`);
-      start.setDate(start.getDate() - 5); // 5 dias de tolerância
-      
-      const end = new Date(`${dateTo}T23:59:59.999Z`);
-      if (createdDate < start || createdDate > end) {
-        return false;
-      }
-    } else {
-      return false; // Sem data de criação, não contabiliza
-    }
-    
+    if (!isMatch) return false;
+
     return true;
-  }, [selectedDesigner, creators, dateFrom, dateTo]);
+  }, [selectedDesigner, creators]);
 
-  const filteredSuperWinners = React.useMemo(() => data ? data.superWinners.filter(filterByDesigner) : [], [data, filterByDesigner]);
-  const filteredWinners = React.useMemo(() => data ? data.winners.filter(filterByDesigner) : [], [data, filterByDesigner]);
+  const baseSuperWinners = React.useMemo(() => data ? data.superWinners.filter(filterByDesigner) : [], [data, filterByDesigner]);
+  const baseWinners = React.useMemo(() => data ? data.winners.filter(filterByDesigner) : [], [data, filterByDesigner]);
 
-  const filteredTestes = React.useMemo(() => {
+  const baseTestes = React.useMemo(() => {
     const obj: Record<string, any[]> = {};
     if (data) {
       Object.entries(data.testes).forEach(([adsetName, ads]) => {
@@ -367,6 +353,30 @@ export default function CreativeView({ dateFrom, dateTo, statusFilter, onMetrics
     }
     return obj;
   }, [data, filterByDesigner]);
+
+  const filterByDate = React.useCallback((creative: any) => {
+    if (!hideOldAds) return true;
+    if (!creative.createdTime) return false;
+    
+    const createdDate = new Date(creative.createdTime);
+    const start = new Date(`${dateFrom}T00:00:00Z`);
+    const end = new Date(`${dateTo}T23:59:59.999Z`);
+    
+    return createdDate >= start && createdDate <= end;
+  }, [hideOldAds, dateFrom, dateTo]);
+
+  const filteredSuperWinners = React.useMemo(() => baseSuperWinners.filter(filterByDate), [baseSuperWinners, filterByDate]);
+  const filteredWinners = React.useMemo(() => baseWinners.filter(filterByDate), [baseWinners, filterByDate]);
+  const filteredTestes = React.useMemo(() => {
+    const obj: Record<string, any[]> = {};
+    Object.entries(baseTestes).forEach(([adsetName, ads]) => {
+      const displayAds = ads.filter(filterByDate);
+      if (displayAds.length > 0) {
+        obj[adsetName] = displayAds;
+      }
+    });
+    return obj;
+  }, [baseTestes, filterByDate]);
 
   useEffect(() => {
     if (data && onMetricsUpdate) {
@@ -386,9 +396,23 @@ export default function CreativeView({ dateFrom, dateTo, statusFilter, onMetrics
         totalNetOrders += c.netOrders || 0;
       };
 
-      filteredSuperWinners.forEach(processCreative);
-      filteredWinners.forEach(processCreative);
-      Object.values(filteredTestes).flat().forEach(processCreative);
+      const filterForMetrics = (creative: any) => {
+        // Se NÃO há um designer selecionado (Todos os Criadores), 
+        // a métrica global deve refletir a conta inteira (incluindo anúncios velhos).
+        // Se HÁ um designer selecionado, a métrica deve refletir apenas a safra do mês
+        // para bater perfeitamente com o relatório de performance da aba Equipe.
+        if (!selectedDesigner) return true;
+
+        if (!creative.createdTime) return false;
+        const createdDate = new Date(creative.createdTime);
+        const start = new Date(`${dateFrom}T00:00:00Z`);
+        const end = new Date(`${dateTo}T23:59:59.999Z`);
+        return createdDate >= start && createdDate <= end;
+      };
+
+      baseSuperWinners.filter(filterForMetrics).forEach(processCreative);
+      baseWinners.filter(filterForMetrics).forEach(processCreative);
+      Object.values(baseTestes).flat().filter(filterForMetrics).forEach(processCreative);
 
       const globalCtr = totalImpressions > 0 ? (totalClicks / totalImpressions) * 100 : 0;
       const globalCpa = totalNetOrders > 0 ? (totalSpend / totalNetOrders) : totalSpend;
@@ -401,7 +425,7 @@ export default function CreativeView({ dateFrom, dateTo, statusFilter, onMetrics
         totalGrossValue: totalGrossValue.toFixed(2),
       });
     }
-  }, [filteredSuperWinners, filteredWinners, filteredTestes, data, onMetricsUpdate]);
+  }, [baseSuperWinners, baseWinners, baseTestes, data, dateFrom, dateTo, onMetricsUpdate]);
 
   if (loading && !data) return (
     <div style={{ display: "flex", alignItems: "center", gap: "1rem", opacity: 0.5, padding: "2rem" }}>

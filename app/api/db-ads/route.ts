@@ -26,8 +26,8 @@ export async function GET(req: Request) {
 
     const ads = await prisma.adCreative.findMany({
       where: {
-        createdTime: { gte: startDate, lte: endDate },
-        ...(statusFilter !== undefined && { status: statusFilter })
+        ...(statusFilter !== undefined && { status: statusFilter }),
+        metrics: { some: { date: { gte: startDate, lte: endDate } } }
       },
       include: {
         metrics: {
