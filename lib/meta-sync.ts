@@ -28,7 +28,7 @@ export async function runMetaSync(
   const validAcronyms: string[] = [];
   creators.forEach(c => {
     if (c.acronym.toUpperCase() !== "UNKNOWN") {
-      const split = c.acronym.split(/[^a-zA-Z0-9]+/).filter(Boolean).map(s => s.toLowerCase());
+      const split = c.acronym.split(',').map(s => s.trim().toLowerCase()).filter(Boolean);
       validAcronyms.push(...split);
     }
   });
@@ -299,9 +299,8 @@ export async function runMetaSync(
       if (firstRow.ad_name) {
         const adNameLower = firstRow.ad_name.toLowerCase();
         for (const ac of validAcronyms) {
-          // Procura por _sigla, -sigla, espaço sigla (com delimitadores após) 
-          // OU a sigla no final exato do arquivo (com ou sem extensão)
-          const regex = new RegExp(`([_\\- ]${ac}(?:[\\._ \\-]|\\b|$)|${ac}(?:\\.[a-z0-9]{3,4})?$)`, "i");
+          // Busca a sigla isolada por qualquer caractere que não seja letra/número, ou no início/fim
+          const regex = new RegExp(`(^|[^a-zA-Z0-9])(${ac})([^a-zA-Z0-9]|$)`, "i");
           if (regex.test(adNameLower)) {
             designer = ac.toUpperCase();
             break;
@@ -384,9 +383,17 @@ export async function runMetaSync(
       }
 
       let purchases = 0; let messages = 0; let netOrders = 0; let riskApprovedValue = 0;
+      
+      const getFallbackValue = (arr: any[], types: string[]) => {
+        for (const t of types) {
+          const obj = arr.find((a: any) => a.action_type === t);
+          if (obj) return parseFloat(obj.value);
+        }
+        return 0;
+      };
+
       if (row.actions) {
-        const purchasesObj = row.actions.find((a: any) => a.action_type === 'purchase' || a.action_type === 'omni_purchase');
-        if (purchasesObj) purchases = parseInt(purchasesObj.value);
+        purchases = getFallbackValue(row.actions, ['omni_purchase', 'purchase', 'offsite_conversion.fb_pixel_purchase', 'offline_conversion.purchase']);
 
         const msgObj = row.actions.find((a: any) => a.action_type === 'onsite_conversion.messaging_conversation_started_7d');
         if (msgObj) messages = parseInt(msgObj.value);
@@ -394,13 +401,13 @@ export async function runMetaSync(
         const netOrdersObj = row.actions.find((a: any) => a.action_type === 'offsite_conversion.custom.2105075753380751');
         if (netOrdersObj) netOrders = parseInt(netOrdersObj.value);
       }
+      
       let grossValue = 0;
       if (row.action_values) {
         const riskApprovedObj = row.action_values.find((a: any) => a.action_type === 'offsite_conversion.custom.2105075753380751');
         if (riskApprovedObj) riskApprovedValue = parseFloat(riskApprovedObj.value);
 
-        const grossObj = row.action_values.find((a: any) => a.action_type === 'omni_purchase');
-        if (grossObj) grossValue = parseFloat(grossObj.value);
+        grossValue = getFallbackValue(row.action_values, ['omni_purchase', 'purchase', 'offsite_conversion.fb_pixel_purchase', 'offline_conversion.purchase']);
       }
 
       const date = new Date(`${row.date_start}T00:00:00Z`);

@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 import { runMetaSync } from "@/lib/meta-sync";
 
+export const maxDuration = 300;
+
 export async function POST(req: Request) {
   const encoder = new TextEncoder();
   
