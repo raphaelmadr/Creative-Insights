@@ -90,7 +90,19 @@ Compile seus achados e gere para CADA insight a seguinte estrutura EXATA em form
 
 REGRA CRÍTICA: Responda ESTRITAMENTE EM TEXTO PURO (MARKDOWN). É ESTRITAMENTE PROIBIDO retornar JSON. Use títulos (##) e os emojis conforme o modelo acima.`;
 
-        if (!process.env.GEMINI_API_KEY && !process.env.ANTHROPIC_API_KEY) {
+        const hasAnyAiKey = !!(
+          settings?.geminiApiKey || 
+          settings?.anthropicApiKey || 
+          settings?.openaiApiKey || 
+          settings?.groqApiKey ||
+          settings?.openRouterApiKey ||
+          settings?.cohereApiKey ||
+          settings?.huggingFaceApiKey ||
+          process.env.GEMINI_API_KEY || 
+          process.env.ANTHROPIC_API_KEY
+        );
+
+        if (!hasAnyAiKey) {
           sendStatus("Nenhuma IA configurada. Retornando do banco...");
           sendComplete(dbUpdates, 0);
           return;

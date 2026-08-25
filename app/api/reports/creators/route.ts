@@ -35,8 +35,8 @@ export async function GET(request: Request) {
           activeAdsCount: rep.activeAdsCount,
           cpa: rep.netOrders > 0 ? rep.spend / rep.netOrders : 0,
           roas: rep.roas,
-          monthlyGoal: rep.creator.monthlyGoal || 50000,
-          monthlyVolumeGoal: rep.creator.monthlyVolumeGoal || 30,
+          monthlyGoal: rep.creator.monthlyGoal ?? 50000,
+          monthlyVolumeGoal: rep.creator.monthlyVolumeGoal ?? 30,
           isSaved: true
         })).sort((a: any, b: any) => b.riskApprovedValue - a.riskApprovedValue);
         
@@ -94,8 +94,8 @@ export async function GET(request: Request) {
         creatorId: creator.id,
         name: creator.name,
         acronym: creator.acronym,
-        monthlyGoal: creator.monthlyGoal || 50000,
-        monthlyVolumeGoal: creator.monthlyVolumeGoal || 30,
+        monthlyGoal: creator.monthlyGoal ?? 50000,
+        monthlyVolumeGoal: creator.monthlyVolumeGoal ?? 30,
         spend: 0,
         purchases: 0,
         grossValue: 0,

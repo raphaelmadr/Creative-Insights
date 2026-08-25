@@ -52,7 +52,7 @@ model Delivery {
   creatorId String
   pieces    Int
   date      DateTime
-  text      String?  // A mensagem original do Slack
+  text      String?  @db.Text // A mensagem original do Slack
   createdAt DateTime @default(now())
   
   creator   Creator  @relation(fields: [creatorId], references: [id], onDelete: Cascade)

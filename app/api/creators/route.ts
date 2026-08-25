@@ -28,13 +28,16 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "Nome e sigla são obrigatórios" }, { status: 400 });
     }
 
+    const parsedMonthlyGoal = (monthlyGoal === "" || monthlyGoal === undefined || monthlyGoal === null) ? 0 : parseFloat(monthlyGoal);
+    const parsedVolumeGoal = (monthlyVolumeGoal === "" || monthlyVolumeGoal === undefined || monthlyVolumeGoal === null) ? 0 : parseInt(monthlyVolumeGoal, 10);
+
     const creator = await prisma.creator.create({
       data: {
         name,
         acronym: acronym.toUpperCase(),
         active: active !== undefined ? active : true,
-        monthlyGoal: monthlyGoal ? parseFloat(monthlyGoal) : 50000,
-        monthlyVolumeGoal: monthlyVolumeGoal ? parseInt(monthlyVolumeGoal, 10) : 30
+        monthlyGoal: isNaN(parsedMonthlyGoal) ? 0 : parsedMonthlyGoal,
+        monthlyVolumeGoal: isNaN(parsedVolumeGoal) ? 0 : parsedVolumeGoal
       }
     });
 
@@ -69,8 +72,16 @@ export async function PUT(request: Request) {
     }
     
     if (active !== undefined) updateData.active = active;
-    if (monthlyGoal !== undefined) updateData.monthlyGoal = parseFloat(monthlyGoal);
-    if (monthlyVolumeGoal !== undefined) updateData.monthlyVolumeGoal = parseInt(monthlyVolumeGoal, 10);
+    
+    if (monthlyGoal !== undefined) {
+      const parsed = parseFloat(monthlyGoal);
+      updateData.monthlyGoal = isNaN(parsed) ? 0 : parsed;
+    }
+    
+    if (monthlyVolumeGoal !== undefined) {
+      const parsed = parseInt(monthlyVolumeGoal, 10);
+      updateData.monthlyVolumeGoal = isNaN(parsed) ? 0 : parsed;
+    }
 
     const creator = await prisma.creator.update({
       where: { id },

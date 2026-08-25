@@ -233,7 +233,7 @@ export default function SettingsModal({ isOpen, onClose, onSave }: { isOpen: boo
                   borderBottom: activeTab === "metas" ? "2px solid var(--foreground)" : "2px solid transparent",
                   paddingBottom: "0.5rem", marginBottom: "-0.5rem"
                 }}>
-                Metas de Performance
+                Metas & Equipe
               </button>
               <button 
                 type="button" 
@@ -259,18 +259,7 @@ export default function SettingsModal({ isOpen, onClose, onSave }: { isOpen: boo
                 }}>
                 Integrações (API)
               </button>
-              <button 
-                type="button" 
-                onClick={() => setActiveTab("equipe")}
-                style={{ 
-                  background: "none", border: "none", cursor: "pointer", 
-                  fontWeight: activeTab === "equipe" ? 600 : 400,
-                  color: activeTab === "equipe" ? "var(--foreground)" : "var(--foreground-muted)",
-                  borderBottom: activeTab === "equipe" ? "2px solid var(--foreground)" : "2px solid transparent",
-                  paddingBottom: "0.5rem", marginBottom: "-0.5rem"
-                }}>
-                Equipe
-              </button>
+
             </div>
 
             {activeTab === "sistema" && (
@@ -373,6 +362,113 @@ export default function SettingsModal({ isOpen, onClose, onSave }: { isOpen: boo
                     </label>
                   </div>
                 </div>
+
+                <div style={{ background: "var(--background-main)", borderRadius: "12px", border: "1px solid var(--card-border)", padding: "1.5rem" }}>
+                  <h3 style={{ fontSize: "1rem", fontWeight: 600, color: "var(--foreground)", margin: "0 0 1rem 0" }}>Metas de Produção Criativa</h3>
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr", gap: "1rem" }}>
+                    <label style={{ display: "flex", flexDirection: "column", gap: "0.5rem" }}>
+                      <span style={{ fontWeight: 600, fontSize: "0.85rem" }}>Meta Global do Time (peças/mês)</span>
+                      <input type="number" required value={settings.teamCreativeGoal} onChange={e => setSettings({...settings, teamCreativeGoal: Number(e.target.value)})} style={{ padding: "0.6rem", borderRadius: "6px", border: "1px solid var(--card-border)", background: "var(--background-main)", color: "var(--foreground)" }} />
+                    </label>
+                  </div>
+                </div>
+
+                <div style={{ background: "var(--background-main)", borderRadius: "12px", border: "1px solid var(--card-border)", padding: "1.5rem", display: "flex", flexDirection: "column", gap: "1.5rem" }}>
+                  <h3 style={{ fontSize: "1rem", fontWeight: 600, color: "var(--foreground)", margin: 0 }}>
+                    Criadores (Designers / Videomakers)
+                  </h3>
+                  <p style={{ opacity: 0.7, fontSize: "0.85rem", marginTop: "-1rem" }}>
+                    Cadastre os membros da equipe e suas respectivas siglas usadas nos nomes dos arquivos (ex: RM, PP) para acompanhar a receita e performance individual.
+                  </p>
+
+                  <div style={{ background: "rgba(0,0,0,0.02)", border: "1px solid var(--card-border)", borderRadius: "12px", padding: "1.5rem", marginBottom: "2rem" }}>
+                    <h3 style={{ fontSize: "1rem", fontWeight: 700, margin: "0 0 1rem 0" }}>
+                      {editingCreatorId ? "Editar Membro da Equipe" : "Adicionar Novo Membro"}
+                    </h3>
+                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "1rem" }}>
+                      <label style={{ display: "flex", flexDirection: "column", gap: "0.5rem", gridColumn: "span 2" }}>
+                        <span style={{ fontWeight: 600, fontSize: "0.85rem" }}>Nome do Criador</span>
+                        <input type="text" value={newCreator.name} onChange={e => setNewCreator({...newCreator, name: e.target.value})} placeholder="Ex: Raphael Madureira" style={{ padding: "0.8rem", borderRadius: "8px", border: "1px solid var(--card-border)", background: "var(--card-bg)", color: "var(--foreground)", outline: "none", transition: "border 0.2s" }} onFocus={e => e.target.style.borderColor = "var(--primary)"} onBlur={e => e.target.style.borderColor = "var(--card-border)"} />
+                      </label>
+                      <label style={{ display: "flex", flexDirection: "column", gap: "0.5rem", gridColumn: "span 2" }}>
+                        <span style={{ fontWeight: 600, fontSize: "0.85rem" }}>Siglas (Até 3, separadas por vírgula)</span>
+                        <input type="text" value={newCreator.acronym} onChange={e => setNewCreator({...newCreator, acronym: e.target.value.toUpperCase()})} placeholder="Ex: RM, RAPHAELMADUREIRA, raphael" style={{ padding: "0.8rem", borderRadius: "8px", border: "1px solid var(--card-border)", background: "var(--card-bg)", color: "var(--foreground)", textTransform: "uppercase", outline: "none", transition: "border 0.2s" }} onFocus={e => e.target.style.borderColor = "var(--primary)"} onBlur={e => e.target.style.borderColor = "var(--card-border)"} />
+                      </label>
+                      <label style={{ display: "flex", flexDirection: "column", gap: "0.5rem" }}>
+                        <span style={{ fontWeight: 600, fontSize: "0.85rem" }}>Meta Mensal (R$)</span>
+                        <input type="number" value={newCreator.monthlyGoal} onChange={e => setNewCreator({...newCreator, monthlyGoal: e.target.value})} placeholder="50000" style={{ padding: "0.8rem", borderRadius: "8px", border: "1px solid var(--card-border)", background: "var(--card-bg)", color: "var(--foreground)", outline: "none", transition: "border 0.2s" }} onFocus={e => e.target.style.borderColor = "var(--primary)"} onBlur={e => e.target.style.borderColor = "var(--card-border)"} />
+                      </label>
+                      <label style={{ display: "flex", flexDirection: "column", gap: "0.5rem" }}>
+                        <span style={{ fontWeight: 600, fontSize: "0.85rem" }}>Meta de Volumetria (peças)</span>
+                        <input type="number" value={newCreator.monthlyVolumeGoal} onChange={e => setNewCreator({...newCreator, monthlyVolumeGoal: e.target.value})} placeholder="30" style={{ padding: "0.8rem", borderRadius: "8px", border: "1px solid var(--card-border)", background: "var(--card-bg)", color: "var(--foreground)", outline: "none", transition: "border 0.2s" }} onFocus={e => e.target.style.borderColor = "var(--primary)"} onBlur={e => e.target.style.borderColor = "var(--card-border)"} />
+                      </label>
+                    </div>
+                    
+                    <div style={{ display: "flex", gap: "1rem", marginTop: "1.5rem" }}>
+                      <button type="button" onClick={handleSaveCreator} style={{ flex: 1, padding: "0.9rem", borderRadius: "8px", background: "var(--primary)", color: "#fff", border: "none", cursor: "pointer", fontWeight: 700, transition: "background 0.2s" }} onMouseOver={e => e.currentTarget.style.background = "var(--primary-hover)"} onMouseOut={e => e.currentTarget.style.background = "var(--primary)"}>
+                        {editingCreatorId ? "Salvar Alterações" : "Adicionar Membro à Equipe"}
+                      </button>
+                      
+                      {editingCreatorId && (
+                        <button type="button" onClick={cancelEditCreator} style={{ padding: "0.9rem 1.5rem", borderRadius: "8px", background: "rgba(0,0,0,0.05)", color: "var(--foreground)", border: "1px solid var(--card-border)", cursor: "pointer", fontWeight: 700, transition: "background 0.2s" }} onMouseOver={e => e.currentTarget.style.background = "rgba(0,0,0,0.1)"} onMouseOut={e => e.currentTarget.style.background = "rgba(0,0,0,0.05)"}>
+                          Cancelar
+                        </button>
+                      )}
+                    </div>
+                  </div>
+
+                  {creators.length > 0 && (
+                    <div>
+                      <h3 style={{ fontSize: "1rem", fontWeight: 700, margin: "0 0 1rem 0" }}>Membros da Equipe ({creators.length})</h3>
+                      <div style={{ display: "flex", flexDirection: "column", gap: "0.75rem" }}>
+                        {creators.map(creator => (
+                          <div key={creator.id} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "1.2rem", borderRadius: "12px", border: "1px solid var(--card-border)", background: "var(--card-bg)", boxShadow: "0 2px 4px rgba(0,0,0,0.02)" }}>
+                            <div style={{ display: "flex", alignItems: "center", gap: "1.2rem" }}>
+                              <div style={{ width: "42px", height: "42px", borderRadius: "50%", background: "var(--primary)", color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontWeight: "bold", fontSize: "1.1rem" }}>
+                                {creator.name.substring(0, 2).toUpperCase()}
+                              </div>
+                              <div style={{ display: "flex", flexDirection: "column", gap: "0.2rem" }}>
+                                <div style={{ fontWeight: 700, fontSize: "1.05rem" }}>{creator.name}</div>
+                                <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", fontSize: "0.8rem", opacity: 0.7 }}>
+                                  <span style={{ background: "rgba(0,0,0,0.06)", padding: "0.1rem 0.4rem", borderRadius: "4px", fontWeight: 600 }}>{creator.acronym}</span>
+                                  <span>•</span>
+                                  <span>R$ {parseFloat(creator.monthlyGoal || "0").toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                                  <span>•</span>
+                                  <span>{creator.monthlyVolumeGoal || 30} peças</span>
+                                </div>
+                              </div>
+                            </div>
+                            <div style={{ display: "flex", gap: "0.5rem" }}>
+                              <button
+                                type="button"
+                                title="Editar Membro"
+                                onClick={() => handleEditCreator(creator)}
+                                style={{ padding: "0.5rem 1rem", borderRadius: "6px", background: "rgba(0, 0, 0, 0.05)", color: "var(--foreground)", border: "1px solid var(--card-border)", cursor: "pointer", fontSize: "0.85rem", fontWeight: 600, transition: "all 0.2s" }}
+                                onMouseOver={e => { e.currentTarget.style.background = "rgba(0, 0, 0, 0.1)"; }}
+                                onMouseOut={e => { e.currentTarget.style.background = "rgba(0, 0, 0, 0.05)"; }}
+                              >
+                                Editar
+                              </button>
+                              {!creator.acronym.includes("UNKNOWN") && (
+                                <button
+                                  type="button"
+                                  title="Remover Membro"
+                                  onClick={() => handleDeleteCreator(creator.id)}
+                                  style={{ padding: "0.5rem 1rem", borderRadius: "6px", background: "rgba(239, 68, 68, 0.1)", color: "#ef4444", border: "1px solid rgba(239, 68, 68, 0.2)", cursor: "pointer", fontSize: "0.85rem", fontWeight: 600, transition: "all 0.2s" }}
+                                  onMouseOver={e => { e.currentTarget.style.background = "#ef4444"; e.currentTarget.style.color = "#fff"; }}
+                                  onMouseOut={e => { e.currentTarget.style.background = "rgba(239, 68, 68, 0.1)"; e.currentTarget.style.color = "#ef4444"; }}
+                                >
+                                  Remover
+                                </button>
+                              )}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+
               </>
             )}
 
@@ -568,116 +664,6 @@ export default function SettingsModal({ isOpen, onClose, onSave }: { isOpen: boo
               </div>
             )}
 
-            {activeTab === "equipe" && (
-              <div style={{ display: "flex", flexDirection: "column", gap: "1.5rem" }}>
-                
-                <div style={{ background: "var(--background-main)", borderRadius: "12px", border: "1px solid var(--card-border)", padding: "1.5rem" }}>
-                  <h3 style={{ fontSize: "1rem", fontWeight: 600, color: "var(--foreground)", margin: "0 0 1rem 0" }}>Metas de Produção Criativa</h3>
-                  <div style={{ display: "grid", gridTemplateColumns: "1fr", gap: "1rem" }}>
-                    <label style={{ display: "flex", flexDirection: "column", gap: "0.5rem" }}>
-                      <span style={{ fontWeight: 600, fontSize: "0.85rem" }}>Meta Global do Time (peças/mês)</span>
-                      <input type="number" required value={settings.teamCreativeGoal} onChange={e => setSettings({...settings, teamCreativeGoal: Number(e.target.value)})} style={{ padding: "0.6rem", borderRadius: "6px", border: "1px solid var(--card-border)", background: "var(--background-main)", color: "var(--foreground)" }} />
-                    </label>
-                  </div>
-                </div>
-
-                <div style={{ background: "var(--background-main)", borderRadius: "12px", border: "1px solid var(--card-border)", padding: "1.5rem", display: "flex", flexDirection: "column", gap: "1.5rem" }}>
-                  <h3 style={{ fontSize: "1rem", fontWeight: 600, color: "var(--foreground)", margin: 0 }}>
-                    Criadores (Designers / Videomakers)
-                  </h3>
-                  <p style={{ opacity: 0.7, fontSize: "0.85rem", marginTop: "-1rem" }}>
-                    Cadastre os membros da equipe e suas respectivas siglas usadas nos nomes dos arquivos (ex: RM, PP) para acompanhar a receita e performance individual.
-                  </p>
-
-                  <div style={{ background: "rgba(0,0,0,0.02)", border: "1px solid var(--card-border)", borderRadius: "12px", padding: "1.5rem", marginBottom: "2rem" }}>
-                    <h3 style={{ fontSize: "1rem", fontWeight: 700, margin: "0 0 1rem 0" }}>
-                      {editingCreatorId ? "Editar Membro da Equipe" : "Adicionar Novo Membro"}
-                    </h3>
-                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "1rem" }}>
-                      <label style={{ display: "flex", flexDirection: "column", gap: "0.5rem", gridColumn: "span 2" }}>
-                        <span style={{ fontWeight: 600, fontSize: "0.85rem" }}>Nome do Criador</span>
-                        <input type="text" value={newCreator.name} onChange={e => setNewCreator({...newCreator, name: e.target.value})} placeholder="Ex: Raphael Madureira" style={{ padding: "0.8rem", borderRadius: "8px", border: "1px solid var(--card-border)", background: "var(--card-bg)", color: "var(--foreground)", outline: "none", transition: "border 0.2s" }} onFocus={e => e.target.style.borderColor = "var(--primary)"} onBlur={e => e.target.style.borderColor = "var(--card-border)"} />
-                      </label>
-                      <label style={{ display: "flex", flexDirection: "column", gap: "0.5rem", gridColumn: "span 2" }}>
-                        <span style={{ fontWeight: 600, fontSize: "0.85rem" }}>Siglas (Até 3, separadas por vírgula)</span>
-                        <input type="text" value={newCreator.acronym} onChange={e => setNewCreator({...newCreator, acronym: e.target.value.toUpperCase()})} placeholder="Ex: RM, RAPHAELMADUREIRA, raphael" style={{ padding: "0.8rem", borderRadius: "8px", border: "1px solid var(--card-border)", background: "var(--card-bg)", color: "var(--foreground)", textTransform: "uppercase", outline: "none", transition: "border 0.2s" }} onFocus={e => e.target.style.borderColor = "var(--primary)"} onBlur={e => e.target.style.borderColor = "var(--card-border)"} />
-                      </label>
-                      <label style={{ display: "flex", flexDirection: "column", gap: "0.5rem" }}>
-                        <span style={{ fontWeight: 600, fontSize: "0.85rem" }}>Meta Mensal (R$)</span>
-                        <input type="number" value={newCreator.monthlyGoal} onChange={e => setNewCreator({...newCreator, monthlyGoal: e.target.value})} placeholder="50000" style={{ padding: "0.8rem", borderRadius: "8px", border: "1px solid var(--card-border)", background: "var(--card-bg)", color: "var(--foreground)", outline: "none", transition: "border 0.2s" }} onFocus={e => e.target.style.borderColor = "var(--primary)"} onBlur={e => e.target.style.borderColor = "var(--card-border)"} />
-                      </label>
-                      <label style={{ display: "flex", flexDirection: "column", gap: "0.5rem" }}>
-                        <span style={{ fontWeight: 600, fontSize: "0.85rem" }}>Meta de Volumetria (peças)</span>
-                        <input type="number" value={newCreator.monthlyVolumeGoal} onChange={e => setNewCreator({...newCreator, monthlyVolumeGoal: e.target.value})} placeholder="30" style={{ padding: "0.8rem", borderRadius: "8px", border: "1px solid var(--card-border)", background: "var(--card-bg)", color: "var(--foreground)", outline: "none", transition: "border 0.2s" }} onFocus={e => e.target.style.borderColor = "var(--primary)"} onBlur={e => e.target.style.borderColor = "var(--card-border)"} />
-                      </label>
-                    </div>
-                    
-                    <div style={{ display: "flex", gap: "1rem", marginTop: "1.5rem" }}>
-                      <button type="button" onClick={handleSaveCreator} style={{ flex: 1, padding: "0.9rem", borderRadius: "8px", background: "var(--primary)", color: "#fff", border: "none", cursor: "pointer", fontWeight: 700, transition: "background 0.2s" }} onMouseOver={e => e.currentTarget.style.background = "var(--primary-hover)"} onMouseOut={e => e.currentTarget.style.background = "var(--primary)"}>
-                        {editingCreatorId ? "Salvar Alterações" : "Adicionar Membro à Equipe"}
-                      </button>
-                      
-                      {editingCreatorId && (
-                        <button type="button" onClick={cancelEditCreator} style={{ padding: "0.9rem 1.5rem", borderRadius: "8px", background: "rgba(0,0,0,0.05)", color: "var(--foreground)", border: "1px solid var(--card-border)", cursor: "pointer", fontWeight: 700, transition: "background 0.2s" }} onMouseOver={e => e.currentTarget.style.background = "rgba(0,0,0,0.1)"} onMouseOut={e => e.currentTarget.style.background = "rgba(0,0,0,0.05)"}>
-                          Cancelar
-                        </button>
-                      )}
-                    </div>
-                  </div>
-
-                  {creators.length > 0 && (
-                    <div>
-                      <h3 style={{ fontSize: "1rem", fontWeight: 700, margin: "0 0 1rem 0" }}>Membros da Equipe ({creators.length})</h3>
-                      <div style={{ display: "flex", flexDirection: "column", gap: "0.75rem" }}>
-                        {creators.map(creator => (
-                          <div key={creator.id} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "1.2rem", borderRadius: "12px", border: "1px solid var(--card-border)", background: "var(--card-bg)", boxShadow: "0 2px 4px rgba(0,0,0,0.02)" }}>
-                            <div style={{ display: "flex", alignItems: "center", gap: "1.2rem" }}>
-                              <div style={{ width: "42px", height: "42px", borderRadius: "50%", background: "var(--primary)", color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontWeight: "bold", fontSize: "1.1rem" }}>
-                                {creator.name.substring(0, 2).toUpperCase()}
-                              </div>
-                              <div style={{ display: "flex", flexDirection: "column", gap: "0.2rem" }}>
-                                <div style={{ fontWeight: 700, fontSize: "1.05rem" }}>{creator.name}</div>
-                                <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", fontSize: "0.8rem", opacity: 0.7 }}>
-                                  <span style={{ background: "rgba(0,0,0,0.06)", padding: "0.1rem 0.4rem", borderRadius: "4px", fontWeight: 600 }}>{creator.acronym}</span>
-                                  <span>•</span>
-                                  <span>R$ {parseFloat(creator.monthlyGoal || "0").toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
-                                  <span>•</span>
-                                  <span>{creator.monthlyVolumeGoal || 30} peças</span>
-                                </div>
-                              </div>
-                            </div>
-                            <div style={{ display: "flex", gap: "0.5rem" }}>
-                              <button
-                                type="button"
-                                title="Editar Membro"
-                                onClick={() => handleEditCreator(creator)}
-                                style={{ padding: "0.5rem 1rem", borderRadius: "6px", background: "rgba(0, 0, 0, 0.05)", color: "var(--foreground)", border: "1px solid var(--card-border)", cursor: "pointer", fontSize: "0.85rem", fontWeight: 600, transition: "all 0.2s" }}
-                                onMouseOver={e => { e.currentTarget.style.background = "rgba(0, 0, 0, 0.1)"; }}
-                                onMouseOut={e => { e.currentTarget.style.background = "rgba(0, 0, 0, 0.05)"; }}
-                              >
-                                Editar
-                              </button>
-                              {!creator.acronym.includes("UNKNOWN") && (
-                                <button
-                                  type="button"
-                                  title="Remover Membro"
-                                  onClick={() => handleDeleteCreator(creator.id)}
-                                  style={{ padding: "0.5rem 1rem", borderRadius: "6px", background: "rgba(239, 68, 68, 0.1)", color: "#ef4444", border: "1px solid rgba(239, 68, 68, 0.2)", cursor: "pointer", fontSize: "0.85rem", fontWeight: 600, transition: "all 0.2s" }}
-                                  onMouseOver={e => { e.currentTarget.style.background = "#ef4444"; e.currentTarget.style.color = "#fff"; }}
-                                  onMouseOut={e => { e.currentTarget.style.background = "rgba(239, 68, 68, 0.1)"; e.currentTarget.style.color = "#ef4444"; }}
-                                >
-                                  Remover
-                                </button>
-                              )}
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-                </div>
-              </div>
-            )}
 
             <button type="submit" disabled={loading} style={{
               marginTop: "1rem", padding: "0.8rem", borderRadius: "8px", border: "none",

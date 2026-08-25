@@ -23,10 +23,10 @@
 
 [data-theme='dark'] {
   --background-main: #0A0A0C;
-  --topbar-bg: rgba(10, 10, 12, 0.8);
+  --topbar-bg: #0A0A0C;
   --foreground: #FFFFFF;
   
-  --card-bg: rgba(255, 255, 255, 0.04);
+  --card-bg: #141416;
   --card-border: rgba(255, 255, 255, 0.12);
   --card-shadow: 0 4px 16px rgba(0, 0, 0, 0.2);
 }

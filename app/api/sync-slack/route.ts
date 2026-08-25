@@ -72,6 +72,8 @@ export async function POST(req: Request) {
     // Filtra mensagens que não têm texto relevante ou bot messages sem contexto
     const validMessages = allMessages.filter((m: any) => m.type === "message" && m.text && !m.subtype);
 
+    console.log("Slack deep sync:", { fullMonth, targetMonth, targetYear, oldest, latest, allMessages: allMessages.length, validMessages: validMessages.length });
+
     if (validMessages.length === 0) {
       return NextResponse.json({ success: true, message: "Nenhuma nova mensagem de entrega encontrada.", newDeliveries: 0 });
     }
