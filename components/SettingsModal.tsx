@@ -313,10 +313,10 @@ export default function SettingsModal({ isOpen, onClose, onSave }: { isOpen: boo
                           style={{ padding: "0.8rem", borderRadius: "8px", border: "1px solid var(--card-border)", background: "var(--card-bg)", color: "var(--foreground)", outline: "none", fontSize: "0.85rem" }}
                         >
                           <option value="metrics">Rápida (Apenas Metricas, Instantâneo)</option>
-                          <option value="full">Profunda (Métricas + Mídias + Histórico de 6 meses)</option>
+                          <option value="full">Profunda (Métricas + Mídias do Mês Atual)</option>
                         </select>
                         <span style={{ fontSize: "0.75rem", color: "var(--muted)", opacity: 0.7, marginTop: "0.25rem" }}>
-                          O modo rápido poupa créditos da API e é bem mais veloz, processando apenas o mês atual. O modo profundo garante máxima fidelidade do histórico, mas consome mais cota da API.
+                          Ambos os modos focam 100% apenas nos dados do mês atual. O modo profundo baixa vídeos e imagens em alta qualidade para montar o portfólio visual, consumindo mais cota da API.
                         </span>
                       </label>
                     </div>

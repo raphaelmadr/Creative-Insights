@@ -234,13 +234,12 @@ export async function runMetaSync(
   let syncedAds = 0;
   let syncedMetrics = 0;
 
-  const creativeUpdates = [];
   const UPLOAD_BATCH_SIZE = 10;
   
   for (let i = 0; i < adIds.length; i += UPLOAD_BATCH_SIZE) {
     const batch = adIds.slice(i, i + UPLOAD_BATCH_SIZE);
-    const perc = 50 + Math.floor((i / adIds.length) * 20);
-    if (onProgress) onProgress(mode === "full" ? `Analisando mídias (${i}/${adIds.length})...` : `Organizando dados de anúncios...`, perc);
+    const perc = 50 + Math.floor((i / adIds.length) * 45); // vai até ~95%
+    if (onProgress) onProgress(mode === "full" ? `Analisando e salvando mídias (${i}/${adIds.length})...` : `Organizando e salvando dados de anúncios...`, perc);
     
     const batchPromises = batch.map(async (adId) => {
       const rows = rowsByAdId[adId];
@@ -299,7 +298,6 @@ export async function runMetaSync(
       if (firstRow.ad_name) {
         const adNameLower = firstRow.ad_name.toLowerCase();
         for (const ac of validAcronyms) {
-          // Busca a sigla isolada por qualquer caractere que não seja letra/número, ou no início/fim
           const regex = new RegExp(`(^|[^a-zA-Z0-9])(${ac})([^a-zA-Z0-9]|$)`, "i");
           if (regex.test(adNameLower)) {
             designer = ac.toUpperCase();
@@ -318,7 +316,6 @@ export async function runMetaSync(
         if (targeting.publisher_platforms && targeting.publisher_platforms.length > 0) {
           publisherPlatforms = targeting.publisher_platforms.join(",");
         } else {
-          // Se publisher_platforms não estiver presente, é "Posicionamento Advantage+" (Automático), que abrange todos os canais
           publisherPlatforms = "facebook,instagram,messenger,audience_network";
         }
       }
@@ -327,113 +324,102 @@ export async function runMetaSync(
     });
     
     const results = await Promise.all(batchPromises);
-    creativeUpdates.push(...results);
-  }
-
-  if (onProgress) onProgress(`Preparando dados para o banco...`, 75);
-  const creativeOps: any[] = [];
-  const metricsOps: any[] = [];
-
-  for (const data of creativeUpdates) {
-    const { adId, designer, imageUrl, thumbnailUrl, videoUrl, mediaType, publisherPlatforms, needsCreativeRefresh, adName, adsetName, campaignName, status, createdTime } = data;
     
-    creativeOps.push(prisma.adCreative.upsert({
-      where: { id: adId },
-      update: {
-        adName: adName || "Sem nome",
-        adsetName: adsetName || "Desconhecido",
-        campaignName: campaignName || "Desconhecido",
-        designer,
-        ...(needsCreativeRefresh && (imageUrl || videoUrl) ? { imageUrl, thumbnailUrl, videoUrl, mediaType } : {}),
-        publisherPlatforms,
-        status,
-        createdTime
-      },
-      create: {
-        id: adId,
-        adName: adName || "Sem nome",
-        adsetName: adsetName || "Desconhecido",
-        campaignName: campaignName || "Desconhecido",
-        designer,
-        imageUrl,
-        thumbnailUrl,
-        videoUrl,
-        mediaType,
-        publisherPlatforms,
-        status,
-        createdTime
-      }
-    }));
-    syncedAds++;
-
-    const rows = rowsByAdId[adId];
-    for (const row of rows) {
-      if (!row.date_start) continue;
-      const spend = parseFloat(row.spend || "0");
-      const cpm = parseFloat(row.cpm || "0");
-      const ctr = parseFloat(row.ctr || "0");
-      const cpc = parseFloat(row.cpc || "0");
-      const impressions = parseInt(row.impressions || "0");
-      const clicks = parseInt(row.clicks || "0");
-
-      let purchaseRoas = 0;
-      if (row.purchase_roas && row.purchase_roas.length > 0) {
-        const roasData = row.purchase_roas.find((r: any) => r.action_type === 'omni_purchase');
-        if (roasData) purchaseRoas = parseFloat(roasData.value);
-      }
-
-      let purchases = 0; let messages = 0; let netOrders = 0; let riskApprovedValue = 0;
+    const creativeDbOps = [];
+    const metricsDbOps = [];
+    
+    for (const data of results) {
+      const { adId, designer, imageUrl, thumbnailUrl, videoUrl, mediaType, publisherPlatforms, needsCreativeRefresh, adName, adsetName, campaignName, status, createdTime } = data;
       
-      const getFallbackValue = (arr: any[], types: string[]) => {
-        for (const t of types) {
-          const obj = arr.find((a: any) => a.action_type === t);
-          if (obj) return parseFloat(obj.value);
+      creativeDbOps.push(prisma.adCreative.upsert({
+        where: { id: adId },
+        update: {
+          adName: adName || "Sem nome",
+          adsetName: adsetName || "Desconhecido",
+          campaignName: campaignName || "Desconhecido",
+          designer,
+          ...(needsCreativeRefresh && (imageUrl || videoUrl) ? { imageUrl, thumbnailUrl, videoUrl, mediaType } : {}),
+          publisherPlatforms,
+          status,
+          createdTime
+        },
+        create: {
+          id: adId,
+          adName: adName || "Sem nome",
+          adsetName: adsetName || "Desconhecido",
+          campaignName: campaignName || "Desconhecido",
+          designer,
+          imageUrl,
+          thumbnailUrl,
+          videoUrl,
+          mediaType,
+          publisherPlatforms,
+          status,
+          createdTime
         }
-        return 0;
-      };
-
-      if (row.actions) {
-        purchases = getFallbackValue(row.actions, ['omni_purchase', 'purchase', 'offsite_conversion.fb_pixel_purchase', 'offline_conversion.purchase']);
-
-        const msgObj = row.actions.find((a: any) => a.action_type === 'onsite_conversion.messaging_conversation_started_7d');
-        if (msgObj) messages = parseInt(msgObj.value);
-
-        const netOrdersObj = row.actions.find((a: any) => a.action_type === 'offsite_conversion.custom.2105075753380751');
-        if (netOrdersObj) netOrders = parseInt(netOrdersObj.value);
-      }
-      
-      let grossValue = 0;
-      if (row.action_values) {
-        const riskApprovedObj = row.action_values.find((a: any) => a.action_type === 'offsite_conversion.custom.2105075753380751');
-        if (riskApprovedObj) riskApprovedValue = parseFloat(riskApprovedObj.value);
-
-        grossValue = getFallbackValue(row.action_values, ['omni_purchase', 'purchase', 'offsite_conversion.fb_pixel_purchase', 'offline_conversion.purchase']);
-      }
-
-      const date = new Date(`${row.date_start}T00:00:00Z`);
-
-      metricsOps.push(prisma.adDailyMetrics.upsert({
-        where: { adCreativeId_date: { adCreativeId: adId, date: date } },
-        update: { spend, roas: purchaseRoas, cpm, ctr, cpc, impressions, clicks, purchases, netOrders, riskApprovedValue, grossValue, messages },
-        create: { adCreativeId: adId, date: date, spend, roas: purchaseRoas, cpm, ctr, cpc, impressions, clicks, purchases, netOrders, riskApprovedValue, grossValue, messages }
       }));
-      syncedMetrics++;
+      syncedAds++;
+
+      const rows = rowsByAdId[adId];
+      for (const row of rows) {
+        if (!row.date_start) continue;
+        const spend = parseFloat(row.spend || "0");
+        const cpm = parseFloat(row.cpm || "0");
+        const ctr = parseFloat(row.ctr || "0");
+        const cpc = parseFloat(row.cpc || "0");
+        const impressions = parseInt(row.impressions || "0");
+        const clicks = parseInt(row.clicks || "0");
+
+        let purchaseRoas = 0;
+        if (row.purchase_roas && row.purchase_roas.length > 0) {
+          const roasData = row.purchase_roas.find((r: any) => r.action_type === 'omni_purchase');
+          if (roasData) purchaseRoas = parseFloat(roasData.value);
+        }
+
+        let purchases = 0; let messages = 0; let netOrders = 0; let riskApprovedValue = 0;
+        
+        const getFallbackValue = (arr: any[], types: string[]) => {
+          for (const t of types) {
+            const obj = arr.find((a: any) => a.action_type === t);
+            if (obj) return parseFloat(obj.value);
+          }
+          return 0;
+        };
+
+        if (row.actions) {
+          purchases = getFallbackValue(row.actions, ['omni_purchase', 'purchase', 'offsite_conversion.fb_pixel_purchase', 'offline_conversion.purchase']);
+
+          const msgObj = row.actions.find((a: any) => a.action_type === 'onsite_conversion.messaging_conversation_started_7d');
+          if (msgObj) messages = parseInt(msgObj.value);
+
+          const netOrdersObj = row.actions.find((a: any) => a.action_type === 'offsite_conversion.custom.2105075753380751');
+          if (netOrdersObj) netOrders = parseInt(netOrdersObj.value);
+        }
+        
+        let grossValue = 0;
+        if (row.action_values) {
+          const riskApprovedObj = row.action_values.find((a: any) => a.action_type === 'offsite_conversion.custom.2105075753380751');
+          if (riskApprovedObj) riskApprovedValue = parseFloat(riskApprovedObj.value);
+
+          grossValue = getFallbackValue(row.action_values, ['omni_purchase', 'purchase', 'offsite_conversion.fb_pixel_purchase', 'offline_conversion.purchase']);
+        }
+
+        const date = new Date(`${row.date_start}T00:00:00Z`);
+
+        metricsDbOps.push(prisma.adDailyMetrics.upsert({
+          where: { adCreativeId_date: { adCreativeId: adId, date: date } },
+          update: { spend, roas: purchaseRoas, cpm, ctr, cpc, impressions, clicks, purchases, netOrders, riskApprovedValue, grossValue, messages },
+          create: { adCreativeId: adId, date: date, spend, roas: purchaseRoas, cpm, ctr, cpc, impressions, clicks, purchases, netOrders, riskApprovedValue, grossValue, messages }
+        }));
+        syncedMetrics++;
+      }
     }
-  }
-
-  const DB_BATCH_SIZE = 100;
-  for (let i = 0; i < creativeOps.length; i += DB_BATCH_SIZE) {
-    const batchOps = creativeOps.slice(i, i + DB_BATCH_SIZE);
-    const perc = 75 + Math.floor((i / (creativeOps.length + metricsOps.length)) * 25);
-    if (onProgress) onProgress(`Gravando Criativos (${i}/${creativeOps.length})...`, perc);
-    await Promise.all(batchOps);
-  }
-
-  for (let i = 0; i < metricsOps.length; i += DB_BATCH_SIZE) {
-    const batchOps = metricsOps.slice(i, i + DB_BATCH_SIZE);
-    const perc = 75 + Math.floor(((creativeOps.length + i) / (creativeOps.length + metricsOps.length)) * 25);
-    if (onProgress) onProgress(`Gravando Métricas (${i}/${metricsOps.length})...`, perc);
-    await Promise.all(batchOps);
+    
+    // Insere os anúncios PRIMEIRO, para evitar erro de Foreign Key
+    await Promise.all(creativeDbOps);
+    
+    // Depois insere as métricas associadas aos anúncios
+    await Promise.all(metricsDbOps);
   }
 
   const updateData: any = { lastSyncAt: new Date() };
