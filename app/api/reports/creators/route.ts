@@ -127,9 +127,7 @@ export async function GET(request: Request) {
       
       if (creative && creative.createdTime) {
         const createdDate = new Date(creative.createdTime);
-        const toleranceStart = new Date(startDate);
-        toleranceStart.setDate(toleranceStart.getDate() - 5); // 5 dias de tolerância
-        isCreatedInMonth = createdDate >= toleranceStart && createdDate <= endDate;
+        isCreatedInMonth = createdDate >= startDate && createdDate <= endDate;
       }
 
       // Contabilizar APENAS os anúncios que foram criados a partir do dia 01 do mês alvo

@@ -367,28 +367,8 @@ export default function NotificationProvider({ children }: { children: ReactNode
       }
       setSyncCounter(prev => prev + 1);
 
-      // 2. Busca o histórico (até 6 meses atrás) mostrando o progresso apenas no modo profundo
       if (mode === 'full') {
-        const today = new Date();
-        for (let i = 1; i <= 6; i++) {
-          // Calcula o mês e ano alvo
-          const targetDate = new Date(today.getFullYear(), today.getMonth() - i, 1);
-          const tMonth = targetDate.getMonth() + 1;
-          const tYear = targetDate.getFullYear();
-          
-          try {
-            await runSyncStream(`/api/sync-meta?mode=metrics&month=${tMonth}&year=${tYear}`, `${tMonth}/${tYear}`);
-            // Pequena pausa de 3s para evitar sobrecarregar a Meta (Rate Limit)
-            await new Promise(resolve => setTimeout(resolve, 3000));
-          } catch (err: any) {
-            console.error(`Erro ao sincronizar histórico (${tMonth}/${tYear}):`, err);
-            // Se for erro de limite, aborta o processo histórico completamente
-            if (err.message && err.message.toLowerCase().includes("limit reached")) {
-              throw new Error("Limite de requisições da Meta atingido. Os meses anteriores não puderam ser carregados.");
-            }
-          }
-        }
-        setToastMsg({ title: "✅ Histórico completamente sincronizado!", isNew: true });
+        setToastMsg({ title: "✅ Sincronização profunda do mês atual concluída!", isNew: true });
       } else {
         setToastMsg({ title: "✅ Sincronização rápida concluída!", isNew: true });
       }
