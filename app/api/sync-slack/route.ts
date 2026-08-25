@@ -82,6 +82,28 @@ export async function POST(req: Request) {
     // 3. Processamento Local (Regex)
     let savedCount = 0;
 
+    // Pré-compilar as Expressões Regulares para máxima performance
+    const creatorRegexes: { creator: any, regex: RegExp }[] = [];
+    for (const creator of creators) {
+      const acronyms = creator.acronym.split(',').map((a: string) => a.trim()).filter(Boolean);
+      for (const ac of acronyms) {
+        creatorRegexes.push({
+          creator,
+          regex: new RegExp(`(^|[^a-zA-Z0-9])(${ac})([^a-zA-Z0-9]|$)`, 'i')
+        });
+      }
+    }
+
+    let unknownCreator = creators.find(c => c.acronym.includes("UNKNOWN"));
+    if (!unknownCreator) {
+      unknownCreator = await prisma.creator.create({
+        data: { name: "Parcerias, influenciadores ou sem atribuição", acronym: "UNKNOWN" }
+      });
+      creators.push(unknownCreator);
+    }
+
+    const opsToRun = [];
+
     for (const msg of validMessages) {
       const text = msg.text || "";
       
@@ -92,52 +114,47 @@ export async function POST(req: Request) {
       const piecesCount = Number(piecesMatch[1]);
       if (piecesCount <= 0) continue;
 
-      // Identifica o autor baseado na lista de siglas cadastradas (até 3, separadas por vírgula)
       let matchedCreator = null;
-
-      for (const creator of creators) {
-        const acronyms = creator.acronym.split(',').map(a => a.trim()).filter(Boolean);
-        
-        for (const ac of acronyms) {
-          // Busca a sigla isolada por qualquer caractere que não seja letra/número (ex: _pt_, "ez", -RM-)
-          const regex = new RegExp(`(^|[^a-zA-Z0-9])(${ac})([^a-zA-Z0-9]|$)`, 'i');
-          if (regex.test(text)) {
-            matchedCreator = creator;
-            break;
-          }
+      for (const { creator, regex } of creatorRegexes) {
+        if (regex.test(text)) {
+          matchedCreator = creator;
+          break;
         }
-        if (matchedCreator) break;
       }
 
-      // Se não encontrou nenhuma sigla conhecida, atribui para "Time Interno"
       if (!matchedCreator) {
-        matchedCreator = creators.find(c => c.acronym.includes("UNKNOWN"));
-        
-        if (!matchedCreator) {
-          matchedCreator = await prisma.creator.create({
-            data: { name: "Parcerias, influenciadores ou sem atribuição", acronym: "UNKNOWN" }
-          });
-          creators.push(matchedCreator);
-        }
+        matchedCreator = unknownCreator;
       }
 
-      // Salva no banco
-      if (matchedCreator) {
+      opsToRun.push({
+        slackTs: msg.ts,
+        creatorId: matchedCreator.id,
+        piecesCount,
+        text
+      });
+    }
+
+    // Processamento das operações no banco de dados em Lotes (Chunks)
+    const CHUNK_SIZE = 20;
+    for (let i = 0; i < opsToRun.length; i += CHUNK_SIZE) {
+      const chunk = opsToRun.slice(i, i + CHUNK_SIZE);
+      
+      await Promise.all(chunk.map(async (op) => {
         try {
-          const existing = await prisma.delivery.findUnique({ where: { slackTs: msg.ts } });
+          const existing = await prisma.delivery.findUnique({ where: { slackTs: op.slackTs } });
           await prisma.delivery.upsert({
-            where: { slackTs: msg.ts },
+            where: { slackTs: op.slackTs },
             update: {
-              creatorId: matchedCreator.id,
-              pieces: piecesCount,
-              text: text
+              creatorId: op.creatorId,
+              pieces: op.piecesCount,
+              text: op.text
             },
             create: {
-              slackTs: msg.ts,
-              creatorId: matchedCreator.id,
-              pieces: piecesCount,
-              date: new Date(parseFloat(msg.ts) * 1000),
-              text: text
+              slackTs: op.slackTs,
+              creatorId: op.creatorId,
+              pieces: op.piecesCount,
+              date: new Date(parseFloat(op.slackTs) * 1000),
+              text: op.text
             }
           });
           
@@ -147,7 +164,7 @@ export async function POST(req: Request) {
         } catch (e) {
           console.error("Error upserting delivery", e);
         }
-      }
+      }));
     }
 
     if (savedCount === 0) {
