@@ -325,13 +325,13 @@ export async function runMetaSync(
     
     const results = await Promise.all(batchPromises);
     
-    const creativeDbOps = [];
-    const metricsDbOps = [];
+    const creativeDbOps: (() => Promise<any>)[] = [];
+    const metricsDbOps: (() => Promise<any>)[] = [];
     
     for (const data of results) {
       const { adId, designer, imageUrl, thumbnailUrl, videoUrl, mediaType, publisherPlatforms, needsCreativeRefresh, adName, adsetName, campaignName, status, createdTime } = data;
       
-      creativeDbOps.push(prisma.adCreative.upsert({
+      creativeDbOps.push(() => prisma.adCreative.upsert({
         where: { id: adId },
         update: {
           adName: adName || "Sem nome",
@@ -406,7 +406,7 @@ export async function runMetaSync(
 
         const date = new Date(`${row.date_start}T00:00:00Z`);
 
-        metricsDbOps.push(prisma.adDailyMetrics.upsert({
+        metricsDbOps.push(() => prisma.adDailyMetrics.upsert({
           where: { adCreativeId_date: { adCreativeId: adId, date: date } },
           update: { spend, roas: purchaseRoas, cpm, ctr, cpc, impressions, clicks, purchases, netOrders, riskApprovedValue, grossValue, messages },
           create: { adCreativeId: adId, date: date, spend, roas: purchaseRoas, cpm, ctr, cpc, impressions, clicks, purchases, netOrders, riskApprovedValue, grossValue, messages }
@@ -418,10 +418,10 @@ export async function runMetaSync(
     // Executa as operações em pequenos lotes (chunks) para não sobrecarregar o Connection Pool nem o Banco (evitando erro 503)
     const CHUNK_SIZE = 10;
     for (let j = 0; j < creativeDbOps.length; j += CHUNK_SIZE) {
-      await Promise.all(creativeDbOps.slice(j, j + CHUNK_SIZE));
+      await Promise.all(creativeDbOps.slice(j, j + CHUNK_SIZE).map(fn => fn()));
     }
     for (let j = 0; j < metricsDbOps.length; j += CHUNK_SIZE) {
-      await Promise.all(metricsDbOps.slice(j, j + CHUNK_SIZE));
+      await Promise.all(metricsDbOps.slice(j, j + CHUNK_SIZE).map(fn => fn()));
     }
   }
 
