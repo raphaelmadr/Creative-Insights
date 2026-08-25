@@ -1,4 +1,4 @@
-import { prisma } from './prisma';
+import prisma from './prisma';
 
 export async function logInfo(source: string, message: string, url?: string) {
   try {
