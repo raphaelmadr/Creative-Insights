@@ -228,3 +228,12 @@ As regras de negócio do Dashboard Criativo foram reconstruídas para suportar d
 ### 📅 25. Unificação dos DatePickers (Tailwind)
 * **Substituição de Componente (Date Range Picker):** A biblioteca `react-tailwindcss-datepicker` foi adotada para entregar a experiência definitiva de seleção de intervalo de datas (Date Range). Em vez de usar inputs separados para Data Inicial e Data Final, a plataforma agora conta com um único input elegante que expande em um calendário contínuo.
 * **Estilização Dinâmica:** O `CustomDateRangePicker.tsx` agora injeta classes e variáveis CSS nativas da plataforma por cima da biblioteca para garantir o aspecto *Glassmorphism* (fundo translúcido, bordas suaves e sombras premium). O Tailwind CSS (v4) foi adequadamente configurado no `globals.css` para ler os estilos do componente.
+
+### ⚡ 26. Motor de Cache (SWR) e Experiência "Zero Loading"
+* **Cache em Memória (SWR):** O sistema de buscas nativas de Frontend foi inteiramente substituído. Criado o hook `useCacheFetch` que implementa a estratégia Stale-While-Revalidate via `sessionStorage`. 
+* **Navegação Instantânea:** Ao transitar entre meses na página da Equipe ou alternar datas na área de Anúncios, se a data já foi visitada na sessão, a plataforma serve o dado da memória em *0 milissegundos*, eliminando totalmente o piscar da tela, e revalida silenciosamente o banco de dados em background.
+* **Skeleton Screens:** Foram criados componentes globais de `<Skeleton />` animado (com Framer Motion). O clássico ícone de Spinner (`Loader2`) foi extinto das páginas de Dashboard, Equipe e Similaridade, adotando os blocos estruturais provisórios de alta fidelidade visual para as primeiras visitas ou loads profundos.
+
+### ✨ 27. Animações e "Plataforma Viva"
+* **Transições em Cascata (Stagger):** A plataforma adotou a renderização condicional do Framer Motion (`<AnimatePresence>`). Cards de equipe, criativos e grupos de insights agora carregam com efeito cascata (Fade Up escalonado), proporcionando o peso e o refinamento esperado em plataformas premium (estilo Apple/Vercel).
+* **Números Dinâmicos (`AnimatedNumber`):** Implementado um componente isolado utilizando *Física de Molas (Springs)*. Ao invés dos números e métricas carregarem de forma chapada (estática), eles interpolam os valores rapidamente (ex: subindo de $0 até $1.5M em 1 segundo), trazendo vida ao relatório de performance visual.
