@@ -134,7 +134,7 @@ export default function NotificationProvider({ children }: { children: ReactNode
     
     async function fetchSettings() {
       try {
-        const response = await fetch("/api/settings");
+        const response = await fetch("/api/settings", { cache: "no-store" });
         const json = await response.json();
         if (isMounted && json.success && json.data) {
           if (json.data.lastSyncAt) setLastSyncAt(json.data.lastSyncAt);
