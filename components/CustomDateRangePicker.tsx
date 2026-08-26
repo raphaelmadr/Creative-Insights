@@ -62,7 +62,7 @@ export default function CustomDateRangePicker({ dateFrom, dateTo, maxDate, onCha
       `}</style>
       <Datepicker 
         primaryColor="emerald"
-        value={value} 
+        value={value as any}
         onChange={handleValueChange}
         displayFormat={"DD/MM/YYYY"}
         i18n={"pt-br"}

@@ -275,7 +275,7 @@ export default function CreativeView({ dateFrom, dateTo, statusFilter, onMetrics
   const statusParam = statusFilter || "ACTIVE";
   const url = `/api/db-ads?from=${dateFrom}&to=${dateTo}&status=${statusParam}`;
   const { data: fetchRes, loading, isRevalidating, mutate } = useCacheFetch<any>(url);
-  const data = fetchRes?.success ? fetchRes.data : null;
+  const data: {superWinners: any[], winners: any[], testes: Record<string, any[]>, settings?: any} | null = fetchRes?.success ? fetchRes.data : null;
 
   useEffect(() => {
     if (syncCounter > 0) mutate();
