@@ -4,6 +4,9 @@ import React, { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import { useNotifications } from "./NotificationProvider";
 import { Sparkles, Activity, Target, TrendingUp, Award, Image as ImageIcon, Loader2, ChevronDown, ChevronRight, Calendar, Copy, Check } from "lucide-react";
+import { motion, AnimatePresence } from "framer-motion";
+import { Avatar } from "@/components/Avatar";
+import { Skeleton } from "@/components/Skeleton";
 
 const FbIcon = ({ size = 12 }) => (
   <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -428,9 +431,28 @@ export default function CreativeView({ dateFrom, dateTo, statusFilter, onMetrics
   }, [baseSuperWinners, baseWinners, baseTestes, data, dateFrom, dateTo, onMetricsUpdate]);
 
   if (loading && !data) return (
-    <div style={{ display: "flex", alignItems: "center", gap: "1rem", opacity: 0.5, padding: "2rem" }}>
-      <Activity size={24} className="spin" style={{ animation: "spin 2s linear infinite" }} />
-      Carregando biblioteca de criativos do Meta Ads...
+    <div style={{ display: "flex", flexDirection: "column", gap: "2rem" }}>
+      <div className={styles.grid}>
+        {[1,2,3,4,5,6,7,8].map(i => (
+          <div key={i} className={`glass-panel ${styles.card}`}>
+            <Skeleton width="100%" style={{ aspectRatio: "1 / 1" }} borderRadius="8px" />
+            <div className={styles.info}>
+              <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: "1rem" }}>
+                <div style={{ flex: "1 1 120px", display: "flex", flexDirection: "column", gap: "0.4rem" }}>
+                  <Skeleton width="100%" height="16px" />
+                  <Skeleton width="60%" height="16px" />
+                </div>
+                <div style={{ flex: "2 1 200px", display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.4rem" }}>
+                  <Skeleton width="100%" height="40px" borderRadius="6px" />
+                  <Skeleton width="100%" height="40px" borderRadius="6px" />
+                  <Skeleton width="100%" height="40px" borderRadius="6px" />
+                  <Skeleton width="100%" height="40px" borderRadius="6px" />
+                </div>
+              </div>
+            </div>
+          </div>
+        ))}
+      </div>
     </div>
   );
 
@@ -439,9 +461,18 @@ export default function CreativeView({ dateFrom, dateTo, statusFilter, onMetrics
 
   const renderCreativeCard = (creative: any, tier?: "super" | "winner") => {
     const isHovered = hoveredPreview?.cardId === creative.id;
+    
+    // Resolve creator for this card
+    const creatorAcronym = (creative.designer || "").trim().toUpperCase();
+    const matchingCreator = creators.find(c => {
+      const acronyms = c.acronym.split(",").map((s: string) => s.trim().toUpperCase());
+      return acronyms.includes(creatorAcronym);
+    });
+    
     return (
-      <div
+      <motion.div
         key={creative.id}
+        variants={{ hidden: { opacity: 0, y: 20 }, show: { opacity: 1, y: 0, transition: { type: "spring", stiffness: 200, damping: 20 } } }}
         className={`glass-panel ${styles.card}`}
         style={{
           position: "relative",
@@ -480,15 +511,42 @@ export default function CreativeView({ dateFrom, dateTo, statusFilter, onMetrics
             <ImageIcon size={32} opacity={0.3} />
           </div>
         )}
+        
+        {matchingCreator && (
+          <div style={{
+            position: "absolute",
+            top: "8px",
+            left: "8px",
+            zIndex: 10,
+            display: "flex",
+            alignItems: "center",
+            gap: "0.4rem",
+            background: "rgba(0,0,0,0.6)",
+            backdropFilter: "blur(4px)",
+            WebkitBackdropFilter: "blur(4px)",
+            padding: "4px 8px 4px 4px",
+            borderRadius: "100px",
+            color: "white",
+            pointerEvents: "none"
+          }} title={`Criador: ${matchingCreator.name}`}>
+            <Avatar src={matchingCreator.avatarUrl} name={matchingCreator.name} size="xs" isActive={matchingCreator.active !== false} />
+            <span style={{ fontSize: "0.7rem", fontWeight: 600 }}>{matchingCreator.name.split(" ")[0]}</span>
+          </div>
+        )}
       </div>
       
       <div className={styles.info}>
         <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: "1rem" }}>
-          <div style={{ flex: "1 1 120px", display: "flex", alignItems: "flex-start", gap: "0.25rem" }}>
-            <h4 style={{ margin: 0, fontSize: "0.8rem", lineHeight: 1.3, opacity: 0.9, wordBreak: "break-all", fontWeight: 600 }}>
-              {creative.ad_name}
-            </h4>
-            <CopyButton text={creative.ad_name} />
+          <div style={{ flex: "1 1 120px", display: "flex", flexDirection: "column", gap: "0.4rem" }}>
+            <div style={{ display: "flex", alignItems: "flex-start", gap: "0.25rem" }}>
+              <h4 style={{ 
+                margin: 0, fontSize: "0.8rem", lineHeight: 1.3, opacity: 0.9, wordBreak: "break-all", fontWeight: 600,
+                display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden", minHeight: "2.6em"
+              }}>
+                {creative.ad_name}
+              </h4>
+              <CopyButton text={creative.ad_name} />
+            </div>
           </div>
           <div style={{ flex: "2 1 200px", display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.4rem" }}>
             <MetricMiniCard
@@ -537,7 +595,7 @@ export default function CreativeView({ dateFrom, dateTo, statusFilter, onMetrics
           )}
         </div>
       </div>
-    </div>
+    </motion.div>
     );
   };
 
@@ -640,9 +698,13 @@ export default function CreativeView({ dateFrom, dateTo, statusFilter, onMetrics
             <p style={{ opacity: 0.5 }}>Nenhum criativo super winner no período (gasto ≥ R$ {data?.settings?.superWinnerSpend || 1000}, valor aprovado ≥ R$ {data?.settings?.superWinnerReturn || 5000} e CPA ≤ R$ {data?.settings?.superWinnerCpa || 50}, dentro do período selecionado).</p>
           ) : (
             <>
-              <div className={styles.grid}>
+              <motion.div 
+                className={styles.grid}
+                initial="hidden" animate="show"
+                variants={{ hidden: {}, show: { transition: { staggerChildren: 0.05 } } }}
+              >
                 {filteredSuperWinners.slice(0, superWinnersVisible).map(c => renderCreativeCard(c, "super"))}
-              </div>
+              </motion.div>
               {filteredSuperWinners.length > superWinnersVisible && (
                 <InfiniteScrollTrigger
                   remaining={filteredSuperWinners.length - superWinnersVisible}
@@ -675,9 +737,13 @@ export default function CreativeView({ dateFrom, dateTo, statusFilter, onMetrics
             <p style={{ opacity: 0.5 }}>Nenhum criativo winner no período (gasto ≥ R$ {data?.settings?.winnerSpend || 1000}, valor aprovado ≥ R$ {data?.settings?.winnerReturn || 1000} e CPA ≤ R$ {data?.settings?.winnerCpa || 80}, dentro do período selecionado).</p>
           ) : (
             <>
-              <div className={styles.grid}>
+              <motion.div 
+                className={styles.grid}
+                initial="hidden" animate="show"
+                variants={{ hidden: {}, show: { transition: { staggerChildren: 0.05 } } }}
+              >
                 {filteredWinners.slice(0, winnersVisible).map(c => renderCreativeCard(c, "winner"))}
-              </div>
+              </motion.div>
               {filteredWinners.length > winnersVisible && (
                 <InfiniteScrollTrigger
                   remaining={filteredWinners.length - winnersVisible}
@@ -712,7 +778,7 @@ export default function CreativeView({ dateFrom, dateTo, statusFilter, onMetrics
             <>
               <div style={{ display: "flex", flexDirection: "column", gap: "2.5rem" }}>
                 {Object.entries(filteredTestes).slice(0, testesGroupsVisible).map(([adsetName, ads]) => {
-                  const visible = testesAdsVisible[adsetName] || PAGE_SIZE;
+                  const visibleCount = testesAdsVisible[adsetName] || PAGE_SIZE;
                   const isCollapsed = collapsedGroups[adsetName] || false;
                   return (
                     <div key={adsetName} style={{ background: "rgba(255,255,255,0.02)", padding: "1.5rem", borderRadius: "1rem", border: "1px dashed rgba(255,255,255,0.1)" }}>
@@ -725,12 +791,16 @@ export default function CreativeView({ dateFrom, dateTo, statusFilter, onMetrics
                       </div>
                       {!isCollapsed && (
                         <>
-                          <div className={styles.grid}>
-                            {ads.slice(0, visible).map(c => renderCreativeCard(c))}
-                          </div>
-                          {ads.length > visible && (
+                          <motion.div 
+                            className={styles.grid}
+                            initial="hidden" animate="show"
+                            variants={{ hidden: {}, show: { transition: { staggerChildren: 0.05 } } }}
+                          >
+                            {ads.slice(0, visibleCount).map(c => renderCreativeCard(c))}
+                          </motion.div>
+                          {ads.length > visibleCount && (
                             <InfiniteScrollTrigger
-                              remaining={ads.length - visible}
+                              remaining={ads.length - visibleCount}
                               onLoadMore={() => setTestesAdsVisible(prev => ({ ...prev, [adsetName]: (prev[adsetName] || PAGE_SIZE) + PAGE_SIZE }))}
                             />
                           )}

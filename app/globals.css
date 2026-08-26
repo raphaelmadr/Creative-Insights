@@ -1,5 +1,11 @@
 @import url('https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,200..800&family=Inter:wght@400;500;600;700&display=swap');
 
+@layer theme, base, components, utilities;
+@import "tailwindcss/theme" layer(theme);
+@import "tailwindcss/utilities" layer(utilities);
+
+@source "../node_modules/react-tailwindcss-datepicker/dist/index.esm.js";
+
 :root {
   --background-main: #F9FAFB;
   --topbar-bg: rgba(249, 250, 251, 0.8);

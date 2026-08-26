@@ -4,6 +4,7 @@ import React, { useState } from "react";
 import ReactMarkdown from "react-markdown";
 import TopBar from "@/components/TopBar";
 import { Sparkles, CheckCircle, Lightbulb, Loader2, ExternalLink, RefreshCcw, X, Image as ImageIcon } from "lucide-react";
+import { Skeleton } from "@/components/Skeleton";
 import { useNotifications, UpdateItem } from "@/components/NotificationProvider";
 
 export default function InsightsPage() {
@@ -90,9 +91,29 @@ export default function InsightsPage() {
         )}
 
         {loading ? (
-          <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: "6rem 2rem", opacity: 0.8, gap: "1.5rem" }}>
-            <Loader2 size={48} color="var(--primary)" className="spin" style={{ animation: "spin 2s linear infinite" }} />
-            <h2 style={{ fontSize: "1.5rem", fontWeight: 500, margin: 0 }}>Carregando Base...</h2>
+          <div style={{ 
+            display: "grid", 
+            gridTemplateColumns: "repeat(auto-fill, minmax(320px, 1fr))", 
+            gap: "1.5rem" 
+          }}>
+            {[1,2,3,4,5,6].map(i => (
+              <div key={i} className="glass-panel" style={{ display: "flex", flexDirection: "column", border: "1px solid var(--card-border)", overflow: "hidden" }}>
+                <Skeleton width="100%" height="160px" borderRadius="0" />
+                <div style={{ padding: "1.25rem", display: "flex", flexDirection: "column", gap: "0.75rem", flex: 1 }}>
+                  <Skeleton width="100%" height="24px" />
+                  <Skeleton width="80%" height="24px" />
+                  <div style={{ marginTop: "1rem", display: "flex", flexDirection: "column", gap: "0.5rem" }}>
+                    <Skeleton width="100%" height="14px" />
+                    <Skeleton width="100%" height="14px" />
+                    <Skeleton width="60%" height="14px" />
+                  </div>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: "auto", paddingTop: "1rem" }}>
+                    <Skeleton width="80px" height="12px" />
+                    <Skeleton width="100px" height="16px" />
+                  </div>
+                </div>
+              </div>
+            ))}
           </div>
         ) : (
           <div style={{ display: "flex", flexDirection: "column", gap: "1.5rem" }}>

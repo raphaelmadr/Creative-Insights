@@ -4,6 +4,7 @@ import "./globals.css";
 import SessionProvider from "@/components/SessionProvider";
 import { ThemeProvider } from "@/components/ThemeProvider";
 import NotificationProvider from "@/components/NotificationProvider";
+import MuiProvider from "@/components/MuiProvider";
 
 const plusJakartaSans = Plus_Jakarta_Sans({
   subsets: ["latin"],
@@ -29,9 +30,11 @@ export default function RootLayout({
       <body className={plusJakartaSans.className}>
         <SessionProvider>
           <ThemeProvider>
-            <NotificationProvider>
-              {children}
-            </NotificationProvider>
+            <MuiProvider>
+              <NotificationProvider>
+                {children}
+              </NotificationProvider>
+            </MuiProvider>
           </ThemeProvider>
         </SessionProvider>
       </body>

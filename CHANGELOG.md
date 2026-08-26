@@ -210,3 +210,21 @@ As regras de negócio do Dashboard Criativo foram reconstruídas para suportar d
 
 ### ⏰ 21. Correção de Agendamento do Cron (Sincronização em Background)
 * **Frequência de Gatilho do Vercel Cron:** A configuração no arquivo `vercel.json` para a rota `/api/cron/sync-meta` foi alterada de execução diária (`0 0 * * *`) para a cada 15 minutos (`*/15 * * * *`). Isso permite que a lógica interna do sistema (que respeita o intervalo configurado no painel, como a cada 120 minutos) funcione perfeitamente, garantindo que as atualizações automáticas em background ocorram ao longo de todo o dia.
+
+### 🧠 22. Correção de Geração de Insights de Mercado (Tavily Fallback)
+* **API Key de Busca:** Foi identificada uma falha onde os "Insights do Mercado" deixavam de ser gerados se a chave da API do Tavily estivesse apenas no `.env.local` e não no banco de dados (`SystemSettings`). O código das rotas `/api/insights/news/route.ts` e `/api/insights/news/cron/route.ts` foi atualizado para sempre fazer fallback para a variável de ambiente `process.env.TAVILY_API_KEY` caso falte no painel, exatamente como já era feito para as chaves da OpenAI, Gemini e Anthropic. Isso garante que a pesquisa na internet e a geração diária de insights funcionem ininterruptamente.
+
+### 🎨 23. Refatoração do Sistema de Notificações (Toast Stack)
+* **Novo Componente `<ToastStack>`:** O sistema de notificações simples (toasts) que exibia apenas um aviso por vez no topo da tela foi completamente refatorado para um sistema avançado de "Pilhas" (Stack).
+* **Animações (Framer Motion):** Utilizando a biblioteca `framer-motion` (adicionada às dependências), os avisos agora se empilham no canto superior direito (`top: 1.5rem, right: 1.5rem`).
+* **Interatividade Hover:** Quando múltiplas notificações aparecem, elas se comportam como uma carteira de cartas (scale e offset em Y dinâmico). Ao passar o mouse sobre a pilha (`hover`), as notificações se expandem verticalmente, permitindo visualização de todos os avisos em tempo real e interação individual (fechamento manual), reproduzindo com precisão a experiência visual de sites de ponta.
+
+### 🖼️ 24. Sistema de Avatares Personalizados (Untitled UI)
+* **Novo Componente `<Avatar>`:** Foi criado um componente reutilizável de avatar inspirado nos princípios da `Untitled UI`, contendo fallback visual automático (iniciais do nome com background colorido e gerado via hash), bordas adaptáveis e indicador de status (Active Dot).
+* **Banco de Dados Atualizado:** O modelo `Creator` no Prisma foi atualizado para suportar o campo `avatarUrl`, permitindo que os designers tenham suas fotos vinculadas aos seus perfis através das rotas de API da Equipe (`/api/creators` e `/api/reports/creators`).
+* **Página de Equipe e Configurações:** A listagem de criadores agora exibe os avatares em tamanho "Large" (48px). A edição da imagem foi centralizada no **Modal de Configurações**, permitindo colar a URL da foto no mesmo local onde as metas e siglas de cada membro são gerenciadas.
+* **Visão Geral (Dashboard):** Em vez de um pill global no topo da página, o componente de Avatar (tamanho `xs`) agora é renderizado individualmente dentro de cada card de criativo (`CreativeCard`), atribuindo visualmente cada anúncio ao seu respectivo designer.
+
+### 📅 25. Unificação dos DatePickers (Tailwind)
+* **Substituição de Componente (Date Range Picker):** A biblioteca `react-tailwindcss-datepicker` foi adotada para entregar a experiência definitiva de seleção de intervalo de datas (Date Range). Em vez de usar inputs separados para Data Inicial e Data Final, a plataforma agora conta com um único input elegante que expande em um calendário contínuo.
+* **Estilização Dinâmica:** O `CustomDateRangePicker.tsx` agora injeta classes e variáveis CSS nativas da plataforma por cima da biblioteca para garantir o aspecto *Glassmorphism* (fundo translúcido, bordas suaves e sombras premium). O Tailwind CSS (v4) foi adequadamente configurado no `globals.css` para ler os estilos do componente.

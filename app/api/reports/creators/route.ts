@@ -28,6 +28,7 @@ export async function GET(request: Request) {
         const formattedSaved = savedReports.map((rep: any) => ({
           name: rep.creator.name,
           acronym: rep.creator.acronym,
+          avatarUrl: rep.creator.avatarUrl,
           spend: rep.spend,
           purchases: rep.purchases,
           grossValue: rep.grossValue,
@@ -94,6 +95,7 @@ export async function GET(request: Request) {
         creatorId: creator.id,
         name: creator.name,
         acronym: creator.acronym,
+        avatarUrl: creator.avatarUrl,
         monthlyGoal: creator.monthlyGoal ?? 50000,
         monthlyVolumeGoal: creator.monthlyVolumeGoal ?? 30,
         spend: 0,
@@ -158,6 +160,7 @@ export async function GET(request: Request) {
         creatorId: stats.creatorId,
         name: stats.name,
         acronym: stats.acronym,
+        avatarUrl: stats.avatarUrl,
         monthlyGoal: stats.monthlyGoal,
         monthlyVolumeGoal: stats.monthlyVolumeGoal,
         spend: stats.spend,

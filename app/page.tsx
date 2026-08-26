@@ -2,8 +2,11 @@
 
 import TopBar from "@/components/TopBar";
 import CreativeView from "@/components/CreativeView";
-import CustomDatePicker from "@/components/CustomDatePicker";
-import { useEffect, useState } from "react";
+import CustomDateRangePicker from "@/components/CustomDateRangePicker";
+import { Avatar } from "@/components/Avatar";
+import { useEffect, useState, useMemo } from "react";
+import { motion } from "framer-motion";
+import AnimatedNumber from "@/components/AnimatedNumber";
 import { useNotifications } from "@/components/NotificationProvider";
 import { Sparkles, Loader2, Calendar, ChevronDown, Users } from "lucide-react";
 
@@ -59,6 +62,11 @@ export default function Home() {
   const [selectedDesigner, setSelectedDesigner] = useState<string | null>(null);
   const [creators, setCreators] = useState<any[]>([]);
   const [hideOldAds, setHideOldAds] = useState(true);
+
+  const selectedCreatorObj = useMemo(() => {
+    if (!selectedDesigner) return null;
+    return creators.find(c => c.acronym === selectedDesigner) || null;
+  }, [selectedDesigner, creators]);
 
   useEffect(() => {
     fetch("/api/creators")
@@ -176,7 +184,7 @@ export default function Home() {
                     <option value="7_days">Últimos 7 dias</option>
                     <option value="15_days">Últimos 15 dias</option>
                     <option value="this_month">Mês atual</option>
-                    <option value="custom">Outro período...</option>
+                    {/* <option value="custom">Outro período...</option> */}
                   </select>
                   
                   <ChevronDown size={14} style={{ marginLeft: "-1rem", pointerEvents: "none", opacity: 0.6, flexShrink: 0 }} />
@@ -185,17 +193,14 @@ export default function Home() {
                 {datePreset === "custom" && (
                   <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
                     <div style={{ width: "1px", height: "16px", background: "var(--card-border)" }} />
-                    <CustomDatePicker
-                      value={dateFrom}
-                      max={dateTo}
-                      onChange={(newDate) => setDateFrom(newDate)}
-                    />
-                    <span style={{ opacity: 0.5, fontSize: "0.75rem", fontWeight: 500 }}>até</span>
-                    <CustomDatePicker
-                      value={dateTo}
-                      min={dateFrom}
-                      max={toDateInputValue(todayUTC())}
-                      onChange={(newDate) => setDateTo(newDate)}
+                    <CustomDateRangePicker
+                      dateFrom={dateFrom}
+                      dateTo={dateTo}
+                      maxDate={toDateInputValue(todayUTC())}
+                      onChange={(from, to) => {
+                        setDateFrom(from);
+                        setDateTo(to);
+                      }}
                     />
                   </div>
                 )}
@@ -275,28 +280,47 @@ export default function Home() {
               </p>
             </div>
 
-            <div className="fixed-grid-4">
-              <div className="allu-card">
+            <motion.div 
+              className="fixed-grid-4"
+              initial="hidden"
+              animate="show"
+              variants={{
+                hidden: { opacity: 0 },
+                show: {
+                  opacity: 1,
+                  transition: { staggerChildren: 0.1 }
+                }
+              }}
+            >
+              <motion.div className="allu-card" variants={{ hidden: { opacity: 0, y: 20 }, show: { opacity: 1, y: 0, transition: { type: "spring", stiffness: 300, damping: 24 } } }}>
                 <div className="allu-card-label">◇ INVESTIMENTO TOTAL</div>
-                <div className="allu-card-value">{formatCurrencyBR(metrics.totalSpend)}</div>
+                <div className="allu-card-value">
+                  <AnimatedNumber value={parseFloat(metrics.totalSpend) || 0} prefix="R$ " decimals={2} />
+                </div>
                 <div className="allu-card-subtext">gasto nas campanhas</div>
-              </div>
-              <div className="allu-card">
+              </motion.div>
+              <motion.div className="allu-card" variants={{ hidden: { opacity: 0, y: 20 }, show: { opacity: 1, y: 0, transition: { type: "spring", stiffness: 300, damping: 24 } } }}>
                 <div className="allu-card-label">◇ VALOR BRUTO</div>
-                <div className="allu-card-value">{formatCurrencyBR(metrics.totalGrossValue)}</div>
+                <div className="allu-card-value">
+                  <AnimatedNumber value={parseFloat(metrics.totalGrossValue) || 0} prefix="R$ " decimals={2} />
+                </div>
                 <div className="allu-card-subtext">gerado no período</div>
-              </div>
-              <div className="allu-card allu-card-highlight">
+              </motion.div>
+              <motion.div className="allu-card allu-card-highlight" variants={{ hidden: { opacity: 0, y: 20 }, show: { opacity: 1, y: 0, transition: { type: "spring", stiffness: 300, damping: 24 } } }}>
                 <div className="allu-card-label">▶ VALOR APROVADO</div>
-                <div className="allu-card-value">{formatCurrencyBR(metrics.totalRiskApprovedValue)}</div>
+                <div className="allu-card-value">
+                  <AnimatedNumber value={parseFloat(metrics.totalRiskApprovedValue) || 0} prefix="R$ " decimals={2} />
+                </div>
                 <div className="allu-card-subtext">real aprovado</div>
-              </div>
-              <div className="allu-card">
+              </motion.div>
+              <motion.div className="allu-card" variants={{ hidden: { opacity: 0, y: 20 }, show: { opacity: 1, y: 0, transition: { type: "spring", stiffness: 300, damping: 24 } } }}>
                 <div className="allu-card-label">◇ CPA MÉDIO</div>
-                <div className="allu-card-value">{formatCurrencyBR(metrics.avgCpa)}</div>
+                <div className="allu-card-value">
+                  <AnimatedNumber value={parseFloat(metrics.avgCpa) || 0} prefix="R$ " decimals={2} />
+                </div>
                 <div className="allu-card-subtext">custo por aprovado</div>
-              </div>
-            </div>
+              </motion.div>
+            </motion.div>
           </div>
           
           <div style={{ flex: 1, marginTop: "-1rem" }}>

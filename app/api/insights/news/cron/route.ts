@@ -82,7 +82,7 @@ REGRA CRÍTICA: Responda ESTRITAMENTE EM TEXTO PURO (MARKDOWN). É ESTRITAMENTE 
       return NextResponse.json({ success: false, reason: "No AI API keys configured" });
     }
 
-    const tavilyKey = settings?.tavilyApiKey;
+    const tavilyKey = settings?.tavilyApiKey || process.env.TAVILY_API_KEY;
     let searchResults: any[] = [];
     if (tavilyKey) {
       try {

@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect } from "react";
 import { X, Save, Loader2, Plus, Trash2 } from "lucide-react";
+import { Avatar } from "@/components/Avatar";
 
 export default function SettingsModal({ isOpen, onClose, onSave }: { isOpen: boolean; onClose: () => void; onSave: () => void }) {
   const [activeTab, setActiveTab] = useState<"sistema" | "metas" | "ia" | "api" | "equipe" | "logs">("sistema");
@@ -10,7 +11,7 @@ export default function SettingsModal({ isOpen, onClose, onSave }: { isOpen: boo
   const [loading, setLoading] = useState(false);
   const [fetching, setFetching] = useState(true);
   const [creators, setCreators] = useState<any[]>([]);
-  const [newCreator, setNewCreator] = useState({ name: "", acronym: "", monthlyGoal: "50000", monthlyVolumeGoal: "30" });
+  const [newCreator, setNewCreator] = useState({ name: "", acronym: "", avatarUrl: "", monthlyGoal: "50000", monthlyVolumeGoal: "30" });
   const [editingCreatorId, setEditingCreatorId] = useState<string | null>(null);
   
   const [settings, setSettings] = useState({
@@ -139,7 +140,7 @@ export default function SettingsModal({ isOpen, onClose, onSave }: { isOpen: boo
       });
       const json = await res.json();
       if (res.ok) {
-        setNewCreator({ name: "", acronym: "", monthlyGoal: "50000", monthlyVolumeGoal: "30" });
+        setNewCreator({ name: "", acronym: "", avatarUrl: "", monthlyGoal: "50000", monthlyVolumeGoal: "30" });
         setEditingCreatorId(null);
         fetchCreators();
       } else {
@@ -156,6 +157,7 @@ export default function SettingsModal({ isOpen, onClose, onSave }: { isOpen: boo
     setNewCreator({
       name: creator.name,
       acronym: creator.acronym,
+      avatarUrl: creator.avatarUrl || "",
       monthlyGoal: creator.monthlyGoal ? creator.monthlyGoal.toString() : "50000",
       monthlyVolumeGoal: creator.monthlyVolumeGoal ? creator.monthlyVolumeGoal.toString() : "30"
     });
@@ -163,7 +165,7 @@ export default function SettingsModal({ isOpen, onClose, onSave }: { isOpen: boo
 
   const cancelEditCreator = () => {
     setEditingCreatorId(null);
-    setNewCreator({ name: "", acronym: "", monthlyGoal: "50000", monthlyVolumeGoal: "30" });
+    setNewCreator({ name: "", acronym: "", avatarUrl: "", monthlyGoal: "50000", monthlyVolumeGoal: "30" });
   };
 
   const handleDeleteCreator = async (id: string) => {
@@ -430,6 +432,10 @@ export default function SettingsModal({ isOpen, onClose, onSave }: { isOpen: boo
                         <span style={{ fontWeight: 600, fontSize: "0.85rem" }}>Siglas (Até 3, separadas por vírgula)</span>
                         <input type="text" value={newCreator.acronym} onChange={e => setNewCreator({...newCreator, acronym: e.target.value.toUpperCase()})} placeholder="Ex: RM, RAPHAELMADUREIRA, raphael" style={{ padding: "0.8rem", borderRadius: "8px", border: "1px solid var(--card-border)", background: "var(--card-bg)", color: "var(--foreground)", textTransform: "uppercase", outline: "none", transition: "border 0.2s" }} onFocus={e => e.target.style.borderColor = "var(--primary)"} onBlur={e => e.target.style.borderColor = "var(--card-border)"} />
                       </label>
+                      <label style={{ display: "flex", flexDirection: "column", gap: "0.5rem", gridColumn: "span 2" }}>
+                        <span style={{ fontWeight: 600, fontSize: "0.85rem" }}>URL da Foto (Avatar) - Opcional</span>
+                        <input type="url" value={newCreator.avatarUrl} onChange={e => setNewCreator({...newCreator, avatarUrl: e.target.value})} placeholder="https://..." style={{ padding: "0.8rem", borderRadius: "8px", border: "1px solid var(--card-border)", background: "var(--card-bg)", color: "var(--foreground)", outline: "none", transition: "border 0.2s" }} onFocus={e => e.target.style.borderColor = "var(--primary)"} onBlur={e => e.target.style.borderColor = "var(--card-border)"} />
+                      </label>
                       <label style={{ display: "flex", flexDirection: "column", gap: "0.5rem" }}>
                         <span style={{ fontWeight: 600, fontSize: "0.85rem" }}>Meta Mensal (R$)</span>
                         <input type="number" value={newCreator.monthlyGoal} onChange={e => setNewCreator({...newCreator, monthlyGoal: e.target.value})} placeholder="50000" style={{ padding: "0.8rem", borderRadius: "8px", border: "1px solid var(--card-border)", background: "var(--card-bg)", color: "var(--foreground)", outline: "none", transition: "border 0.2s" }} onFocus={e => e.target.style.borderColor = "var(--primary)"} onBlur={e => e.target.style.borderColor = "var(--card-border)"} />
@@ -460,9 +466,7 @@ export default function SettingsModal({ isOpen, onClose, onSave }: { isOpen: boo
                         {creators.map(creator => (
                           <div key={creator.id} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "1.2rem", borderRadius: "12px", border: "1px solid var(--card-border)", background: "var(--card-bg)", boxShadow: "0 2px 4px rgba(0,0,0,0.02)" }}>
                             <div style={{ display: "flex", alignItems: "center", gap: "1.2rem" }}>
-                              <div style={{ width: "42px", height: "42px", borderRadius: "50%", background: "var(--primary)", color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontWeight: "bold", fontSize: "1.1rem" }}>
-                                {creator.name.substring(0, 2).toUpperCase()}
-                              </div>
+                              <Avatar src={creator.avatarUrl} name={creator.name} size="md" isActive={creator.active !== false && !creator.acronym.includes("UNKNOWN")} />
                               <div style={{ display: "flex", flexDirection: "column", gap: "0.2rem" }}>
                                 <div style={{ fontWeight: 700, fontSize: "1.05rem" }}>{creator.name}</div>
                                 <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", fontSize: "0.8rem", opacity: 0.7 }}>

@@ -3,6 +3,7 @@
 import React, { createContext, useContext, useEffect, useState, ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import { X } from "lucide-react";
+import { ToastStack, ToastItem } from "./ToastStack";
 
 export interface UpdateItem {
   id: string;
@@ -90,7 +91,25 @@ export default function NotificationProvider({ children }: { children: ReactNode
   const [syncCounter, setSyncCounter] = useState(0);
   const [isSyncingAll, setIsSyncingAll] = useState(false);
 
-  const [toastMsg, setToastMsg] = useState<{title: string; isNew: boolean; isError?: boolean} | null>(null);
+  const [toasts, setToasts] = useState<ToastItem[]>([]);
+
+  const setToastMsg = (toast: {id?: string; title: string; isNew: boolean; isError?: boolean} | null) => {
+    if (!toast) return;
+    const id = toast.id || Math.random().toString(36).substring(2, 9);
+    setToasts(prev => {
+      const existing = prev.findIndex(t => t.id === id);
+      if (existing >= 0) {
+        const newToasts = [...prev];
+        newToasts[existing] = { ...toast, id };
+        return newToasts;
+      }
+      return [{ ...toast, id }, ...prev];
+    });
+  };
+
+  const removeToast = (id: string) => {
+    setToasts(prev => prev.filter(t => t.id !== id));
+  };
 
   useEffect(() => {
     let isMounted = true;
@@ -169,9 +188,9 @@ export default function NotificationProvider({ children }: { children: ReactNode
                 
                 // Dispara o Toast de aviso!
                 if (data.newCount > 0) {
-                  setToastMsg({ title: `🎉 ${data.newCount} Novidades encontradas!`, isNew: true });
+                  setToastMsg({ id: "search-updates", title: `🎉 ${data.newCount} Novidades encontradas!`, isNew: true });
                 } else {
-                  setToastMsg({ title: "Nenhuma novidade encontrada hoje.", isNew: false });
+                  setToastMsg({ id: "search-updates", title: "Nenhuma novidade encontrada hoje.", isNew: false });
                 }
                 
                 setTimeout(() => {
@@ -229,7 +248,7 @@ export default function NotificationProvider({ children }: { children: ReactNode
                 if (data.id) {
                   router.push(`/analises/${data.id}`);
                 } else {
-                  setToastMsg({ title: "Nenhum insight novo gerado hoje.", isNew: false });
+                  setToastMsg({ id: "analyze", title: "Nenhum insight novo gerado hoje.", isNew: false });
                   setTimeout(() => {
                     setToastMsg(null);
                   }, 5000);
@@ -351,13 +370,13 @@ export default function NotificationProvider({ children }: { children: ReactNode
     setIsSyncingMeta(true);
     setSyncProgress(0);
     setSyncMessage("Iniciando...");
-    setToastMsg({ title: mode === 'full' ? "Sincronizando Mídias do Mês..." : "Sincronizando Mês Atual...", isNew: false });
+    setToastMsg({ id: "sync-process", title: mode === 'full' ? "Sincronizando Mídias do Mês..." : "Sincronizando Mês Atual...", isNew: false });
     
     try {
       // 1. Sincroniza apenas o mês atual (rápido)
       await runSyncStream(`/api/sync-meta?mode=${mode}`);
       
-      setToastMsg({ title: "✅ Mês atual sincronizado! Buscando histórico...", isNew: true });
+      setToastMsg({ id: "sync-process", title: "✅ Mês atual sincronizado! Buscando histórico...", isNew: true });
       const nowStr = new Date().toISOString();
       setLastSyncAt(nowStr);
       if (mode === 'metrics') {
@@ -368,15 +387,15 @@ export default function NotificationProvider({ children }: { children: ReactNode
       setSyncCounter(prev => prev + 1);
 
       if (mode === 'full') {
-        setToastMsg({ title: "✅ Sincronização profunda do mês atual concluída!", isNew: true });
+        setToastMsg({ id: "sync-process", title: "✅ Sincronização profunda do mês atual concluída!", isNew: true });
       } else {
-        setToastMsg({ title: "✅ Sincronização rápida concluída!", isNew: true });
+        setToastMsg({ id: "sync-process", title: "✅ Sincronização rápida concluída!", isNew: true });
       }
 
       setSyncCounter(prev => prev + 1);
     } catch (err: any) {
       console.error(err);
-      setToastMsg({ title: `❌ Erro na sincronização: ${err.message || "Timeout"}`, isNew: false, isError: true });
+      setToastMsg({ id: "sync-process", title: `❌ Erro na sincronização: ${err.message || "Timeout"}`, isNew: false, isError: true });
     } finally {
       setIsSyncingMeta(false);
       setTimeout(() => setToastMsg(null), 5000);
@@ -386,17 +405,17 @@ export default function NotificationProvider({ children }: { children: ReactNode
   const syncAll = async (mode: 'fast' | 'deep' = 'deep') => {
     if (isSyncingAll) return;
     setIsSyncingAll(true);
-    setToastMsg({ title: `Iniciando sincronização ${mode === 'fast' ? 'rápida' : 'profunda'}...`, isNew: false });
+    setToastMsg({ id: "sync-process", title: `Iniciando sincronização ${mode === 'fast' ? 'rápida' : 'profunda'}...`, isNew: false });
     
     try {
       await Promise.all([
         searchForUpdates(),
         syncMeta(mode === 'fast' ? 'metrics' : 'full')
       ]);
-      setToastMsg({ title: `✅ Sincronização ${mode === 'fast' ? 'rápida' : 'profunda'} concluída com sucesso!`, isNew: true });
+      setToastMsg({ id: "sync-process", title: `✅ Sincronização ${mode === 'fast' ? 'rápida' : 'profunda'} concluída com sucesso!`, isNew: true });
     } catch (err: any) {
       console.error("Erro na sincronização geral:", err);
-      setToastMsg({ title: `❌ Erro na sincronização geral: ${err.message || "Timeout"}`, isNew: false, isError: true });
+      setToastMsg({ id: "sync-process", title: `❌ Erro na sincronização geral: ${err.message || "Timeout"}`, isNew: false, isError: true });
     } finally {
       setIsSyncingAll(false);
     }
@@ -413,65 +432,13 @@ export default function NotificationProvider({ children }: { children: ReactNode
     }}>
       {children}
       {/* Sistema de Toasts */}
-      {toastMsg && (
-        <div style={{
-          position: "fixed",
-          top: "1.5rem",
-          right: "50%",
-          transform: "translateX(50%)",
-          background: toastMsg.isError ? "rgba(239, 68, 68, 0.9)" : toastMsg.isNew ? "rgba(16, 185, 129, 0.8)" : "rgba(30, 30, 30, 0.8)",
-          backdropFilter: "blur(12px)",
-          WebkitBackdropFilter: "blur(12px)",
-          color: "#fff",
-          border: toastMsg.isError ? "1px solid rgba(239, 68, 68, 0.4)" : toastMsg.isNew ? "1px solid rgba(16, 185, 129, 0.3)" : "1px solid rgba(255, 255, 255, 0.15)",
-          padding: "0.6rem 1rem",
-          borderRadius: "2rem",
-          boxShadow: "0 10px 40px rgba(0, 0, 0, 0.3)",
-          display: "flex",
-          flexDirection: "row",
-          alignItems: "center",
-          gap: "0.5rem",
-          zIndex: 9999,
-          animation: "slideDown 0.3s ease-out forwards",
-          fontWeight: 500,
-        }}>
-          {isSyncingMeta ? (
-            <>
-              <div style={{ position: "relative", width: "16px", height: "16px", flexShrink: 0 }}>
-                <svg width="16" height="16" viewBox="0 0 24 24" style={{ transform: "rotate(-90deg)" }}>
-                  <circle cx="12" cy="12" r="10" stroke="rgba(255,255,255,0.2)" strokeWidth="3" fill="none" />
-                  <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="3" fill="none" strokeDasharray="62.83" strokeDashoffset={62.83 - (62.83 * syncProgress) / 100} style={{ transition: "stroke-dashoffset 0.3s ease", strokeLinecap: "round" }} />
-                </svg>
-              </div>
-              <span style={{ fontSize: "0.85rem", whiteSpace: "nowrap" }}>{syncMessage}</span>
-            </>
-          ) : (
-            <span style={{ fontSize: "0.85rem", whiteSpace: "nowrap" }}>{toastMsg.title}</span>
-          )}
-          
-          <button 
-            onClick={() => setToastMsg(null)}
-            style={{ 
-              background: 'transparent', border: 'none', color: '#fff', 
-              cursor: 'pointer', opacity: 0.6, padding: '0.2rem',
-              display: 'flex', alignItems: 'center', justifyContent: 'center',
-              marginLeft: '0.25rem', transition: 'opacity 0.2s'
-            }}
-            onMouseOver={(e) => e.currentTarget.style.opacity = '1'}
-            onMouseOut={(e) => e.currentTarget.style.opacity = '0.6'}
-            title="Fechar"
-          >
-            <X size={14} />
-          </button>
-          
-          <style jsx>{`
-            @keyframes slideDown {
-              from { transform: translate(50%, -100%); opacity: 0; }
-              to { transform: translate(50%, 0); opacity: 1; }
-            }
-          `}</style>
-        </div>
-      )}
+      <ToastStack 
+        toasts={toasts} 
+        removeToast={removeToast} 
+        syncProgress={syncProgress} 
+        isSyncingMeta={isSyncingMeta} 
+        syncMessage={syncMessage} 
+      />
     </NotificationContext.Provider>
   );
 }

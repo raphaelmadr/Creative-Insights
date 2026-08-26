@@ -1,7 +1,12 @@
 "use client";
 
 import TopBar from "@/components/TopBar";
+import { Avatar } from "@/components/Avatar";
 import { useEffect, useState } from "react";
+import { motion } from "framer-motion";
+import AnimatedNumber from "@/components/AnimatedNumber";
+import { Skeleton, SkeletonCircle } from "@/components/Skeleton";
+import { useCacheFetch } from "@/hooks/useCacheFetch";
 import { Loader2, Users, Target, ArrowUpRight, ArrowDownRight, Send, RefreshCw, Info, Layers, TrendingUp, Coins, Activity } from "lucide-react";
 
 function formatCurrencyBR(value: number): string {
@@ -11,7 +16,6 @@ function formatCurrencyBR(value: number): string {
 
 export default function EquipePage() {
   const [stats, setStats] = useState<any[]>([]);
-  const [loading, setLoading] = useState(true);
   const [teamCreativeGoal, setTeamCreativeGoal] = useState(625);
   const [syncing, setSyncing] = useState(false);
   
@@ -19,72 +23,63 @@ export default function EquipePage() {
   const [selectedMonth, setSelectedMonth] = useState(today.getMonth() + 1);
   const [selectedYear, setSelectedYear] = useState(today.getFullYear());
 
+  const { data: jsonReports, loading: loadingReports, mutate: mutateReports } = useCacheFetch<any>(`/api/reports/creators?month=${selectedMonth}&year=${selectedYear}`);
+  const { data: jsonDeliveries, loading: loadingDeliveries, mutate: mutateDeliveries } = useCacheFetch<any>(`/api/deliveries?month=${selectedMonth}&year=${selectedYear}`);
+
+  const loading = loadingReports || loadingDeliveries;
+
   useEffect(() => {
-    fetchStats(selectedMonth, selectedYear);
-  }, [selectedMonth, selectedYear]);
-
-  const fetchStats = async (month: number, year: number) => {
-    setLoading(true);
-    try {
-      const [resReports, resDeliveries] = await Promise.all([
-        fetch(`/api/reports/creators?month=${month}&year=${year}`),
-        fetch(`/api/deliveries?month=${month}&year=${year}`)
-      ]);
-      const jsonReports = await resReports.json();
-      const jsonDeliveries = await resDeliveries.json();
-
-      let globalTeamGoal = 625;
-      let deliveriesRanking: any[] = [];
-      if (jsonDeliveries.success) {
-         globalTeamGoal = jsonDeliveries.teamCreativeGoal || 625;
-         deliveriesRanking = jsonDeliveries.ranking || [];
-      }
-      
-      let unifiedStats = [];
-      if (jsonReports.data) {
-        unifiedStats = jsonReports.data.map((stat: any) => {
-          const deliveryData = deliveriesRanking.find((d: any) => d.creatorId === stat.creatorId);
-          return {
-             ...stat,
-             totalPieces: deliveryData ? deliveryData.totalPieces : 0
-          };
-        });
-      }
-      
-      // Empurrar "UNKNOWN" / Parcerias para o final
-      unifiedStats.sort((a: any, b: any) => {
-        if (a.acronym.includes("UNKNOWN") && !b.acronym.includes("UNKNOWN")) return 1;
-        if (b.acronym.includes("UNKNOWN") && !a.acronym.includes("UNKNOWN")) return -1;
-        return b.riskApprovedValue - a.riskApprovedValue; // Default by revenue
-      });
-
-      setStats(unifiedStats);
-      setTeamCreativeGoal(globalTeamGoal);
-    } catch (err) {
-      console.error(err);
-    } finally {
-      setLoading(false);
+    if (!jsonReports || !jsonDeliveries) return;
+    
+    let globalTeamGoal = 625;
+    let deliveriesRanking: any[] = [];
+    if (jsonDeliveries.success) {
+       globalTeamGoal = jsonDeliveries.teamCreativeGoal || 625;
+       deliveriesRanking = jsonDeliveries.ranking || [];
     }
-  };
+    setTeamCreativeGoal(globalTeamGoal);
+    
+    let unifiedStats: any[] = [];
+    if (jsonReports.data) {
+      unifiedStats = jsonReports.data.map((stat: any) => {
+        const deliveryData = deliveriesRanking.find((d: any) => d.creatorId === stat.creatorId);
+        return {
+           ...stat,
+           totalPieces: deliveryData ? deliveryData.totalPieces : 0
+        };
+      });
+    }
+    
+    // Empurrar "UNKNOWN" / Parcerias para o final
+    unifiedStats.sort((a: any, b: any) => {
+      if (a.acronym.includes("UNKNOWN") && !b.acronym.includes("UNKNOWN")) return 1;
+      if (b.acronym.includes("UNKNOWN") && !a.acronym.includes("UNKNOWN")) return -1;
+      return b.riskApprovedValue - a.riskApprovedValue; // Default by revenue
+    });
+
+    setStats(unifiedStats);
+    setTeamCreativeGoal(globalTeamGoal);
+  }, [jsonReports, jsonDeliveries]);
 
   const handleSyncSlack = async () => {
     if (syncing) return;
     setSyncing(true);
     try {
       const res = await fetch("/api/sync-slack", { 
-        method: "POST", 
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ fullMonth: true, month: selectedMonth, year: selectedYear })
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ month: selectedMonth, year: selectedYear })
       });
-      const json = await res.json();
-      if (json.success) {
-        alert(json.message);
-        fetchStats(selectedMonth, selectedYear);
+      const data = await res.json();
+      if (data.success) {
+        alert("Sincronização concluída com sucesso!");
+        mutateReports();
+        mutateDeliveries();
       } else {
-        alert("Erro: " + json.error);
+        alert("Erro na sincronização: " + (data.error || "Desconhecido"));
       }
     } catch (e) {
-      alert("Erro na conexão com o servidor.");
+      alert("Erro ao chamar API de sincronização.");
     } finally {
       setSyncing(false);
     }
@@ -214,19 +209,24 @@ export default function EquipePage() {
                   Meta Global de Peças (Mês)
                 </h2>
                 <div style={{ display: "flex", alignItems: "baseline", gap: "0.5rem" }}>
-                  <span style={{ fontSize: "2.5rem", fontWeight: 800, color: "var(--primary)", lineHeight: 1 }}>{totalPieces}</span>
+                  <span style={{ fontSize: "2.5rem", fontWeight: 800, color: "var(--primary)", lineHeight: 1 }}>
+                    <AnimatedNumber value={totalPieces} decimals={0} />
+                  </span>
                   <span style={{ fontSize: "1.2rem", opacity: 0.6 }}>/ {teamCreativeGoal} peças</span>
                 </div>
               </div>
               
               <div style={{ width: "100%", height: "24px", background: "rgba(255,255,255,0.05)", borderRadius: "100px", overflow: "hidden", position: "relative" }}>
-                <div style={{ 
-                  height: "100%", 
-                  width: `${globalProgressPercent}%`, 
-                  background: "linear-gradient(90deg, var(--primary), #34D399)",
-                  borderRadius: "100px",
-                  transition: "width 1s cubic-bezier(0.4, 0, 0.2, 1)"
-                }} />
+                <motion.div 
+                  initial={{ width: "0%" }}
+                  animate={{ width: `${globalProgressPercent}%` }}
+                  transition={{ type: "spring", stiffness: 50, damping: 20 }}
+                  style={{ 
+                    height: "100%", 
+                    background: "linear-gradient(90deg, var(--primary), #34D399)",
+                    borderRadius: "100px"
+                  }} 
+                />
               </div>
               <div style={{ display: "flex", justifyContent: "space-between", fontSize: "0.9rem", opacity: 0.7, fontWeight: 600, flexWrap: "wrap", gap: "0.5rem" }}>
                 <span>{paceText && <span style={{ display: "flex", alignItems: "center", gap: "0.4rem" }}><Activity size={14} /> {paceText}</span>}</span>
@@ -274,11 +274,37 @@ export default function EquipePage() {
           )}
 
           {loading ? (
-            <div style={{ display: "flex", justifyContent: "center", padding: "4rem", opacity: 0.5 }}>
-              <Loader2 className="spin" size={32} style={{ animation: "spin 2s linear infinite" }} />
+            <div className="team-grid-3">
+              {[1, 2, 3, 4, 5, 6].map(i => (
+                <div key={i} style={{ 
+                  background: "var(--card-bg)", borderRadius: "12px", border: "1px solid var(--card-border)", 
+                  padding: "1.5rem", display: "flex", flexDirection: "column", gap: "1.5rem",
+                  position: "relative", boxShadow: "var(--card-shadow)"
+                }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: "1rem" }}>
+                    <SkeletonCircle size="48px" />
+                    <div style={{ display: "flex", flexDirection: "column", gap: "0.4rem" }}>
+                      <Skeleton width="120px" height="20px" />
+                      <Skeleton width="80px" height="14px" />
+                    </div>
+                  </div>
+                  <div style={{ display: "flex", flexDirection: "column", gap: "0.8rem", marginTop: "0.4rem" }}>
+                    <Skeleton width="100%" height="110px" borderRadius="8px" />
+                    <Skeleton width="100%" height="80px" borderRadius="8px" />
+                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.8rem" }}>
+                      <Skeleton width="100%" height="70px" borderRadius="8px" />
+                      <Skeleton width="100%" height="70px" borderRadius="8px" />
+                    </div>
+                  </div>
+                </div>
+              ))}
             </div>
           ) : (
-            <div className="team-grid-3">
+            <motion.div 
+              className="team-grid-3"
+              initial="hidden" animate="show"
+              variants={{ hidden: {}, show: { transition: { staggerChildren: 0.1 } } }}
+            >
               {stats.map((stat, index) => {
                 const isUnknown = stat.acronym.includes("UNKNOWN");
                 const realProgressPercent = stat.monthlyGoal > 0 ? (stat.riskApprovedValue / stat.monthlyGoal) * 100 : 0;
@@ -316,11 +342,15 @@ export default function EquipePage() {
                 const primaryColor = isUnknown ? "#EAB308" : "var(--primary)";
                 
                 return (
-                  <div key={stat.acronym} style={{ 
-                    background: cardBg, borderRadius: "12px", border: `1px solid ${cardBorder}`, 
-                    padding: "1.5rem", display: "flex", flexDirection: "column", gap: "1.5rem",
-                    position: "relative", boxShadow: "var(--card-shadow)"
-                  }}>
+                  <motion.div 
+                    key={stat.acronym} 
+                    variants={{ hidden: { opacity: 0, scale: 0.95, y: 20 }, show: { opacity: 1, scale: 1, y: 0, transition: { type: "spring", stiffness: 200, damping: 20 } } }}
+                    style={{ 
+                      background: cardBg, borderRadius: "12px", border: `1px solid ${cardBorder}`, 
+                      padding: "1.5rem", display: "flex", flexDirection: "column", gap: "1.5rem",
+                      position: "relative", boxShadow: "var(--card-shadow)"
+                    }}
+                  >
                     {/* Rank Badge */}
                     {!isUnknown && (
                       <div style={{ position: "absolute", top: "-10px", right: "-10px", width: "32px", height: "32px", borderRadius: "50%", background: primaryColor, color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontWeight: "bold", fontSize: "0.9rem", boxShadow: "0 4px 10px rgba(0,0,0,0.2)" }}>
@@ -336,13 +366,13 @@ export default function EquipePage() {
 
                     {/* Header: Avatar & Name */}
                     <div style={{ display: "flex", alignItems: "center", gap: "1rem" }}>
-                      <div style={{ 
-                        width: "48px", height: "48px", borderRadius: "50%", 
-                        background: isUnknown ? "rgba(253, 224, 71, 0.15)" : "rgba(16, 185, 129, 0.15)", 
-                        color: primaryColor, display: "flex", alignItems: "center", justifyContent: "center", fontWeight: "bold", fontSize: "1.2rem", 
-                        border: `1px solid ${isUnknown ? 'rgba(253, 224, 71, 0.4)' : 'rgba(16, 185, 129, 0.3)'}`
-                      }}>
-                        {isUnknown ? "?" : stat.name.substring(0, 2).toUpperCase()}
+                      <div style={{ position: "relative" }}>
+                        <Avatar 
+                          src={stat.avatarUrl} 
+                          name={isUnknown ? "?" : stat.name} 
+                          size="lg" 
+                          isActive={!isUnknown} 
+                        />
                       </div>
                       <div>
                         <h2 style={{ fontSize: "1.1rem", fontWeight: 700, margin: 0, lineHeight: 1.2 }}>
@@ -386,13 +416,18 @@ export default function EquipePage() {
                           )}
                         </div>
                         <span style={{ fontSize: "1.8rem", fontWeight: 800, color: isUnknown ? "#FDE047" : "var(--success)" }}>
-                          {formatCurrencyBR(stat.riskApprovedValue)}
+                          <AnimatedNumber value={stat.riskApprovedValue} prefix="R$ " decimals={2} />
                         </span>
 
                         {!isUnknown && (
                           <div style={{ marginTop: "1rem" }}>
                             <div style={{ width: "100%", height: "6px", background: "rgba(75, 209, 132, 0.2)", borderRadius: "100px", overflow: "hidden" }}>
-                              <div style={{ width: `${Math.min(progress, 100)}%`, height: "100%", background: "var(--success)", transition: "width 1s ease-in-out" }} />
+                              <motion.div 
+                                initial={{ width: "0%" }}
+                                animate={{ width: `${Math.min(progress, 100)}%` }}
+                                transition={{ type: "spring", stiffness: 50, damping: 20 }}
+                                style={{ height: "100%", background: "var(--success)" }} 
+                              />
                             </div>
                             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: "0.5rem", fontSize: "0.75rem", color: "var(--success)" }}>
                               <span style={{ fontWeight: 600 }}>
@@ -416,7 +451,7 @@ export default function EquipePage() {
                         
                         <div style={{ display: "flex", alignItems: "baseline", gap: "0.1rem" }}>
                           <span style={{ fontSize: "1.2rem", fontWeight: 700 }}>
-                            {stat.totalPieces}
+                            <AnimatedNumber value={stat.totalPieces} decimals={0} />
                           </span>
                           {!isUnknown && (
                             <span style={{ fontSize: "1.2rem", fontWeight: 700, opacity: 0.5 }}>
@@ -427,7 +462,12 @@ export default function EquipePage() {
                         {!isUnknown && (
                           <>
                             <div style={{ marginTop: "0.8rem", width: "100%", height: "6px", background: "var(--card-border)", borderRadius: "100px", overflow: "hidden" }}>
-                              <div style={{ width: `${Math.min(((stat.totalPieces || 0) / (stat.monthlyVolumeGoal || 30)) * 100, 100)}%`, height: "100%", background: ((stat.totalPieces || 0) >= (stat.monthlyVolumeGoal || 30)) ? "var(--success)" : primaryColor, transition: "width 1s ease-in-out" }} />
+                              <motion.div 
+                                initial={{ width: "0%" }}
+                                animate={{ width: `${Math.min(((stat.totalPieces || 0) / (stat.monthlyVolumeGoal || 30)) * 100, 100)}%` }}
+                                transition={{ type: "spring", stiffness: 50, damping: 20 }}
+                                style={{ height: "100%", background: ((stat.totalPieces || 0) >= (stat.monthlyVolumeGoal || 30)) ? "var(--success)" : primaryColor }} 
+                              />
                             </div>
                             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: "0.5rem", fontSize: "0.75rem" }}>
                               <span style={{ fontWeight: 600, color: ((stat.totalPieces || 0) >= (stat.monthlyVolumeGoal || 30)) ? "var(--success)" : primaryColor }}>
@@ -451,7 +491,7 @@ export default function EquipePage() {
                             <Coins size={14} /> Receita Bruta
                           </span>
                           <span style={{ fontSize: "1.1rem", fontWeight: 700 }}>
-                            {formatCurrencyBR(stat.grossValue)}
+                            <AnimatedNumber value={stat.grossValue} prefix="R$ " decimals={2} />
                           </span>
                         </div>
 
@@ -466,7 +506,7 @@ export default function EquipePage() {
                         </div>
                       </div>
                     </div>
-                  </div>
+                  </motion.div>
                 );
               })}
 
@@ -476,7 +516,7 @@ export default function EquipePage() {
                   <p>Nenhum dado encontrado para o período selecionado.</p>
                 </div>
               )}
-            </div>
+            </motion.div>
           )}
         </section>
       </div>

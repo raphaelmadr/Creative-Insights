@@ -2,7 +2,7 @@
 
 import React, { useEffect, useState, useCallback } from "react";
 import TopBar from "@/components/TopBar";
-import CustomDatePicker from "@/components/CustomDatePicker";
+import CustomDateRangePicker from "@/components/CustomDateRangePicker";
 import ReactMarkdown from "react-markdown";
 import { 
   Network, 
@@ -17,8 +17,10 @@ import {
   Ghost,
   Sparkles,
   Calendar,
-  ChevronDown
+  ChevronDown,
+  Info
 } from "lucide-react";
+import { Skeleton } from "@/components/Skeleton";
 import styles from "./Similaridade.module.css";
 
 function toDateInputValue(date: Date): string {
@@ -184,27 +186,24 @@ export default function SimilaridadePage() {
                 <option value="7_days">Últimos 7 dias</option>
                 <option value="15_days">Últimos 15 dias</option>
                 <option value="this_month">Mês atual</option>
-                <option value="custom">Outro período...</option>
+                {/* <option value="custom">Outro período...</option> */}
               </select>
               
               <ChevronDown size={14} style={{ marginLeft: "-1.5rem", pointerEvents: "none", opacity: 0.6 }} />
 
               {datePreset === "custom" && (
-                <>
+                <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
                   <div style={{ width: "1px", height: "16px", background: "var(--card-border)", margin: "0 0.5rem" }} />
-                  <CustomDatePicker
-                    value={dateFrom}
-                    max={dateTo}
-                    onChange={(newDate) => setDateFrom(newDate)}
+                  <CustomDateRangePicker
+                    dateFrom={dateFrom}
+                    dateTo={dateTo}
+                    maxDate={toDateInputValue(todayUTC())}
+                    onChange={(from, to) => {
+                      setDateFrom(from);
+                      setDateTo(to);
+                    }}
                   />
-                  <span style={{ opacity: 0.5, fontSize: "0.75rem", fontWeight: 500 }}>até</span>
-                  <CustomDatePicker
-                    value={dateTo}
-                    min={dateFrom}
-                    max={toDateInputValue(todayUTC())}
-                    onChange={(newDate) => setDateTo(newDate)}
-                  />
-                </>
+                </div>
               )}
             </div>
           </div>
@@ -235,9 +234,31 @@ export default function SimilaridadePage() {
         </div>
 
         {loading ? (
-          <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: "6rem 2rem", opacity: 0.8, gap: "1.5rem" }}>
-            <Loader2 size={48} color="var(--primary)" className="spin" style={{ animation: "spin 2s linear infinite" }} />
-            <h2 style={{ fontSize: "1.5rem", fontWeight: 500, margin: 0 }}>Buscando anúncios concorrentes...</h2>
+          <div style={{ display: "flex", flexDirection: "column", gap: "2.5rem" }}>
+            {[1, 2, 3].map((i) => (
+              <div key={i} className="glass-panel" style={{ overflow: "hidden", border: "1px solid var(--card-border)" }}>
+                <div style={{ background: "rgba(255,255,255,0.02)", display: "flex", justifyContent: "space-between", alignItems: "center", padding: "1.25rem 1.5rem", borderBottom: "1px solid var(--card-border)" }}>
+                  <Skeleton width="300px" height="24px" />
+                  <Skeleton width="150px" height="24px" borderRadius="100px" />
+                </div>
+                <div style={{ padding: "1.5rem" }}>
+                  <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))", gap: "1.5rem" }}>
+                    {[1, 2, 3].map(j => (
+                       <div key={j} style={{ background: "rgba(255,255,255,0.02)", padding: "1rem", borderRadius: "12px", border: "1px solid var(--card-border)" }}>
+                          <div style={{ display: "flex", gap: "1rem" }}>
+                            <Skeleton width="80px" height="80px" borderRadius="8px" style={{ flexShrink: 0 }} />
+                            <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: "0.5rem" }}>
+                              <Skeleton width="100%" height="16px" />
+                              <Skeleton width="60%" height="16px" />
+                              <Skeleton width="100%" height="30px" borderRadius="6px" style={{ marginTop: "0.5rem" }} />
+                            </div>
+                          </div>
+                       </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            ))}
           </div>
         ) : groups.length === 0 ? (
           <div className="glass-panel" style={{ padding: "4rem 2rem", textAlign: "center", display: "flex", flexDirection: "column", alignItems: "center" }}>

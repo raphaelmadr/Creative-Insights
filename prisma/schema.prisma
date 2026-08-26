@@ -19,6 +19,7 @@ model Creator {
   name      String
   acronym   String   @unique
   active    Boolean  @default(true)
+  avatarUrl String?  @db.Text
   monthlyGoal Float  @default(50000)
   monthlyVolumeGoal Int @default(30)
   createdAt DateTime @default(now())

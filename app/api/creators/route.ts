@@ -22,7 +22,7 @@ export async function GET() {
 export async function POST(request: Request) {
   try {
     const body = await request.json();
-    const { name, acronym, active, monthlyGoal, monthlyVolumeGoal } = body;
+    const { name, acronym, active, avatarUrl, monthlyGoal, monthlyVolumeGoal } = body;
 
     if (!name || !acronym) {
       return NextResponse.json({ error: "Nome e sigla são obrigatórios" }, { status: 400 });
@@ -36,6 +36,7 @@ export async function POST(request: Request) {
         name,
         acronym: acronym.toUpperCase(),
         active: active !== undefined ? active : true,
+        avatarUrl: avatarUrl || null,
         monthlyGoal: isNaN(parsedMonthlyGoal) ? 0 : parsedMonthlyGoal,
         monthlyVolumeGoal: isNaN(parsedVolumeGoal) ? 0 : parsedVolumeGoal
       }
@@ -53,7 +54,7 @@ export async function POST(request: Request) {
 export async function PUT(request: Request) {
   try {
     const body = await request.json();
-    const { id, name, acronym, active, monthlyGoal, monthlyVolumeGoal } = body;
+    const { id, name, acronym, active, avatarUrl, monthlyGoal, monthlyVolumeGoal } = body;
 
     if (!id) {
       return NextResponse.json({ error: "ID é obrigatório" }, { status: 400 });
@@ -72,6 +73,10 @@ export async function PUT(request: Request) {
     }
     
     if (active !== undefined) updateData.active = active;
+    
+    if (avatarUrl !== undefined) {
+      updateData.avatarUrl = avatarUrl === "" ? null : avatarUrl;
+    }
     
     if (monthlyGoal !== undefined) {
       const parsed = parseFloat(monthlyGoal);
