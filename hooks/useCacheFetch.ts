@@ -72,5 +72,5 @@ export function useCacheFetch<T>(url: string | null) {
     return () => { isMounted = false; };
   }, [url, tick]);
 
-  return { data, loading, error, isRevalidating, mutate };
+  return { data, setData, loading, error, isRevalidating, mutate };
 }

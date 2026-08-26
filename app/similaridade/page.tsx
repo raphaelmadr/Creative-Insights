@@ -21,6 +21,7 @@ import {
   Info
 } from "lucide-react";
 import { Skeleton } from "@/components/Skeleton";
+import { useCacheFetch } from "@/hooks/useCacheFetch";
 import styles from "./Similaridade.module.css";
 
 function toDateInputValue(date: Date): string {
@@ -70,8 +71,6 @@ type Group = {
 };
 
 export default function SimilaridadePage() {
-  const [groups, setGroups] = useState<Group[]>([]);
-  const [loading, setLoading] = useState(true);
   const [analyzingGroupId, setAnalyzingGroupId] = useState<number | null>(null);
 
   const [dateFrom, setDateFrom] = useState<string>(() => {
@@ -104,22 +103,9 @@ export default function SimilaridadePage() {
     }
   };
 
-  const fetchGroups = useCallback(() => {
-    setLoading(true);
-    fetch(`/api/similaridade?dateFrom=${dateFrom}&dateTo=${dateTo}`)
-      .then(res => res.json())
-      .then(data => {
-        if (data.success) {
-          setGroups(data.groups);
-        }
-      })
-      .catch(err => console.error(err))
-      .finally(() => setLoading(false));
-  }, [dateFrom, dateTo]);
-
-  useEffect(() => {
-    fetchGroups();
-  }, [fetchGroups]);
+  const url = `/api/similaridade?dateFrom=${dateFrom}&dateTo=${dateTo}`;
+  const { data: fetchRes, setData: setFetchRes, loading } = useCacheFetch<any>(url);
+  const groups: Group[] = fetchRes?.success ? fetchRes.groups : [];
 
   const handleAnalyzeWithAI = async (groupIndex: number, group: Group) => {
     setAnalyzingGroupId(groupIndex);
@@ -132,10 +118,11 @@ export default function SimilaridadePage() {
       const data = await res.json();
       
       if (data.success) {
-        setGroups(prev => {
-          const newGroups = [...prev];
+        setFetchRes((prev: any) => {
+          if (!prev) return prev;
+          const newGroups = [...prev.groups];
           newGroups[groupIndex].aiInsight = data.aiInsight;
-          return newGroups;
+          return { ...prev, groups: newGroups };
         });
       } else {
         alert("Erro ao analisar com IA: " + data.error);

@@ -7,6 +7,7 @@ import { Sparkles, Activity, Target, TrendingUp, Award, Image as ImageIcon, Load
 import { motion, AnimatePresence } from "framer-motion";
 import { Avatar } from "@/components/Avatar";
 import { Skeleton } from "@/components/Skeleton";
+import { useCacheFetch } from "@/hooks/useCacheFetch";
 
 const FbIcon = ({ size = 12 }) => (
   <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -271,8 +272,15 @@ function InfiniteScrollTrigger({ remaining, onLoadMore, label = "Carregando mais
 
 export default function CreativeView({ dateFrom, dateTo, statusFilter, onMetricsUpdate, selectedDesigner, creators = [], hideOldAds = true }: { dateFrom: string; dateTo: string; statusFilter?: string; onMetricsUpdate?: (metrics: any) => void; selectedDesigner: string | null; creators: any[]; hideOldAds?: boolean }) {
   const { syncCounter } = useNotifications();
-  const [data, setData] = useState<{superWinners: any[], winners: any[], testes: Record<string, any[]>, settings?: any} | null>(null);
-  const [loading, setLoading] = useState(true);
+  const statusParam = statusFilter || "ACTIVE";
+  const url = `/api/db-ads?from=${dateFrom}&to=${dateTo}&status=${statusParam}`;
+  const { data: fetchRes, loading, isRevalidating, mutate } = useCacheFetch<any>(url);
+  const data = fetchRes?.success ? fetchRes.data : null;
+
+  useEffect(() => {
+    if (syncCounter > 0) mutate();
+  }, [syncCounter]); // Removing mutate from deps to avoid re-renders if hook signature varies
+
   const [hoveredPreview, setHoveredPreview] = useState<{url: string, isVideo?: boolean, adName: string, cardId: string} | null>(null);
   const [superWinnersVisible, setSuperWinnersVisible] = useState(PAGE_SIZE);
   const [winnersVisible, setWinnersVisible] = useState(PAGE_SIZE);
@@ -282,33 +290,6 @@ export default function CreativeView({ dateFrom, dateTo, statusFilter, onMetrics
   const [isSuperWinnersCollapsed, setIsSuperWinnersCollapsed] = useState(false);
   const [isWinnersCollapsed, setIsWinnersCollapsed] = useState(false);
   const [isTestesCollapsed, setIsTestesCollapsed] = useState(false);
-
-
-  const fetchAds = () => {
-    setLoading(true);
-    const statusParam = statusFilter || "ACTIVE";
-    fetch(`/api/db-ads?from=${dateFrom}&to=${dateTo}&status=${statusParam}`)
-      .then(res => {
-        if (!res.ok) throw new Error(`HTTP error! status: ${res.status}`);
-        return res.json();
-      })
-      .then(res => {
-        if (res.success) {
-          setData(res.data);
-        } else {
-          console.error("Erro na API:", res.error);
-        }
-        setLoading(false);
-      })
-      .catch(err => {
-        console.error("Erro ao buscar dados da API:", err);
-        setLoading(false);
-      });
-  };
-
-  useEffect(() => {
-    fetchAds();
-  }, [dateFrom, dateTo, statusFilter, syncCounter]);
 
   useEffect(() => {
     setSuperWinnersVisible(PAGE_SIZE);
