@@ -281,58 +281,45 @@ export async function runMetaSync(
     }
   }
 
-  // --- 5. Database Upsert ---
+  // --- 5. Process Creatives & Database Upsert ---
   let syncedAds = 0;
   let syncedMetrics = 0;
   
-  if (onProgress) onProgress("Processando e salvando métricas...", 60);
+  if (onProgress) onProgress("Processando e salvando criativos...", 60);
 
-  for (let i = 0; i < adIds.length; i++) {
-    const adId = adIds[i];
+  const allAdsToProcess = Array.from(new Set([...adIds, ...refreshAdIds]));
+
+  for (let i = 0; i < allAdsToProcess.length; i++) {
+    const adId = allAdsToProcess[i];
     const rows = rowsByAdId[adId];
-    if (!rows || rows.length === 0) continue;
-
-    if (i % 100 === 0 && onProgress) {
-      onProgress(`Processando e salvando anúncios (${i}/${adIds.length})...`, 60 + Math.floor((i / adIds.length) * 30));
-    }
-
-    const firstRow = rows[0];
-    const adName = firstRow.ad_name || "Desconhecido";
-    const adsetName = firstRow.adset_name || "Desconhecido";
-    const campaignName = firstRow.campaign_name || "Desconhecido";
     
-    const sData = adStatusMap[adId];
-    const status = sData?.status || "UNKNOWN";
-    const createdAtStr = sData?.created_time;
-    let createdTime = createdAtStr ? new Date(createdAtStr) : new Date();
-    if (isNaN(createdTime.getTime())) createdTime = new Date();
-
-    const adsetId = firstRow.adset_id;
-    const targeting = adsetId && adsetTargetingMap[adsetId] ? adsetTargetingMap[adsetId] : undefined;
-    let creatorAcronym = "UNKNOWN";
-
-    if (targeting?.custom_audiences) {
-      for (const aud of targeting.custom_audiences) {
-        if (aud.name) {
-          const nameUpper = aud.name.toUpperCase();
-          for (const ac of validAcronyms) {
-            if (nameUpper.includes(ac.toUpperCase())) {
-              creatorAcronym = ac.toUpperCase();
-              break;
-            }
-          }
-          if (creatorAcronym !== "UNKNOWN") break;
-        }
-      }
+    if (i % 100 === 0 && onProgress) {
+      onProgress(`Processando criativos (${i}/${allAdsToProcess.length})...`, 60 + Math.floor((i / allAdsToProcess.length) * 15));
     }
 
-    if (creatorAcronym === "UNKNOWN") {
-      const adNameUpper = adName.toUpperCase();
-      for (const ac of validAcronyms) {
-        if (adNameUpper.includes(ac.toUpperCase())) {
-          creatorAcronym = ac.toUpperCase();
-          break;
-        }
+    let adName = "Desconhecido";
+    let adsetName = "Desconhecido";
+    let campaignName = "Desconhecido";
+    let status = "UNKNOWN";
+    let createdTime = new Date();
+
+    if (rows && rows.length > 0) {
+      const firstRow = rows[0];
+      adName = firstRow.ad_name || "Desconhecido";
+      adsetName = firstRow.adset_name || "Desconhecido";
+      campaignName = firstRow.campaign_name || "Desconhecido";
+      
+      const sData = adStatusMap[adId];
+      status = sData?.status || "UNKNOWN";
+      const createdAtStr = sData?.created_time;
+      if (createdAtStr) {
+        createdTime = new Date(createdAtStr);
+        if (isNaN(createdTime.getTime())) createdTime = new Date();
+      }
+    } else {
+      const sData = adStatusMap[adId];
+      if (sData) {
+        status = sData.status || "UNKNOWN";
       }
     }
 
@@ -345,80 +332,80 @@ export async function runMetaSync(
       if (creative) {
         const videoId = creative.object_story_spec?.video_data?.video_id || creative.asset_feed_spec?.videos?.[0]?.video_id;
         
+        let fbImageUrl = "";
         if (videoId) {
           videoUrl = videoSourceMap[videoId] || "";
-          thumbnailUrl = videoPictureMap[videoId] || creative.thumbnail_url || creative.object_story_spec?.video_data?.image_url || creative.asset_feed_spec?.videos?.[0]?.thumbnail_url || "";
+          fbImageUrl = videoPictureMap[videoId] || creative.thumbnail_url || creative.object_story_spec?.video_data?.image_url || creative.asset_feed_spec?.videos?.[0]?.thumbnail_url || "";
         } else {
           let hash = creative.image_hash;
           if (!hash && creative.asset_feed_spec?.images && creative.asset_feed_spec.images.length > 0) {
             hash = creative.asset_feed_spec.images[0].hash;
           }
-          
-          let fbImageUrl = hashToUrlMap[hash] || creative.image_url || "";
-          if (fbImageUrl) {
-            if (fbImageUrl.includes('fbcdn.net') || fbImageUrl.includes('scontent')) {
-              try {
-                const imgRes = await fetch(fbImageUrl);
-                if (imgRes.ok) {
-                  const blob = await imgRes.blob();
-                  const filename = `${adId}-${hash || 'image'}.jpg`;
-                  
-                  const settings = await prisma.systemSettings.findUnique({ where: { id: 1 } });
-                  const uploadUrl = settings?.cpanelUploadUrl || process.env.CPANEL_UPLOAD_URL;
-                  const uploadSecret = settings?.cpanelUploadSecret || process.env.CPANEL_UPLOAD_SECRET;
+          fbImageUrl = hashToUrlMap[hash] || creative.image_url || "";
+        }
 
-                  if (uploadUrl && uploadSecret) {
-                    const formData = new FormData();
-                    formData.append("file", blob, filename);
-                    formData.append("filename", filename);
+        if (fbImageUrl) {
+          if (fbImageUrl.includes('fbcdn.net') || fbImageUrl.includes('scontent')) {
+            try {
+              const imgRes = await fetch(fbImageUrl);
+              if (imgRes.ok) {
+                const blob = await imgRes.blob();
+                const filename = `${adId}-${videoId || creative.image_hash || 'image'}.jpg`;
+                
+                const uploadUrl = settingsData?.cpanelUploadUrl || process.env.CPANEL_UPLOAD_URL;
+                const uploadSecret = settingsData?.cpanelUploadSecret || process.env.CPANEL_UPLOAD_SECRET;
 
-                    try {
-                      const uploadRes = await fetch(uploadUrl, {
-                        method: "POST",
-                        headers: {
-                          "Authorization": `Bearer ${uploadSecret}`
-                        },
-                        body: formData
-                      });
+                if (uploadUrl && uploadSecret) {
+                  const formData = new FormData();
+                  formData.append("file", blob, filename);
+                  formData.append("filename", filename);
 
-                      if (uploadRes.ok) {
-                        const result = await uploadRes.json();
-                        if (result.success && result.url) {
-                          imageUrl = result.url;
-                          thumbnailUrl = result.url;
-                        } else {
-                          imageUrl = fbImageUrl;
-                          thumbnailUrl = fbImageUrl;
-                        }
+                  try {
+                    const uploadRes = await fetch(uploadUrl, {
+                      method: "POST",
+                      headers: {
+                        "Authorization": `Bearer ${uploadSecret}`
+                      },
+                      body: formData
+                    });
+
+                    if (uploadRes.ok) {
+                      const result = await uploadRes.json();
+                      if (result.success && result.url) {
+                        imageUrl = result.url;
+                        thumbnailUrl = result.url;
                       } else {
                         imageUrl = fbImageUrl;
                         thumbnailUrl = fbImageUrl;
                       }
-                    } catch (e) {
+                    } else {
                       imageUrl = fbImageUrl;
                       thumbnailUrl = fbImageUrl;
                     }
-                  } else if (process.env.BLOB_READ_WRITE_TOKEN) {
-                    const { put } = await import('@vercel/blob');
-                    const uploadResult = await put(`ad-images/${filename}`, blob, { access: 'public', addRandomSuffix: false });
-                    imageUrl = uploadResult.url;
-                    thumbnailUrl = uploadResult.url;
-                  } else {
+                  } catch (e) {
                     imageUrl = fbImageUrl;
                     thumbnailUrl = fbImageUrl;
                   }
+                } else if (process.env.BLOB_READ_WRITE_TOKEN) {
+                  const { put } = await import('@vercel/blob');
+                  const uploadResult = await put(`ad-images/${filename}`, blob, { access: 'public', addRandomSuffix: false });
+                  imageUrl = uploadResult.url;
+                  thumbnailUrl = uploadResult.url;
                 } else {
                   imageUrl = fbImageUrl;
                   thumbnailUrl = fbImageUrl;
                 }
-              } catch (e) {
+              } else {
                 imageUrl = fbImageUrl;
                 thumbnailUrl = fbImageUrl;
               }
-            } else {
+            } catch (e) {
               imageUrl = fbImageUrl;
               thumbnailUrl = fbImageUrl;
             }
+          } else {
+            imageUrl = fbImageUrl;
+            thumbnailUrl = fbImageUrl;
           }
         }
       }
@@ -426,39 +413,59 @@ export async function runMetaSync(
 
     let adCreative = await prisma.adCreative.findUnique({ where: { id: adId } });
     if (!adCreative) {
-      const createData: any = {
-        id: adId,
-        adName,
-        adsetName,
-        campaignName,
-        status,
-        createdTime,
-      };
-      // The schema does not strictly match `creatorAcronym` if it's absent, 
-      // but if the user wants it, it must be in AdCreative? Wait, I saw earlier it failed for `createdAt`, so I used `createdTime`.
-      if (imageUrl) createData.imageUrl = imageUrl;
-      if (thumbnailUrl) createData.thumbnailUrl = thumbnailUrl;
-      if (videoUrl) createData.videoUrl = videoUrl;
-      
-      adCreative = await prisma.adCreative.create({ data: createData });
-      syncedAds++;
+      if (rows && rows.length > 0) {
+        const createData: any = {
+          id: adId,
+          adName,
+          adsetName,
+          campaignName,
+          status,
+          createdTime,
+        };
+        if (imageUrl) createData.imageUrl = imageUrl;
+        if (thumbnailUrl) createData.thumbnailUrl = thumbnailUrl;
+        if (videoUrl) createData.videoUrl = videoUrl;
+        
+        await prisma.adCreative.create({ data: createData });
+        syncedAds++;
+      }
     } else {
-      const updateData: any = {
-        adName,
-        adsetName,
-        campaignName,
-        status
-      };
+      const updateData: any = {};
+      if (rows && rows.length > 0) {
+        updateData.adName = adName;
+        updateData.adsetName = adsetName;
+        updateData.campaignName = campaignName;
+        updateData.status = status;
+      } else if (status !== "UNKNOWN") {
+        updateData.status = status;
+      }
+      
       if (imageUrl) updateData.imageUrl = imageUrl;
       if (thumbnailUrl) updateData.thumbnailUrl = thumbnailUrl;
       if (videoUrl) updateData.videoUrl = videoUrl;
       
-      adCreative = await prisma.adCreative.update({
-        where: { id: adId },
-        data: updateData
-      });
-      syncedAds++;
+      if (Object.keys(updateData).length > 0) {
+        await prisma.adCreative.update({
+          where: { id: adId },
+          data: updateData
+        });
+        syncedAds++;
+      }
     }
+  }
+
+  if (onProgress) onProgress("Processando e salvando métricas...", 75);
+
+  for (let i = 0; i < adIds.length; i++) {
+    const adId = adIds[i];
+    const rows = rowsByAdId[adId];
+    if (!rows || rows.length === 0) continue;
+
+    if (i % 100 === 0 && onProgress) {
+      onProgress(`Processando métricas (${i}/${adIds.length})...`, 75 + Math.floor((i / adIds.length) * 20));
+    }
+
+
 
     for (const row of rows) {
       if (!row.date_start) continue;
