@@ -136,7 +136,15 @@ model SystemSettings {
   marketInsightsPrompt String? @db.Text
   
   metaAdAccountId   String?
+  metaAppId         String?
+  metaAppSecret     String?  @db.Text
   metaAccessToken   String?  @db.Text
+  
+  googleClientId    String?  @db.Text
+  googleClientSecret String? @db.Text
+  nextAuthSecret    String?  @db.Text
+  nextAuthUrl       String?
+  
   geminiApiKey      String?  @db.Text
   openaiApiKey      String?  @db.Text
   anthropicApiKey   String?  @db.Text
@@ -147,6 +155,9 @@ model SystemSettings {
   huggingFaceApiKey String?  @db.Text
   slackBotToken     String?
   slackChannelId    String?
+  
+  cpanelUploadUrl   String?  @db.Text
+  cpanelUploadSecret String? @db.Text
   
   cronSyncEnabled   Boolean  @default(true)
   cronSyncMode      String   @default("metrics") // "metrics" ou "full"

@@ -1,5 +1,4 @@
 import { PrismaClient } from "@prisma/client";
-import { put } from "@vercel/blob";
 import { throttledFetch, fetchWithBisection, MetaApiError, WallClockLimitError, resetWallClock } from "./throttled-fetch";
 
 const prisma = new PrismaClient();
@@ -120,10 +119,21 @@ export async function runMetaSync(
     select: { id: true, imageUrl: true, thumbnailUrl: true }
   });
   const existingIds = new Set(existingAds.map(a => a.id));
+  const settingsData = await prisma.systemSettings.findUnique({ where: { id: 1 } });
+  const globalCpanelUrl = settingsData?.cpanelUploadUrl || process.env.CPANEL_UPLOAD_URL;
+
   const blurryExistingIds = new Set(
     existingAds.filter(a => {
       if (!a.imageUrl) return true;
       if (a.imageUrl.includes('public.blob.vercel-storage.com') || a.imageUrl.includes('vercel.app')) return false;
+      
+      if (globalCpanelUrl) {
+        try {
+          const cpanelDomain = new URL(globalCpanelUrl).hostname;
+          if (a.imageUrl.includes(cpanelDomain)) return false;
+        } catch(e) {}
+      }
+
       if (a.imageUrl === a.thumbnailUrl) return true;
       if (a.imageUrl.includes('fbcdn.net') || a.imageUrl.includes('scontent') || a.imageUrl.includes('facebook.com')) return true;
       return false;
@@ -351,10 +361,52 @@ export async function runMetaSync(
                 const imgRes = await fetch(fbImageUrl);
                 if (imgRes.ok) {
                   const blob = await imgRes.blob();
-                  const filename = `ad-images/${adId}-${hash || 'image'}.jpg`;
-                  const uploadResult = await put(filename, blob, { access: 'public', addRandomSuffix: false });
-                  imageUrl = uploadResult.url;
-                  thumbnailUrl = uploadResult.url;
+                  const filename = `${adId}-${hash || 'image'}.jpg`;
+                  
+                  const settings = await prisma.systemSettings.findUnique({ where: { id: 1 } });
+                  const uploadUrl = settings?.cpanelUploadUrl || process.env.CPANEL_UPLOAD_URL;
+                  const uploadSecret = settings?.cpanelUploadSecret || process.env.CPANEL_UPLOAD_SECRET;
+
+                  if (uploadUrl && uploadSecret) {
+                    const formData = new FormData();
+                    formData.append("file", blob, filename);
+                    formData.append("filename", filename);
+
+                    try {
+                      const uploadRes = await fetch(uploadUrl, {
+                        method: "POST",
+                        headers: {
+                          "Authorization": `Bearer ${uploadSecret}`
+                        },
+                        body: formData
+                      });
+
+                      if (uploadRes.ok) {
+                        const result = await uploadRes.json();
+                        if (result.success && result.url) {
+                          imageUrl = result.url;
+                          thumbnailUrl = result.url;
+                        } else {
+                          imageUrl = fbImageUrl;
+                          thumbnailUrl = fbImageUrl;
+                        }
+                      } else {
+                        imageUrl = fbImageUrl;
+                        thumbnailUrl = fbImageUrl;
+                      }
+                    } catch (e) {
+                      imageUrl = fbImageUrl;
+                      thumbnailUrl = fbImageUrl;
+                    }
+                  } else if (process.env.BLOB_READ_WRITE_TOKEN) {
+                    const { put } = await import('@vercel/blob');
+                    const uploadResult = await put(`ad-images/${filename}`, blob, { access: 'public', addRandomSuffix: false });
+                    imageUrl = uploadResult.url;
+                    thumbnailUrl = uploadResult.url;
+                  } else {
+                    imageUrl = fbImageUrl;
+                    thumbnailUrl = fbImageUrl;
+                  }
                 } else {
                   imageUrl = fbImageUrl;
                   thumbnailUrl = fbImageUrl;

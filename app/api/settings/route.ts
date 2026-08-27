@@ -148,7 +148,10 @@ export async function POST(request: Request) {
       openaiApiKey, anthropicApiKey, tavilyApiKey,
       groqApiKey, openRouterApiKey, cohereApiKey, huggingFaceApiKey,
       slackBotToken, slackChannelId,
-      teamCreativeGoal, cronSyncEnabled, cronSyncMode, cronSyncInterval
+      teamCreativeGoal, cronSyncEnabled, cronSyncMode, cronSyncInterval,
+      cpanelUploadUrl, cpanelUploadSecret,
+      googleClientId, googleClientSecret, nextAuthSecret, nextAuthUrl,
+      metaAppId, metaAppSecret
     } = body;
 
     const updateData: any = {
@@ -181,6 +184,14 @@ export async function POST(request: Request) {
     if (cronSyncEnabled !== undefined) updateData.cronSyncEnabled = Boolean(cronSyncEnabled);
     if (cronSyncMode !== undefined) updateData.cronSyncMode = cronSyncMode;
     if (cronSyncInterval !== undefined) updateData.cronSyncInterval = parseInt(cronSyncInterval) || 120;
+    if (cpanelUploadUrl !== undefined) updateData.cpanelUploadUrl = cpanelUploadUrl;
+    if (cpanelUploadSecret !== undefined) updateData.cpanelUploadSecret = cpanelUploadSecret;
+    if (googleClientId !== undefined) updateData.googleClientId = googleClientId;
+    if (googleClientSecret !== undefined) updateData.googleClientSecret = googleClientSecret;
+    if (nextAuthSecret !== undefined) updateData.nextAuthSecret = nextAuthSecret;
+    if (nextAuthUrl !== undefined) updateData.nextAuthUrl = nextAuthUrl;
+    if (metaAppId !== undefined) updateData.metaAppId = metaAppId;
+    if (metaAppSecret !== undefined) updateData.metaAppSecret = metaAppSecret;
 
     const settings = await prisma.systemSettings.upsert({
       where: { id: 1 },
@@ -211,6 +222,14 @@ export async function POST(request: Request) {
         ...(cronSyncEnabled !== undefined && { cronSyncEnabled: Boolean(cronSyncEnabled) }),
         ...(cronSyncMode !== undefined && { cronSyncMode }),
         ...(cronSyncInterval !== undefined && { cronSyncInterval: parseInt(cronSyncInterval) || 120 }),
+        ...(cpanelUploadUrl !== undefined && { cpanelUploadUrl }),
+        ...(cpanelUploadSecret !== undefined && { cpanelUploadSecret }),
+        ...(googleClientId !== undefined && { googleClientId }),
+        ...(googleClientSecret !== undefined && { googleClientSecret }),
+        ...(nextAuthSecret !== undefined && { nextAuthSecret }),
+        ...(nextAuthUrl !== undefined && { nextAuthUrl }),
+        ...(metaAppId !== undefined && { metaAppId }),
+        ...(metaAppSecret !== undefined && { metaAppSecret }),
       }
     });
 

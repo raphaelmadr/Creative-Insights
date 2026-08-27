@@ -41,7 +41,15 @@ export default function SettingsModal({ isOpen, onClose, onSave }: { isOpen: boo
     slackChannelId: "",
     cronSyncEnabled: true,
     cronSyncMode: "metrics",
-    cronSyncInterval: 120
+    cronSyncInterval: 120,
+    cpanelUploadUrl: "",
+    cpanelUploadSecret: "",
+    googleClientId: "",
+    googleClientSecret: "",
+    nextAuthSecret: "",
+    nextAuthUrl: "",
+    metaAppId: "",
+    metaAppSecret: ""
   });
 
   useEffect(() => {
@@ -78,7 +86,15 @@ export default function SettingsModal({ isOpen, onClose, onSave }: { isOpen: boo
               slackChannelId: res.data.slackChannelId || "",
               cronSyncEnabled: res.data.cronSyncEnabled !== undefined ? res.data.cronSyncEnabled : true,
               cronSyncMode: res.data.cronSyncMode || "metrics",
-              cronSyncInterval: res.data.cronSyncInterval || 120
+              cronSyncInterval: res.data.cronSyncInterval || 120,
+              cpanelUploadUrl: res.data.cpanelUploadUrl || "",
+              cpanelUploadSecret: res.data.cpanelUploadSecret || "",
+              googleClientId: res.data.googleClientId || "",
+              googleClientSecret: res.data.googleClientSecret || "",
+              nextAuthSecret: res.data.nextAuthSecret || "",
+              nextAuthUrl: res.data.nextAuthUrl || "",
+              metaAppId: res.data.metaAppId || "",
+              metaAppSecret: res.data.metaAppSecret || ""
             });
           }
           setFetching(false);
@@ -360,6 +376,35 @@ export default function SettingsModal({ isOpen, onClose, onSave }: { isOpen: boo
                     </div>
                   )}
                 </div>
+
+                <div style={{ background: "var(--background-main)", borderRadius: "12px", border: "1px solid var(--card-border)", padding: "1.5rem", display: "flex", flexDirection: "column", gap: "1.5rem" }}>
+                  <h3 style={{ fontSize: "1rem", fontWeight: 600, color: "var(--foreground)", margin: 0, display: "flex", alignItems: "center", gap: "0.5rem" }}>
+                    Hospedagem de Imagens (cPanel)
+                  </h3>
+                  <span style={{ fontSize: "0.85rem", color: "var(--muted)", opacity: 0.8, marginTop: "-0.5rem" }}>
+                    Configure o endpoint do seu servidor para salvar as imagens de anúncios e evitar expiração de mídia, substituindo o Vercel Blob.
+                  </span>
+
+                  <label style={{ display: "flex", flexDirection: "column", gap: "0.5rem", fontSize: "0.85rem" }}>
+                    <span style={{ fontWeight: 600 }}>URL de Upload (Webhook)</span>
+                    <input type="url"
+                      value={settings.cpanelUploadUrl} 
+                      onChange={e => setSettings({...settings, cpanelUploadUrl: e.target.value})} 
+                      placeholder="https://seu-site.com.br/ad-images/upload.php"
+                      style={{ padding: "0.8rem", borderRadius: "6px", border: "1px solid var(--card-border)", background: "var(--card-bg)", color: "var(--foreground)", fontFamily: "monospace", fontSize: "0.8rem" }} 
+                    />
+                  </label>
+
+                  <label style={{ display: "flex", flexDirection: "column", gap: "0.5rem", fontSize: "0.85rem" }}>
+                    <span style={{ fontWeight: 600 }}>Senha (Secret Token)</span>
+                    <input type="password"
+                      value={settings.cpanelUploadSecret} 
+                      onChange={e => setSettings({...settings, cpanelUploadSecret: e.target.value})} 
+                      placeholder="Mesma senha definida no arquivo upload.php"
+                      style={{ padding: "0.8rem", borderRadius: "6px", border: "1px solid var(--card-border)", background: "var(--card-bg)", color: "var(--foreground)", fontFamily: "monospace", fontSize: "0.8rem" }} 
+                    />
+                  </label>
+                </div>
               </div>
             )}
 
@@ -608,6 +653,77 @@ export default function SettingsModal({ isOpen, onClose, onSave }: { isOpen: boo
                     <input type="password"
                       value={settings.metaAccessToken} 
                       onChange={e => setSettings({...settings, metaAccessToken: e.target.value})} 
+                      placeholder="Deixe em branco para usar o .env"
+                      style={{ padding: "0.8rem", borderRadius: "6px", border: "1px solid var(--card-border)", background: "var(--card-bg)", color: "var(--foreground)", fontFamily: "monospace", fontSize: "0.8rem" }} 
+                    />
+                  </label>
+
+                  <label style={{ display: "flex", flexDirection: "column", gap: "0.5rem", fontSize: "0.85rem" }}>
+                    <span style={{ fontWeight: 600 }}>App ID</span>
+                    <span style={{ opacity: 0.7, fontSize: "0.75rem", marginBottom: "0.5rem" }}>Opcional: ID do Aplicativo na Meta for Developers</span>
+                    <input type="text"
+                      value={settings.metaAppId} 
+                      onChange={e => setSettings({...settings, metaAppId: e.target.value})} 
+                      placeholder="Deixe em branco para usar o .env"
+                      style={{ padding: "0.8rem", borderRadius: "6px", border: "1px solid var(--card-border)", background: "var(--card-bg)", color: "var(--foreground)", fontFamily: "monospace", fontSize: "0.8rem" }} 
+                    />
+                  </label>
+
+                  <label style={{ display: "flex", flexDirection: "column", gap: "0.5rem", fontSize: "0.85rem" }}>
+                    <span style={{ fontWeight: 600 }}>App Secret</span>
+                    <span style={{ opacity: 0.7, fontSize: "0.75rem", marginBottom: "0.5rem" }}>Opcional: Chave Secreta do Aplicativo</span>
+                    <input type="password"
+                      value={settings.metaAppSecret} 
+                      onChange={e => setSettings({...settings, metaAppSecret: e.target.value})} 
+                      placeholder="Deixe em branco para usar o .env"
+                      style={{ padding: "0.8rem", borderRadius: "6px", border: "1px solid var(--card-border)", background: "var(--card-bg)", color: "var(--foreground)", fontFamily: "monospace", fontSize: "0.8rem" }} 
+                    />
+                  </label>
+                </div>
+
+                {/* Agrupamento: Autenticação (NextAuth e Google) */}
+                <div style={{ background: "var(--background-main)", borderRadius: "12px", border: "1px solid var(--card-border)", padding: "1.5rem", display: "flex", flexDirection: "column", gap: "1.5rem" }}>
+                  <h3 style={{ fontSize: "1rem", fontWeight: 600, color: "var(--foreground)", margin: 0, display: "flex", alignItems: "center", gap: "0.5rem" }}>
+                    Autenticação e Google OAuth
+                  </h3>
+                  
+                  <label style={{ display: "flex", flexDirection: "column", gap: "0.5rem", fontSize: "0.85rem" }}>
+                    <span style={{ fontWeight: 600 }}>Google Client ID</span>
+                    <input type="text"
+                      value={settings.googleClientId} 
+                      onChange={e => setSettings({...settings, googleClientId: e.target.value})} 
+                      placeholder="Deixe em branco para usar o .env"
+                      style={{ padding: "0.8rem", borderRadius: "6px", border: "1px solid var(--card-border)", background: "var(--card-bg)", color: "var(--foreground)", fontFamily: "monospace", fontSize: "0.8rem" }} 
+                    />
+                  </label>
+
+                  <label style={{ display: "flex", flexDirection: "column", gap: "0.5rem", fontSize: "0.85rem" }}>
+                    <span style={{ fontWeight: 600 }}>Google Client Secret</span>
+                    <input type="password"
+                      value={settings.googleClientSecret} 
+                      onChange={e => setSettings({...settings, googleClientSecret: e.target.value})} 
+                      placeholder="Deixe em branco para usar o .env"
+                      style={{ padding: "0.8rem", borderRadius: "6px", border: "1px solid var(--card-border)", background: "var(--card-bg)", color: "var(--foreground)", fontFamily: "monospace", fontSize: "0.8rem" }} 
+                    />
+                  </label>
+
+                  <label style={{ display: "flex", flexDirection: "column", gap: "0.5rem", fontSize: "0.85rem" }}>
+                    <span style={{ fontWeight: 600 }}>NextAuth URL</span>
+                    <span style={{ opacity: 0.7, fontSize: "0.75rem", marginBottom: "0.5rem" }}>URL base do sistema (ex: http://localhost:3000 ou https://seu-site.com)</span>
+                    <input type="url"
+                      value={settings.nextAuthUrl} 
+                      onChange={e => setSettings({...settings, nextAuthUrl: e.target.value})} 
+                      placeholder="Deixe em branco para usar o .env"
+                      style={{ padding: "0.8rem", borderRadius: "6px", border: "1px solid var(--card-border)", background: "var(--card-bg)", color: "var(--foreground)", fontFamily: "monospace", fontSize: "0.8rem" }} 
+                    />
+                  </label>
+
+                  <label style={{ display: "flex", flexDirection: "column", gap: "0.5rem", fontSize: "0.85rem" }}>
+                    <span style={{ fontWeight: 600 }}>NextAuth Secret</span>
+                    <span style={{ opacity: 0.7, fontSize: "0.75rem", marginBottom: "0.5rem" }}>Chave de criptografia de sessão. Cuidado ao alterar!</span>
+                    <input type="password"
+                      value={settings.nextAuthSecret} 
+                      onChange={e => setSettings({...settings, nextAuthSecret: e.target.value})} 
                       placeholder="Deixe em branco para usar o .env"
                       style={{ padding: "0.8rem", borderRadius: "6px", border: "1px solid var(--card-border)", background: "var(--card-bg)", color: "var(--foreground)", fontFamily: "monospace", fontSize: "0.8rem" }} 
                     />
