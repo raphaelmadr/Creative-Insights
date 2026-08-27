@@ -663,7 +663,7 @@ export default function CreativeView({ dateFrom, dateTo, statusFilter, onMetrics
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", flexWrap: "wrap", gap: "1rem", marginBottom: "1rem" }}>
           <div className="section-header" style={{ marginBottom: 0 }}>
             <span className="section-number">02</span>
-            <h2 className="section-title">super winners</h2>
+            <h2 className="section-title">super winners ({filteredSuperWinners.length})</h2>
             <span className="section-subtitle">gastou &gt; {data?.settings ? (data.settings.superWinnerSpend / 1000).toFixed(0) + 'k' : '1k'}, faturou &gt; {data?.settings ? (data.settings.superWinnerReturn / 1000).toFixed(0) + 'k' : '5k'} e cpa &lt; {data?.settings ? data.settings.superWinnerCpa : '50'}</span>
           </div>
           <button 
@@ -702,7 +702,7 @@ export default function CreativeView({ dateFrom, dateTo, statusFilter, onMetrics
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", flexWrap: "wrap", gap: "1rem", marginBottom: "1rem" }}>
           <div className="section-header" style={{ marginBottom: 0 }}>
             <span className="section-number">03</span>
-            <h2 className="section-title">winners</h2>
+            <h2 className="section-title">winners ({filteredWinners.length})</h2>
             <span className="section-subtitle">gastou &gt; {data?.settings ? (data.settings.winnerSpend / 1000).toFixed(0) + 'k' : '1k'}, faturou &gt; {data?.settings ? (data.settings.winnerReturn / 1000).toFixed(0) + 'k' : '1k'} e cpa &lt; {data?.settings ? data.settings.winnerCpa : '80'}</span>
           </div>
           <button 
@@ -741,7 +741,7 @@ export default function CreativeView({ dateFrom, dateTo, statusFilter, onMetrics
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", flexWrap: "wrap", gap: "1rem", marginBottom: "1rem" }}>
           <div className="section-header" style={{ marginBottom: 0 }}>
             <span className="section-number">04</span>
-            <h2 className="section-title">área de testes</h2>
+            <h2 className="section-title">área de testes ({Object.values(filteredTestes).reduce((acc, curr) => acc + curr.length, 0)})</h2>
             <span className="section-subtitle">em validação</span>
           </div>
           <button 

@@ -31,7 +31,7 @@ function ToastCard({ toast, index, isHovered, removeToast, syncProgress, isSynci
     }
   }, [isHovered, toast.id, removeToast]);
 
-  const yOffset = isHovered ? index * 60 : index * 14;
+  const yOffset = isHovered ? -(index * 60) : -(index * 14);
   const scale = isHovered ? 1 : 1 - index * 0.05;
   const opacity = isHovered ? 1 : index > 2 ? 0 : 1 - index * 0.2;
 
@@ -43,7 +43,7 @@ function ToastCard({ toast, index, isHovered, removeToast, syncProgress, isSynci
   return (
     <motion.div
       layout
-      initial={{ opacity: 0, y: -50, scale: 0.8 }}
+      initial={{ opacity: 0, y: 50, scale: 0.8 }}
       animate={{ 
         opacity, 
         y: yOffset, 
@@ -53,7 +53,7 @@ function ToastCard({ toast, index, isHovered, removeToast, syncProgress, isSynci
       exit={{ opacity: 0, scale: 0.8, transition: { duration: 0.2 } }}
       style={{
         position: "absolute",
-        top: 0,
+        bottom: 0,
         right: 0,
         background: toast.isError ? "rgba(239, 68, 68, 0.9)" : toast.isNew ? "rgba(16, 185, 129, 0.8)" : "rgba(30, 30, 30, 0.8)",
         backdropFilter: "blur(12px)",
@@ -68,7 +68,7 @@ function ToastCard({ toast, index, isHovered, removeToast, syncProgress, isSynci
         alignItems: "center",
         gap: "0.5rem",
         fontWeight: 500,
-        transformOrigin: "top right",
+        transformOrigin: "bottom right",
         pointerEvents: "auto",
         minWidth: "max-content"
       }}
@@ -112,7 +112,7 @@ export function ToastStack({ toasts, removeToast, syncProgress, isSyncingMeta, s
     <div 
       style={{
         position: "fixed",
-        top: "1.5rem",
+        bottom: "1.5rem",
         right: "1.5rem",
         zIndex: 9999,
         display: "flex",

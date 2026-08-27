@@ -1,14 +1,19 @@
 import type { Metadata } from "next";
-import { Plus_Jakarta_Sans } from "next/font/google";
+import { Inter, Bricolage_Grotesque } from "next/font/google";
 import "./globals.css";
 import SessionProvider from "@/components/SessionProvider";
 import { ThemeProvider } from "@/components/ThemeProvider";
 import NotificationProvider from "@/components/NotificationProvider";
 import MuiProvider from "@/components/MuiProvider";
 
-const plusJakartaSans = Plus_Jakarta_Sans({
+const inter = Inter({
   subsets: ["latin"],
-  variable: "--font-plus-jakarta-sans",
+  variable: "--font-inter",
+});
+
+const bricolage = Bricolage_Grotesque({
+  subsets: ["latin"],
+  variable: "--font-bricolage",
 });
 
 export const metadata: Metadata = {
@@ -24,10 +29,10 @@ export default function RootLayout({
   return (
     <html
       lang="pt-BR"
-      className={`${plusJakartaSans.variable}`}
+      className={`${inter.variable} ${bricolage.variable}`}
       suppressHydrationWarning
     >
-      <body className={plusJakartaSans.className}>
+      <body className={inter.className}>
         <SessionProvider>
           <ThemeProvider>
             <MuiProvider>

@@ -1,0 +1,18 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npx prisma *)",
+      "Read(//Users/raphael/.nvm/versions/node/**)",
+      "Read(//Users/raphael/.volta/**)",
+      "Read(//Users/raphael/**)",
+      "Read(//opt/homebrew/**)",
+      "Bash(curl -sS --max-time 15 \"http://localhost:3000/api/db-ads?days=30\" -o /tmp/dbads.json -w \"HTTP %{http_code} in %{time_total}s\\\\n\")",
+      "Bash(python3 -c ' *)",
+      "Bash(curl -sS --max-time 60 -X POST \"http://localhost:3000/api/sync-meta\" -o /tmp/sync.json -w \"HTTP %{http_code} in %{time_total}s\\\\n\")",
+      "Read(//tmp/**)",
+      "Bash(curl -sS --max-time 15 \"http://localhost:3000/api/db-ads?days=30\" -o /tmp/dbads2.json -w \"HTTP %{http_code} in %{time_total}s\\\\n\")",
+      "Bash(curl -sS --max-time 180 -X POST \"http://localhost:3000/api/sync-meta\" -o /tmp/sync9.json -w \"HTTP %{http_code} in %{time_total}s\\\\n\")",
+      "Bash(curl -sS --max-time 10 \"http://localhost:3000/\" -o /dev/null -w \"HTTP %{http_code}\\\\n\")"
+    ]
+  }
+}

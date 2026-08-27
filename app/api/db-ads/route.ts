@@ -68,6 +68,9 @@ export async function GET(req: Request) {
     let totalRiskApprovedValue = 0;
     let totalGrossValue = 0;
 
+    const aggregatedAds = new Map<string, any>();
+    const originalAdsByCreative = new Map<string, any[]>();
+
     for (const ad of ads) {
       if (ad.metrics.length === 0) continue;
 
@@ -91,54 +94,102 @@ export async function GET(req: Request) {
 
       if (spend === 0 && grossValue === 0 && riskApprovedValue === 0) continue;
 
-      const ctr = impressions > 0 ? (clicks / impressions) * 100 : 0;
-
-      const creativeData = {
-        id: ad.id,
-        ad_name: ad.adName,
-        designer: ad.designer,
-        image_url: ad.imageUrl,
-        thumbnail_url: ad.thumbnailUrl,
-        videoUrl: ad.videoUrl,
-        mediaType: ad.mediaType,
-        publisherPlatforms: ad.publisherPlatforms,
-        createdTime: ad.createdTime,
-        spend: spend.toFixed(2),
-        ctr: ctr.toFixed(2),
-        riskApprovedValue: riskApprovedValue.toFixed(2),
-        grossValue: grossValue.toFixed(2),
-        cpa: (netOrders > 0 ? (spend / netOrders) : spend).toFixed(2),
-        netOrders,
-        impressions,
-        clicks,
-      };
-
       totalSpend += spend;
       totalImpressions += impressions;
       totalClicks += clicks;
       totalRiskApprovedValue += riskApprovedValue;
       totalGrossValue += grossValue;
 
-      const cpa = netOrders > 0 ? (spend / netOrders) : spend; // se não tem aprovação, o custo é o spend inteiro
+      const adName = (ad.adName || "Desconhecido").trim();
+
+      if (!aggregatedAds.has(adName)) {
+        aggregatedAds.set(adName, {
+          id: ad.id,
+          ad_name: ad.adName,
+          designer: ad.designer,
+          image_url: ad.imageUrl,
+          thumbnail_url: ad.thumbnailUrl,
+          videoUrl: ad.videoUrl,
+          mediaType: ad.mediaType,
+          publisherPlatforms: ad.publisherPlatforms,
+          createdTime: ad.createdTime,
+          spend, impressions, clicks, riskApprovedValue, grossValue, netOrders, purchases
+        });
+        originalAdsByCreative.set(adName, []);
+      } else {
+        const agg = aggregatedAds.get(adName);
+        agg.spend += spend;
+        agg.impressions += impressions;
+        agg.clicks += clicks;
+        agg.riskApprovedValue += riskApprovedValue;
+        agg.grossValue += grossValue;
+        agg.netOrders += netOrders;
+        agg.purchases += purchases;
+      }
+
+      const ctr = impressions > 0 ? (clicks / impressions) * 100 : 0;
+      const cpa = netOrders > 0 ? (spend / netOrders) : spend;
+
+      originalAdsByCreative.get(adName)!.push({
+        adsetName: ad.adsetName,
+        individualData: {
+          id: ad.id,
+          ad_name: ad.adName,
+          designer: ad.designer,
+          image_url: ad.imageUrl,
+          thumbnail_url: ad.thumbnailUrl,
+          videoUrl: ad.videoUrl,
+          mediaType: ad.mediaType,
+          publisherPlatforms: ad.publisherPlatforms,
+          createdTime: ad.createdTime,
+          spend: spend.toFixed(2),
+          ctr: ctr.toFixed(2),
+          riskApprovedValue: riskApprovedValue.toFixed(2),
+          grossValue: grossValue.toFixed(2),
+          cpa: cpa.toFixed(2),
+          netOrders,
+          impressions,
+          clicks,
+        }
+      });
+    }
+
+    for (const [adName, agg] of aggregatedAds.entries()) {
+      const cpa = agg.netOrders > 0 ? (agg.spend / agg.netOrders) : agg.spend;
+      const ctr = agg.impressions > 0 ? (agg.clicks / agg.impressions) * 100 : 0;
 
       const isSuperWinner =
-        spend >= SUPER_WINNER_SPEND_THRESHOLD &&
-        riskApprovedValue >= SUPER_WINNER_VALUE_THRESHOLD &&
+        agg.spend >= SUPER_WINNER_SPEND_THRESHOLD &&
+        agg.riskApprovedValue >= SUPER_WINNER_VALUE_THRESHOLD &&
         cpa <= SUPER_WINNER_MAX_CPA;
 
       const isWinner =
-        spend >= WINNER_SPEND_THRESHOLD &&
-        riskApprovedValue >= WINNER_VALUE_THRESHOLD &&
+        agg.spend >= WINNER_SPEND_THRESHOLD &&
+        agg.riskApprovedValue >= WINNER_VALUE_THRESHOLD &&
         cpa <= WINNER_MAX_CPA;
 
-      if (isSuperWinner) {
-        superWinners.push(creativeData);
-      } else if (isWinner) {
-        winners.push(creativeData);
+      if (isSuperWinner || isWinner) {
+        const creativeData = {
+          ...agg,
+          spend: agg.spend.toFixed(2),
+          ctr: ctr.toFixed(2),
+          riskApprovedValue: agg.riskApprovedValue.toFixed(2),
+          grossValue: agg.grossValue.toFixed(2),
+          cpa: cpa.toFixed(2)
+        };
+
+        if (isSuperWinner) {
+          superWinners.push(creativeData);
+        } else {
+          winners.push(creativeData);
+        }
       } else {
-        const set = ad.adsetName || "Outros";
-        if (!testes[set]) testes[set] = [];
-        testes[set].push(creativeData);
+        const individuals = originalAdsByCreative.get(adName)!;
+        for (const ind of individuals) {
+          const set = ind.adsetName || "Outros";
+          if (!testes[set]) testes[set] = [];
+          testes[set].push(ind.individualData);
+        }
       }
     }
 

@@ -9,7 +9,11 @@ export async function POST(req: Request) {
   const stream = new ReadableStream({
     async start(controller) {
       const sendEvent = (type: string, data: any) => {
-        controller.enqueue(encoder.encode(JSON.stringify({ type, ...data }) + '\n'));
+        try {
+          controller.enqueue(encoder.encode(JSON.stringify({ type, ...data }) + '\n'));
+        } catch (e) {
+          // Ignorar erros se o controller já foi fechado pelo cliente (ex: navegação)
+        }
       };
 
       try {
