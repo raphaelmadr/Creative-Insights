@@ -116,7 +116,7 @@ export async function runMetaSync(
 
   // --- 2. Cache DB Status ---
   const existingAds = await prisma.adCreative.findMany({
-    select: { id: true, imageUrl: true, thumbnailUrl: true }
+    select: { id: true, imageUrl: true, thumbnailUrl: true, videoUrl: true }
   });
   const existingIds = new Set(existingAds.map(a => a.id));
   const settingsData = await prisma.systemSettings.findUnique({ where: { id: 1 } });
@@ -136,6 +136,7 @@ export async function runMetaSync(
 
       if (a.imageUrl === a.thumbnailUrl) return true;
       if (a.imageUrl.includes('fbcdn.net') || a.imageUrl.includes('scontent') || a.imageUrl.includes('facebook.com')) return true;
+      if (a.videoUrl && (a.videoUrl.includes('fbcdn.net') || a.videoUrl.includes('scontent') || a.videoUrl.includes('facebook.com'))) return true;
       return false;
     }).map(a => a.id)
   );
@@ -424,7 +425,12 @@ export async function runMetaSync(
         };
         if (imageUrl) createData.imageUrl = imageUrl;
         if (thumbnailUrl) createData.thumbnailUrl = thumbnailUrl;
-        if (videoUrl) createData.videoUrl = videoUrl;
+        if (videoUrl) {
+          createData.videoUrl = videoUrl;
+          createData.mediaType = "video";
+        } else {
+          createData.mediaType = "image";
+        }
         
         await prisma.adCreative.create({ data: createData });
         syncedAds++;
@@ -442,7 +448,10 @@ export async function runMetaSync(
       
       if (imageUrl) updateData.imageUrl = imageUrl;
       if (thumbnailUrl) updateData.thumbnailUrl = thumbnailUrl;
-      if (videoUrl) updateData.videoUrl = videoUrl;
+      if (videoUrl) {
+        updateData.videoUrl = videoUrl;
+        updateData.mediaType = "video";
+      }
       
       if (Object.keys(updateData).length > 0) {
         await prisma.adCreative.update({

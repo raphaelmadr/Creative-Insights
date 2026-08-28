@@ -9,6 +9,7 @@
   --background-main: #F9FAFB;
   --topbar-bg: rgba(249, 250, 251, 0.8);
   --foreground: #111827;
+  --muted: #6B7280;
   
   --card-bg: #FFFFFF;
   --card-border: #E5E7EB;
@@ -30,6 +31,7 @@
   --background-main: #0A0A0C;
   --topbar-bg: #0A0A0C;
   --foreground: #FFFFFF;
+  --muted: #9CA3AF;
   
   --card-bg: #141416;
   --card-border: rgba(255, 255, 255, 0.12);

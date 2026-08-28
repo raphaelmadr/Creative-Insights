@@ -465,14 +465,14 @@ export default function CreativeView({ dateFrom, dateTo, statusFilter, onMetrics
         {/* Badges removed per user request */}
         <div 
           className={styles.imageWrapper} 
-          style={{ position: "relative", cursor: creative.mediaType === "video" ? "default" : "zoom-in", overflow: "hidden" }}
+          style={{ position: "relative", cursor: creative.videoUrl ? "default" : "zoom-in", overflow: "hidden" }}
           onClick={(e) => {
-            if (creative.mediaType === "video") return; // Vídeos usam o player nativo para fullscreen
+            if (creative.videoUrl) return; // Vídeos usam o player nativo para fullscreen
             const url = creative.image_url || creative.thumbnail_url;
             if (url) setHoveredPreview({ url, isVideo: false, adName: creative.ad_name, cardId: creative.id });
           }}
         >
-        {creative.mediaType === "video" && creative.videoUrl ? (
+        {creative.videoUrl ? (
           <video 
             src={creative.videoUrl} 
             poster={creative.thumbnail_url || creative.image_url || ""}

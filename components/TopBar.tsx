@@ -196,8 +196,8 @@ export default function TopBar() {
               style={{
                 display: 'flex', alignItems: 'center', gap: '0.5rem',
                 padding: '0.5rem 1rem', borderRadius: '100px',
-                border: '1px solid rgba(255, 255, 255, 0.1)',
-                background: isSyncingAll ? 'transparent' : 'rgba(255, 255, 255, 0.05)',
+                border: '1px solid var(--card-border)',
+                background: isSyncingAll ? 'transparent' : 'var(--card-bg)',
                 color: isSyncingAll ? 'var(--muted)' : 'var(--foreground)', fontSize: '0.8rem', fontWeight: 600,
                 cursor: isSyncingAll ? 'not-allowed' : 'pointer',
                 opacity: isSyncingAll ? 0.5 : 1,
