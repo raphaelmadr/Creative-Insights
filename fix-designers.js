@@ -23,7 +23,7 @@ async function fixDesigners() {
     const adNameLower = ad.adName.toLowerCase();
     
     for (const ac of validAcronyms) {
-      const regex = new RegExp(`([_\\- ]${ac}(?:[\\._ \\-]|\\b|$)|${ac}(?:\\.[a-z0-9]{3,4})?$)`, "i");
+      const regex = new RegExp(`([-_ ]${ac}(?:[-._ ]|\\b|$)|${ac}(?:\\.[a-z0-9]{3,4})?$)`, "i");
       if (regex.test(adNameLower)) {
         designer = ac.toUpperCase();
         break;

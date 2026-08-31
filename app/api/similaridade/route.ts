@@ -57,6 +57,9 @@ export async function GET(req: NextRequest) {
       const impressions = ad.metrics.reduce((acc, curr) => acc + curr.impressions, 0);
       const clicks = ad.metrics.reduce((acc, curr) => acc + curr.clicks, 0);
       const purchases = ad.metrics.reduce((acc, curr) => acc + curr.purchases, 0);
+      const reach = ad.metrics.reduce((acc, curr) => acc + (curr.reach || 0), 0);
+      const frequency = reach > 0 ? impressions / reach : 0;
+      
       
       if (spend < 200) continue;
       
@@ -68,6 +71,8 @@ export async function GET(req: NextRequest) {
         existing.impressions += impressions;
         existing.clicks += clicks;
         existing.purchases += purchases;
+        existing.reach += reach;
+        existing.frequency = existing.reach > 0 ? existing.impressions / existing.reach : 0;
         existing.roas = existing.spend > 0 ? existing.grossValue / existing.spend : 0;
         existing.ctr = existing.impressions > 0 ? (existing.clicks / existing.impressions) * 100 : 0;
         existing.cpm = existing.impressions > 0 ? (existing.spend / existing.impressions) * 1000 : 0;
@@ -84,6 +89,8 @@ export async function GET(req: NextRequest) {
           impressions,
           clicks,
           purchases,
+          reach,
+          frequency,
           roas: spend > 0 ? grossValue / spend : 0,
           ctr: impressions > 0 ? (clicks / impressions) * 100 : 0,
           cpm: impressions > 0 ? (spend / impressions) * 1000 : 0

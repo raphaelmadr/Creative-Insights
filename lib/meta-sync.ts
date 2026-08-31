@@ -52,7 +52,7 @@ export async function runMetaSync(
 
   // --- 1. Fetch Insights (Paginated by Day) ---
   if (onProgress) onProgress("Buscando novos dados do Meta...", 10);
-  const insightFields = "ad_id,ad_name,adset_id,adset_name,campaign_name,spend,purchase_roas,actions,action_values,cpm,ctr,cpc,impressions,clicks,date_start,date_stop";
+  const insightFields = "ad_id,ad_name,adset_id,adset_name,campaign_name,spend,purchase_roas,actions,action_values,cpm,ctr,cpc,impressions,clicks,reach,frequency,date_start,date_stop";
 
   let currentDate = new Date(sinceDate);
   while (currentDate <= untilDate) {
@@ -324,6 +324,16 @@ export async function runMetaSync(
       }
     }
 
+    let designer: string | null = null;
+    const adNameLower = adName.toLowerCase();
+    for (const ac of validAcronyms) {
+      const regex = new RegExp(`([-_ ]${ac}(?:[-._ ]|\\b|$)|${ac}(?:\\.[a-z0-9]{3,4})?$)`, "i");
+      if (regex.test(adNameLower)) {
+        designer = ac.toUpperCase();
+        break;
+      }
+    }
+
     let imageUrl = "";
     let thumbnailUrl = "";
     let videoUrl = "";
@@ -423,6 +433,7 @@ export async function runMetaSync(
           status,
           createdTime,
         };
+        if (designer) createData.designer = designer;
         if (imageUrl) createData.imageUrl = imageUrl;
         if (thumbnailUrl) createData.thumbnailUrl = thumbnailUrl;
         if (videoUrl) {
@@ -446,6 +457,7 @@ export async function runMetaSync(
         updateData.status = status;
       }
       
+      if (designer) updateData.designer = designer;
       if (imageUrl) updateData.imageUrl = imageUrl;
       if (thumbnailUrl) updateData.thumbnailUrl = thumbnailUrl;
       if (videoUrl) {
@@ -484,6 +496,8 @@ export async function runMetaSync(
       const cpc = parseFloat(row.cpc || "0");
       const impressions = parseInt(row.impressions || "0");
       const clicks = parseInt(row.clicks || "0");
+      const reach = row.reach ? parseInt(row.reach) : 0;
+      const frequency = row.frequency ? parseFloat(row.frequency) : 0;
 
       let purchaseRoas = 0;
       if (row.purchase_roas && row.purchase_roas.length > 0) {
@@ -535,6 +549,8 @@ export async function runMetaSync(
           ctr,
           cpc,
           impressions,
+          reach,
+          frequency,
           clicks,
           purchases,
           netOrders,
@@ -551,6 +567,8 @@ export async function runMetaSync(
           ctr,
           cpc,
           impressions,
+          reach,
+          frequency,
           clicks,
           purchases,
           netOrders,

@@ -105,6 +105,8 @@ model AdDailyMetrics {
   ctr             Float
   cpc             Float    @default(0)
   impressions     Int      @default(0)
+  reach           Int      @default(0)
+  frequency       Float    @default(0)
   clicks          Int      @default(0)
   purchases       Int      @default(0)
   netOrders       Int      @default(0)

@@ -26,7 +26,12 @@ export async function POST(req: NextRequest) {
       "Seja tático, direto ao ponto, sem introduções."
     ].join("\\n");
 
-    const creativeNames = group.creatives.map((c: any) => c.adName).join(", ");
+    const creativeNames = group.creatives.map((c: any) => {
+      const cpa = c.purchases > 0 ? (c.spend / c.purchases).toFixed(2) : c.spend.toFixed(2);
+      const cvr = c.clicks > 0 ? ((c.purchases / c.clicks) * 100).toFixed(2) : "0.00";
+      return `- ${c.adName}\\n  Métricas: Spend: R$${c.spend.toFixed(2)} | CPM: R$${c.cpm.toFixed(2)} | CTR: ${c.ctr.toFixed(2)}% | CPC: R$${c.clicks > 0 ? (c.spend / c.clicks).toFixed(2) : "0.00"} | CVR: ${cvr}% | CPA: R$${cpa} | Reach: ${c.reach || 0} | Frequency: ${(c.frequency || 0).toFixed(2)}`;
+    }).join("\\n");
+    
     const sharedTagsStr = (group.sharedTags || []).join(", ");
     const canniRateStr = ((group.cannibalizationRate || 0) * 100).toFixed(0);
 
@@ -49,7 +54,8 @@ export async function POST(req: NextRequest) {
 
           images.push({
             base64: base64Data,
-            mimeType
+            mimeType,
+            label: creative.adName
           });
         } catch (imgError) {
           console.error("Failed to fetch image for " + creative.adName + ":", imgError);

@@ -6,6 +6,7 @@ import prisma from "./prisma";
 export type AiImageInput = {
   base64: string;
   mimeType: string;
+  label?: string;
 };
 
 const modelCache: Record<string, { modelId: string; expiresAt: number }> = {};
@@ -243,12 +244,17 @@ async function tryGemini(prompt: string, apiKey: string, images?: AiImageInput[]
   let requestContent: any[] = [prompt];
 
   if (images && images.length > 0) {
-    const imageParts = images.map((img) => ({
-      inlineData: {
-        data: img.base64,
-        mimeType: img.mimeType,
-      },
-    }));
+    const imageParts = images.flatMap((img) => {
+      const parts: any[] = [];
+      if (img.label) parts.push(`[Imagem: ${img.label}]`);
+      parts.push({
+        inlineData: {
+          data: img.base64,
+          mimeType: img.mimeType,
+        },
+      });
+      return parts;
+    });
     requestContent = [prompt, ...imageParts];
   }
 
@@ -268,12 +274,17 @@ async function tryOpenAI(prompt: string, apiKey: string, images?: AiImageInput[]
   let messageContent: any[] = [{ type: "text", text: prompt }];
 
   if (images && images.length > 0) {
-    const imageParts = images.map((img) => ({
-      type: "image_url",
-      image_url: {
-        url: `data:${img.mimeType};base64,${img.base64}`,
-      },
-    }));
+    const imageParts = images.flatMap((img) => {
+      const parts: any[] = [];
+      if (img.label) parts.push({ type: "text", text: `[Imagem: ${img.label}]` });
+      parts.push({
+        type: "image_url",
+        image_url: {
+          url: `data:${img.mimeType};base64,${img.base64}`,
+        },
+      });
+      return parts;
+    });
     messageContent = [...messageContent, ...imageParts];
   }
 
@@ -298,16 +309,21 @@ async function tryAnthropic(prompt: string, apiKey: string, images?: AiImageInpu
   let messageContent: any[] = [{ type: "text", text: prompt }];
 
   if (images && images.length > 0) {
-    const imageParts = images.map((img) => ({
-      type: "image",
-      source: {
-        type: "base64",
-        media_type: img.mimeType as any,
-        data: img.base64,
-      },
-    }));
+    const imageParts = images.flatMap((img) => {
+      const parts: any[] = [];
+      if (img.label) parts.push({ type: "text", text: `[Imagem: ${img.label}]` });
+      parts.push({
+        type: "image",
+        source: {
+          type: "base64",
+          media_type: img.mimeType as any,
+          data: img.base64,
+        },
+      });
+      return parts;
+    });
     // Note: Anthropic expects text and images in the content array.
-    messageContent = [...imageParts, { type: "text", text: prompt }];
+    messageContent = [{ type: "text", text: prompt }, ...imageParts];
   }
 
   const response = await anthropic.messages.create({
@@ -331,12 +347,17 @@ async function tryGroq(prompt: string, apiKey: string, images?: AiImageInput[]):
   let messageContent: any[] = [{ type: "text", text: prompt }];
 
   if (images && images.length > 0) {
-    const imageParts = images.map((img) => ({
-      type: "image_url",
-      image_url: {
-        url: `data:${img.mimeType};base64,${img.base64}`,
-      },
-    }));
+    const imageParts = images.flatMap((img) => {
+      const parts: any[] = [];
+      if (img.label) parts.push({ type: "text", text: `[Imagem: ${img.label}]` });
+      parts.push({
+        type: "image_url",
+        image_url: {
+          url: `data:${img.mimeType};base64,${img.base64}`,
+        },
+      });
+      return parts;
+    });
     messageContent = [...messageContent, ...imageParts];
   }
 
@@ -368,12 +389,17 @@ async function tryOpenRouter(prompt: string, apiKey: string, images?: AiImageInp
   let messageContent: any[] = [{ type: "text", text: prompt }];
 
   if (images && images.length > 0) {
-    const imageParts = images.map((img) => ({
-      type: "image_url",
-      image_url: {
-        url: `data:${img.mimeType};base64,${img.base64}`,
-      },
-    }));
+    const imageParts = images.flatMap((img) => {
+      const parts: any[] = [];
+      if (img.label) parts.push({ type: "text", text: `[Imagem: ${img.label}]` });
+      parts.push({
+        type: "image_url",
+        image_url: {
+          url: `data:${img.mimeType};base64,${img.base64}`,
+        },
+      });
+      return parts;
+    });
     messageContent = [...messageContent, ...imageParts];
   }
 
