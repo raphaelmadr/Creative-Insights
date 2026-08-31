@@ -205,7 +205,7 @@ export default function TopBar() {
 
           <div className={styles.desktopSync} style={{ position: 'relative', marginRight: '1rem' }}>
             <button
-              onClick={() => setIsSyncMenuOpen(!isSyncMenuOpen)}
+              onClick={() => syncAll()}
               disabled={isSyncingAll}
               style={{
                 display: 'flex', alignItems: 'center', gap: '0.5rem',
@@ -219,67 +219,8 @@ export default function TopBar() {
               }}
             >
               <RefreshCw size={16} className={isSyncingAll ? "spin" : ""} style={{ animation: isSyncingAll ? "spin 2s linear infinite" : "none" }} />
-              {isSyncingAll ? "Sincronizando..." : "Sincronizar"}
+              {isSyncingAll ? "Sincronizando..." : "Sincronizar Redes"}
             </button>
-            
-            {isSyncMenuOpen && !isSyncingAll && (
-              <div style={{
-                position: 'absolute', top: 'calc(100% + 0.5rem)', right: 0,
-                background: 'var(--card-bg)', border: '1px solid var(--card-border)',
-                borderRadius: '12px', padding: '0.5rem', minWidth: '280px',
-                boxShadow: '0 10px 40px rgba(0, 0, 0, 0.3)', zIndex: 50,
-                display: 'flex', flexDirection: 'column', gap: '0.25rem'
-              }}>
-                <button 
-                  onClick={() => { syncAll('fast'); setIsSyncMenuOpen(false); }} 
-                  style={{
-                    display: 'flex', flexDirection: 'column',
-                    padding: '0.75rem', borderRadius: '8px',
-                    border: 'none', background: 'transparent',
-                    textAlign: 'left', cursor: 'pointer',
-                    transition: 'background 0.2s'
-                  }}
-                  onMouseOver={(e) => e.currentTarget.style.background = 'rgba(16, 185, 129, 0.1)'}
-                  onMouseOut={(e) => e.currentTarget.style.background = 'transparent'}
-                >
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', color: 'var(--success)', fontWeight: 600, fontSize: '0.85rem' }}>
-                    <RefreshCw size={14} /> Sync Rápido
-                  </div>
-                  <span style={{ fontSize: '0.7rem', color: 'var(--muted)', marginTop: '0.25rem' }}>
-                    Atualiza métricas do mês atual instantaneamente.
-                  </span>
-                  {lastFastSyncAt && (
-                    <span style={{ fontSize: '0.65rem', color: 'var(--muted)', opacity: 0.7, marginTop: '0.25rem' }}>
-                      Última att: {new Date(lastFastSyncAt).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' })}
-                    </span>
-                  )}
-                </button>
-                <button 
-                  onClick={() => { syncAll('deep'); setIsSyncMenuOpen(false); }} 
-                  style={{
-                    display: 'flex', flexDirection: 'column',
-                    padding: '0.75rem', borderRadius: '8px',
-                    border: 'none', background: 'transparent',
-                    textAlign: 'left', cursor: 'pointer',
-                    transition: 'background 0.2s'
-                  }}
-                  onMouseOver={(e) => e.currentTarget.style.background = 'rgba(59, 130, 246, 0.1)'}
-                  onMouseOut={(e) => e.currentTarget.style.background = 'transparent'}
-                >
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', color: '#3b82f6', fontWeight: 600, fontSize: '0.85rem' }}>
-                    <Database size={14} /> Sync Profundo
-                  </div>
-                  <span style={{ fontSize: '0.7rem', color: 'var(--muted)', marginTop: '0.25rem' }}>
-                    Baixa novas mídias e recalcula histórico.
-                  </span>
-                  {lastDeepSyncAt && (
-                    <span style={{ fontSize: '0.65rem', color: 'var(--muted)', opacity: 0.7, marginTop: '0.25rem' }}>
-                      Última att: {new Date(lastDeepSyncAt).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' })}
-                    </span>
-                  )}
-                </button>
-              </div>
-            )}
           </div>
 
           <div style={{ position: "relative" }}>

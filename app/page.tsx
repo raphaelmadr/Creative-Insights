@@ -8,7 +8,7 @@ import { useEffect, useState, useMemo } from "react";
 import { motion } from "framer-motion";
 import AnimatedNumber from "@/components/AnimatedNumber";
 import { useNotifications } from "@/components/NotificationProvider";
-import { Sparkles, Loader2, Calendar, ChevronDown, Users } from "lucide-react";
+import { Sparkles, Loader2, Calendar, ChevronDown, Users, Globe } from "lucide-react";
 
 function toDateInputValue(date: Date): string {
   return date.toISOString().split("T")[0];
@@ -58,6 +58,7 @@ export default function Home() {
   const [dateTo, setDateTo] = useState<string>(() => toDateInputValue(todayUTC()));
 
   const [statusFilter, setStatusFilter] = useState("ALL");
+  const [channelFilter, setChannelFilter] = useState("ALL");
   const [selectedDesigner, setSelectedDesigner] = useState<string | null>(null);
   const [creators, setCreators] = useState<any[]>([]);
   const [hideOldAds, setHideOldAds] = useState(true);
@@ -86,27 +87,32 @@ export default function Home() {
       <div className="dashboard-container">
         <section style={{ flex: 3, display: "flex", flexDirection: "column", gap: "2rem", width: "100%" }}>
           
-          <div style={{ display: "flex", flexDirection: "column", gap: "0.25rem" }}>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "1rem" }}>
+          <div style={{ display: "flex", flexDirection: "column", gap: "1.5rem", marginBottom: "1rem" }}>
+            <div style={{ display: "flex", flexDirection: "column", gap: "0.25rem" }}>
               <h1 style={{ fontSize: "2.5rem", fontWeight: 800, margin: 0, wordBreak: "break-word" }} className="lowercase-title">
                 dashboard criativo<span className="dot-green">.</span>
               </h1>
-              <div className="dashboard-filters" style={{ display: "flex", alignItems: "center", gap: "0.75rem" }}>
+              <p style={{ color: "#6B7280", maxWidth: "600px", lineHeight: 1.6, margin: 0 }} className="lowercase-title">
+                acompanhe a performance real dos seus criativos a partir de seu histórico.
+              </p>
+            </div>
+            
+            <div className="dashboard-filters" style={{ display: "flex", alignItems: "center", flexWrap: "wrap", gap: "0.75rem" }}>
+              
               
               {/* Filtro de Criador */}
               {creators.length > 0 && (
-                <div style={{ width: "160px", display: "flex", alignItems: "center", gap: "0.5rem", background: "var(--card-bg)", padding: "0.4rem 0.75rem", borderRadius: "8px", border: "1px solid var(--card-border)", boxShadow: "var(--card-shadow)", whiteSpace: "nowrap", flexShrink: 0 }}>
+                <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", background: "var(--card-bg)", padding: "0.4rem 0.75rem", borderRadius: "8px", border: "1px solid var(--card-border)", boxShadow: "var(--card-shadow)", whiteSpace: "nowrap", flexShrink: 0 }}>
                   <div style={{ display: "flex", alignItems: "center", color: "var(--foreground)", opacity: 0.8 }}>
                     <Users size={16} />
                   </div>
-                  <div style={{ display: "flex", alignItems: "center", flex: 1, overflow: "hidden" }}>
+                  <div style={{ display: "flex", alignItems: "center" }}>
                     <select
                       value={selectedDesigner || ""}
                       onChange={(e) => setSelectedDesigner(e.target.value || null)}
                       style={{
-                        width: "100%", border: "none", background: "transparent", fontSize: "0.85rem", fontWeight: 600, cursor: "pointer", 
-                        color: "var(--foreground)", outline: "none", appearance: "none", paddingRight: "1rem",
-                        textOverflow: "ellipsis", overflow: "hidden", whiteSpace: "nowrap"
+                        border: "none", background: "transparent", fontSize: "0.85rem", fontWeight: 600, cursor: "pointer", 
+                        color: "var(--foreground)", outline: "none", appearance: "none", paddingRight: "1.2rem",
                       }}
                     >
                       <option value="">Todos os Criadores</option>
@@ -120,26 +126,48 @@ export default function Home() {
                 </div>
               )}
 
+              {/* Filtro de Canal */}
+              <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", background: "var(--card-bg)", padding: "0.4rem 0.75rem", borderRadius: "8px", border: "1px solid var(--card-border)", boxShadow: "var(--card-shadow)", whiteSpace: "nowrap", flexShrink: 0 }}>
+                <div style={{ display: "flex", alignItems: "center", color: "var(--foreground)", opacity: 0.8 }}>
+                  <Globe size={16} />
+                </div>
+                <div style={{ display: "flex", alignItems: "center" }}>
+                  <select
+                    value={channelFilter}
+                    onChange={(e) => setChannelFilter(e.target.value)}
+                    style={{
+                      border: "none", background: "transparent", fontSize: "0.85rem", fontWeight: 600, cursor: "pointer", 
+                      color: "var(--foreground)", outline: "none", appearance: "none", paddingRight: "1.2rem",
+                    }}
+                  >
+                    <option value="ALL">Todos os Canais</option>
+                    <option value="META">Meta Ads</option>
+                    <option value="TIKTOK">TikTok Ads</option>
+                    <option value="GOOGLE">Google Ads</option>
+                  </select>
+                  <ChevronDown size={14} style={{ marginLeft: "-1rem", pointerEvents: "none", opacity: 0.6, flexShrink: 0 }} />
+                </div>
+              </div>
+
               {/* Filtro de Status */}
-              <div style={{ width: "160px", display: "flex", alignItems: "center", gap: "0.5rem", background: "var(--card-bg)", padding: "0.4rem 0.75rem", borderRadius: "8px", border: "1px solid var(--card-border)", boxShadow: "var(--card-shadow)", whiteSpace: "nowrap", flexShrink: 0 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", background: "var(--card-bg)", padding: "0.4rem 0.75rem", borderRadius: "8px", border: "1px solid var(--card-border)", boxShadow: "var(--card-shadow)", whiteSpace: "nowrap", flexShrink: 0 }}>
                 <div style={{ display: "flex", alignItems: "center", color: "var(--foreground)", opacity: 0.8 }}>
                   <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path><polyline points="22 4 12 14.01 9 11.01"></polyline></svg>
                 </div>
-                <div style={{ display: "flex", alignItems: "center", flex: 1, overflow: "hidden" }}>
+                <div style={{ display: "flex", alignItems: "center" }}>
                   <select
                     value={statusFilter}
                     onChange={(e) => setStatusFilter(e.target.value)}
                     style={{
-                      width: "100%", border: "none", background: "transparent", fontSize: "0.85rem", fontWeight: 600, cursor: "pointer", 
-                      color: "var(--foreground)", outline: "none", appearance: "none", paddingRight: "1rem",
-                      textOverflow: "ellipsis", overflow: "hidden", whiteSpace: "nowrap"
+                      border: "none", background: "transparent", fontSize: "0.85rem", fontWeight: 600, cursor: "pointer", 
+                      color: "var(--foreground)", outline: "none", appearance: "none", paddingRight: "1.2rem",
                     }}
                   >
                     <option value="ACTIVE">Apenas Ativos</option>
                     <option value="INACTIVE">Apenas Desativados</option>
                     <option value="ALL">Todos (Ativos + Desativados)</option>
                   </select>
-                  <ChevronDown size={14} style={{ marginLeft: "-1rem", pointerEvents: "none", opacity: 0.6, flexShrink: 0 }} />
+                  <ChevronDown size={14} style={{ marginLeft: "-1.2rem", pointerEvents: "none", opacity: 0.6, flexShrink: 0 }} />
                 </div>
               </div>
 
@@ -201,11 +229,6 @@ export default function Home() {
                 {isSearching ? <Loader2 className="spin" size={18} style={{ animation: "spin 2s linear infinite" }} /> : <Sparkles size={18} />}
               </button>
             </div>
-            </div>
-
-            <p style={{ color: "#6B7280", maxWidth: "600px", lineHeight: 1.6, marginTop: "0", marginBottom: "1.5rem" }} className="lowercase-title">
-              acompanhe a performance real dos seus criativos a partir de seu histórico.
-            </p>
           </div>
 
           <div>
@@ -275,6 +298,7 @@ export default function Home() {
               dateFrom={dateFrom} 
               dateTo={dateTo} 
               statusFilter={statusFilter} 
+              channelFilter={channelFilter}
               selectedDesigner={selectedDesigner}
               creators={creators}
               hideOldAds={hideOldAds}

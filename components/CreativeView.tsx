@@ -276,7 +276,7 @@ function InfiniteScrollTrigger({ remaining, onLoadMore, label = "Carregando mais
   );
 }
 
-export default function CreativeView({ dateFrom, dateTo, statusFilter, onMetricsUpdate, selectedDesigner, creators = [], hideOldAds = true }: { dateFrom: string; dateTo: string; statusFilter?: string; onMetricsUpdate?: (metrics: any) => void; selectedDesigner: string | null; creators: any[]; hideOldAds?: boolean }) {
+export default function CreativeView({ dateFrom, dateTo, statusFilter, channelFilter, onMetricsUpdate, selectedDesigner, creators = [], hideOldAds = true }: { dateFrom: string; dateTo: string; statusFilter?: string; channelFilter?: string; onMetricsUpdate?: (metrics: any) => void; selectedDesigner: string | null; creators: any[]; hideOldAds?: boolean }) {
   const { syncCounter } = useNotifications();
   const statusParam = statusFilter || "ACTIVE";
   const url = `/api/db-ads?from=${dateFrom}&to=${dateTo}&status=${statusParam}`;
@@ -328,21 +328,26 @@ export default function CreativeView({ dateFrom, dateTo, statusFilter, onMetrics
     return true;
   }, [selectedDesigner, creators]);
 
-  const baseSuperWinners = React.useMemo(() => data ? data.superWinners.filter(filterByDesigner) : [], [data, filterByDesigner]);
-  const baseWinners = React.useMemo(() => data ? data.winners.filter(filterByDesigner) : [], [data, filterByDesigner]);
+  const filterByChannel = React.useCallback((creative: any) => {
+    if (!channelFilter || channelFilter === "ALL") return true;
+    return (creative.platform || "META").toUpperCase() === channelFilter.toUpperCase();
+  }, [channelFilter]);
+
+  const baseSuperWinners = React.useMemo(() => data ? data.superWinners.filter(c => filterByDesigner(c) && filterByChannel(c)) : [], [data, filterByDesigner, filterByChannel]);
+  const baseWinners = React.useMemo(() => data ? data.winners.filter(c => filterByDesigner(c) && filterByChannel(c)) : [], [data, filterByDesigner, filterByChannel]);
 
   const baseTestes = React.useMemo(() => {
     const obj: Record<string, any[]> = {};
     if (data) {
       Object.entries(data.testes).forEach(([adsetName, ads]) => {
-        const filteredAds = ads.filter(filterByDesigner);
+        const filteredAds = ads.filter(c => filterByDesigner(c) && filterByChannel(c));
         if (filteredAds.length > 0) {
           obj[adsetName] = filteredAds;
         }
       });
     }
     return obj;
-  }, [data, filterByDesigner]);
+  }, [data, filterByDesigner, filterByChannel]);
 
   const filterByDate = React.useCallback((creative: any) => {
     if (!hideOldAds) return true;

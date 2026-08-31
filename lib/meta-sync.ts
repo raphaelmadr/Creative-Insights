@@ -325,7 +325,7 @@ export async function runMetaSync(
     let designer: string | null = null;
     const adNameLower = adName.toLowerCase();
     for (const ac of validAcronyms) {
-      const regex = new RegExp(`([-_ ]${ac}(?:[-._ ]|\\b|$)|${ac}(?:\\.[a-z0-9]{3,4})?$)`, "i");
+      const regex = new RegExp(`(^|[-_ ])${ac}(?:[-._ ]|\\b|$)`, "i");
       if (regex.test(adNameLower)) {
         designer = ac.toUpperCase();
         break;
@@ -464,11 +464,21 @@ export async function runMetaSync(
       }
       
       if (Object.keys(updateData).length > 0) {
-        await prisma.adCreative.update({
-          where: { id: adId },
-          data: updateData
-        });
-        syncedAds++;
+        try {
+          await prisma.adCreative.update({
+            where: { id: adId },
+            data: updateData
+          });
+          syncedAds++;
+        } catch (dbError: any) {
+          console.warn(`Transient DB error for ad ${adId}, retrying in 2s...`);
+          await new Promise(r => setTimeout(r, 2000));
+          await prisma.adCreative.update({
+            where: { id: adId },
+            data: updateData
+          });
+          syncedAds++;
+        }
       }
     }
   }

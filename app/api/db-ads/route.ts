@@ -19,8 +19,8 @@ export async function GET(req: Request) {
     const statusFilter = statusParam === "ALL"
       ? undefined
       : statusParam === "INACTIVE"
-        ? { not: "ACTIVE" }
-        : "ACTIVE";
+        ? { notIn: ["ACTIVE", "ENABLE"] }
+        : { in: ["ACTIVE", "ENABLE"] };
 
     const ads = await prisma.adCreative.findMany({
       where: {
@@ -110,6 +110,7 @@ export async function GET(req: Request) {
           videoUrl: ad.videoUrl,
           mediaType: ad.mediaType,
           publisherPlatforms: ad.publisherPlatforms,
+          platform: ad.platform,
           createdTime: ad.createdTime,
           spend, impressions, clicks, riskApprovedValue, grossValue, netOrders, purchases
         });
@@ -139,6 +140,7 @@ export async function GET(req: Request) {
           videoUrl: ad.videoUrl,
           mediaType: ad.mediaType,
           publisherPlatforms: ad.publisherPlatforms,
+          platform: ad.platform,
           createdTime: ad.createdTime,
           spend: spend.toFixed(2),
           ctr: ctr.toFixed(2),

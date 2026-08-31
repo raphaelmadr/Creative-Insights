@@ -402,17 +402,17 @@ export default function NotificationProvider({ children }: { children: ReactNode
     }
   };
 
-  const syncAll = async (mode: 'fast' | 'deep' = 'deep') => {
+  const syncAll = async () => {
     if (isSyncingAll) return;
     setIsSyncingAll(true);
-    setToastMsg({ id: "sync-process", title: `Iniciando sincronização ${mode === 'fast' ? 'rápida' : 'profunda'}...`, isNew: false });
+    setToastMsg({ id: "sync-process", title: `Iniciando sincronização das redes...`, isNew: false });
     
     try {
       await Promise.all([
-        searchForUpdates(),
-        syncMeta(mode === 'fast' ? 'metrics' : 'full')
+        syncMeta('metrics'),
+        runSyncStream(`/api/sync-tiktok?mode=metrics`, "TikTok").catch(e => console.error("TikTok error:", e))
       ]);
-      setToastMsg({ id: "sync-process", title: `✅ Sincronização ${mode === 'fast' ? 'rápida' : 'profunda'} concluída com sucesso!`, isNew: true });
+      setToastMsg({ id: "sync-process", title: `✅ Sincronização das redes concluída com sucesso!`, isNew: true });
     } catch (err: any) {
       console.error("Erro na sincronização geral:", err);
       setToastMsg({ id: "sync-process", title: `❌ Erro na sincronização geral: ${err.message || "Timeout"}`, isNew: false, isError: true });

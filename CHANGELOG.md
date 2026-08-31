@@ -1,7 +1,11 @@
 # Changelog: Creative Insights (Fase 1)
-Data: 30 de Julho de 2026
+Data: 31 de Agosto de 2026
 
-Este documento registra todas as implementações, correções e melhorias de arquitetura realizadas no projeto Creative Insights até o momento. A ferramenta evoluiu de uma vitrine simples para um dashboard robusto, com banco de dados histórico, integração avançada com a Meta API e métricas exclusivas (Pedidos Líquidos).
+## 🚀 Novas Funcionalidades: Motor de Sincronização TikTok Ads
+* **Integração com a Marketing API (v1.3):** Adicionado suporte para leitura de desempenho e listagem de anúncios na plataforma TikTok Ads, permitindo uma visão cross-channel.
+* **Módulo `lib/tiktok-sync.ts`:** Motor exclusivo para orquestrar a ingestão de dados, respeitando paginação e transformando os relatórios de conversão em métricas padronizadas para nosso banco (upserting em `AdCreative` e `AdDailyMetrics`).
+* **Sincronização Simultânea:** Atualizado o `NotificationProvider.tsx` para sincronizar a Meta, TikTok e buscar novidades em um fluxo contínuo quando acionado via botão "Sincronizar" (Rápido ou Profundo).
+* **Fix de Vazamento de Conexão no Prisma:** Corrigido problema gravíssimo de `CLIENT_FETCH_ERROR` onde as rotas instanciaram múltiplos `new PrismaClient()` estourando a conexão de banco de dados (`192.109.11.49:3306`). O projeto inteiro agora adere ao padrão de Singleton do Prisma.
 
 ---
 
@@ -299,3 +303,14 @@ A plataforma deu o primeiro passo para se tornar um hub universal de auditoria c
 * **UI de Configurações:** As chaves de API do TikTok foram integradas à aba de "Integrações (API)" no Modal de Configurações, posicionadas ao lado do Meta.
 * **Ícones de Status Dinâmicos:** O TopHeader (TopBar) passou a consultar o banco de dados dinamicamente. Os ícones do Meta e do TikTok agora acendem (ficam ativos) apenas se as respectivas chaves de API estiverem configuradas, fornecendo um feedback visual em tempo real sobre a saúde das conexões.
 * **Selo Multi-Plataforma nos Criativos:** O `<CreativeView>` foi atualizado para ler o campo `platform` do banco de dados e exibir o ícone correto de onde o anúncio se originou (ex: exibindo a logo do TikTok no lugar das logos do Facebook/Instagram), unificando a leitura de métricas financeiras (ROAS, Gasto) para todas as fontes.
+
+### 📊 33. Unificação Cross-Channel (Meta, TikTok, Google)
+O painel de Dashboard Criativo agora é multicanal, entregando um ecossistema completo de publicidade.
+* **Filtro de Plataformas:** Adicionado um menu "dropdown" global no cabeçalho. Por padrão (Todos os Canais), os cards de métricas (CPA, Valor Aprovado, Spend) unificam instantaneamente as matemáticas de performance de Meta e TikTok, permitindo visualizar a eficiência consolidada.
+* **Isolamento de Visão:** Ao filtrar por uma rede específica (ex: TikTok Ads), todas as métricas gerais são recalculadas sob demanda pelo Frontend para exibir estritamente os resultados originados pela rede escolhida, em 0 milissegundos.
+* **Resiliência do Parser de Siglas (Designers):** A rotina Regex de associação de Designers aos criativos (`lib/meta-sync.ts`) foi reescrita (`(^|[-_ ])${ac}(?:[-._ ]|\b|$)`). Agora o sistema captura com extrema fidelidade a sigla do criador (Ex: `PP`), mesmo quando ela é inserida na primeira posição do nome do arquivo (`PP_VIDEO_...`), corrigindo vazamento de histórico.
+
+### 📷 34. Motor Definitivo de Mídias Permanentes (TikTok Ads)
+* **Arquitetura de Download e Espelhamento:** A sincronização profunda (Deep Sync) do TikTok Ads foi refatorada e nivelada com a inteligência que já possuíamos para a Meta. Agora, ao identificar imagens estáticas ou thumbnails de vídeos do TikTok, o sistema baixa o buffer da imagem direto da CDN do TikTok e despacha imediatamente para o seu próprio servidor de upload (cPanel), salvando o URL definitivo no banco.
+* **Prevenção de Imagens Expiradas:** A plataforma deixa de depender de links temporários oficiais do TikTok (que costumam gerar erros 403 após poucas horas) e garante longevidade total da biblioteca de mídias do dashboard.
+* **Inteligência Híbrida de Vídeos:** Enquanto as thumbnails dos vídeos são salvas localmente para exibição na grade, a reprodução original das mídias em vídeo continua extraindo a URL crua (`video_url`) apontando para os datacenters do TikTok, maximizando a velocidade sem comprometer o seu servidor de hospedagem.
