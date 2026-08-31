@@ -2,7 +2,7 @@
 
 import TopBar from "@/components/TopBar";
 import CreativeView from "@/components/CreativeView";
-import CustomDateRangePicker from "@/components/CustomDateRangePicker";
+import DateRangePicker from "@/components/DateRangePicker";
 import { Avatar } from "@/components/Avatar";
 import { useEffect, useState, useMemo } from "react";
 import { motion } from "framer-motion";
@@ -56,7 +56,6 @@ export default function Home() {
     return toDateInputValue(firstDay);
   });
   const [dateTo, setDateTo] = useState<string>(() => toDateInputValue(todayUTC()));
-  const [datePreset, setDatePreset] = useState("this_month");
 
   const [statusFilter, setStatusFilter] = useState("ALL");
   const [selectedDesigner, setSelectedDesigner] = useState<string | null>(null);
@@ -77,27 +76,7 @@ export default function Home() {
       .catch(err => console.error("Erro ao carregar criadores:", err));
   }, []);
 
-  const handlePresetChange = (preset: string) => {
-    setDatePreset(preset);
-    const today = todayUTC();
-    if (preset === "today") {
-      setDateFrom(toDateInputValue(today));
-      setDateTo(toDateInputValue(today));
-    } else if (preset === "yesterday") {
-      setDateFrom(toDateInputValue(daysAgoUTC(1)));
-      setDateTo(toDateInputValue(daysAgoUTC(1)));
-    } else if (preset === "7_days") {
-      setDateFrom(toDateInputValue(daysAgoUTC(7)));
-      setDateTo(toDateInputValue(today));
-    } else if (preset === "15_days") {
-      setDateFrom(toDateInputValue(daysAgoUTC(15)));
-      setDateTo(toDateInputValue(today));
-    } else if (preset === "this_month") {
-      const firstDay = new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), 1));
-      setDateFrom(toDateInputValue(firstDay));
-      setDateTo(toDateInputValue(today));
-    }
-  };
+  // Datepicker handles preset changes natively
 
   // Data will be fetched and emitted by CreativeView
 
@@ -105,7 +84,7 @@ export default function Home() {
     <main style={{ minHeight: "100vh", display: "flex", flexDirection: "column" }}>
       <TopBar />
       <div className="dashboard-container">
-        <section style={{ flex: 3, display: "flex", flexDirection: "column", gap: "2rem", width: "100%", overflowX: "hidden" }}>
+        <section style={{ flex: 3, display: "flex", flexDirection: "column", gap: "2rem", width: "100%" }}>
           
           <div style={{ display: "flex", flexDirection: "column", gap: "0.25rem" }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "1rem" }}>
@@ -165,46 +144,14 @@ export default function Home() {
               </div>
 
               {/* Filtro de Datas Refinado */}
-              <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", background: "var(--card-bg)", padding: "0.4rem 0.75rem", borderRadius: "8px", border: "1px solid var(--card-border)", boxShadow: "var(--card-shadow)", whiteSpace: "nowrap" }}>
-                <div style={{ display: "flex", alignItems: "center", color: "var(--foreground)", opacity: 0.8, flexShrink: 0 }}>
-                  <Calendar size={16} />
-                </div>
-                <div style={{ width: "130px", display: "flex", alignItems: "center", flexWrap: "nowrap", flexShrink: 0, overflow: "hidden" }}>
-                  <select
-                    value={datePreset}
-                    onChange={(e) => handlePresetChange(e.target.value)}
-                    style={{
-                      width: "100%", border: "none", background: "transparent", fontSize: "0.85rem", fontWeight: 600, cursor: "pointer", 
-                      color: "var(--foreground)", outline: "none", appearance: "none", paddingRight: "1rem",
-                      textOverflow: "ellipsis", overflow: "hidden", whiteSpace: "nowrap"
-                    }}
-                  >
-                    <option value="today">Dia atual</option>
-                    <option value="yesterday">Dia anterior</option>
-                    <option value="7_days">Últimos 7 dias</option>
-                    <option value="15_days">Últimos 15 dias</option>
-                    <option value="this_month">Mês atual</option>
-                    {/* <option value="custom">Outro período...</option> */}
-                  </select>
-                  
-                  <ChevronDown size={14} style={{ marginLeft: "-1rem", pointerEvents: "none", opacity: 0.6, flexShrink: 0 }} />
-                </div>
-
-                {datePreset === "custom" && (
-                  <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
-                    <div style={{ width: "1px", height: "16px", background: "var(--card-border)" }} />
-                    <CustomDateRangePicker
-                      dateFrom={dateFrom}
-                      dateTo={dateTo}
-                      maxDate={toDateInputValue(todayUTC())}
-                      onChange={(from, to) => {
-                        setDateFrom(from);
-                        setDateTo(to);
-                      }}
-                    />
-                  </div>
-                )}
-              </div>
+              <DateRangePicker
+                dateFrom={dateFrom}
+                dateTo={dateTo}
+                onChange={(from, to) => {
+                  setDateFrom(from);
+                  setDateTo(to);
+                }}
+              />
 
               {/* Filtro de Safra (Hide Old Ads) */}
               <div 
@@ -225,7 +172,7 @@ export default function Home() {
                     transition: "left 0.2s cubic-bezier(0.4, 0.0, 0.2, 1)", boxShadow: "0 1px 3px rgba(0,0,0,0.3)"
                   }} />
                 </div>
-                <span style={{ opacity: 0.8 }}>Apenas criativos lançados no mês</span>
+                <span style={{ opacity: 0.8 }}>Lançados no período</span>
               </div>
 
 

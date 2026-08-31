@@ -1,8 +1,6 @@
 import NextAuth, { NextAuthOptions } from "next-auth";
 import GoogleProvider from "next-auth/providers/google";
-import { PrismaClient } from "@prisma/client";
-
-const prisma = new PrismaClient();
+import prisma from "@/lib/prisma";
 
 async function getAuthOptions(): Promise<NextAuthOptions> {
   const settings = await prisma.systemSettings.findUnique({ where: { id: 1 } });

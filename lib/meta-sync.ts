@@ -1,7 +1,5 @@
-import { PrismaClient } from "@prisma/client";
+import prisma from "./prisma";
 import { throttledFetch, fetchWithBisection, MetaApiError, WallClockLimitError, resetWallClock } from "./throttled-fetch";
-
-const prisma = new PrismaClient();
 
 export async function runMetaSync(
   mode: "full" | "metrics" = "full",

@@ -13,8 +13,7 @@ export async function POST(req: Request) {
     }
 
     // Fetch dynamic prompt from DB
-    const { PrismaClient } = await import("@prisma/client");
-    const prisma = new PrismaClient();
+    const prisma = (await import("@/lib/prisma")).default;
     const settings = await prisma.systemSettings.findUnique({ where: { id: 1 } });
 
     let prompt = settings?.hypothesisPrompt || `Você é um Diretor de Criação de Growth Marketing focado totalmente na conversão e performance de criativos (estáticos e vídeos). 

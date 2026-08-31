@@ -49,7 +49,11 @@ export default function SettingsModal({ isOpen, onClose, onSave }: { isOpen: boo
     nextAuthSecret: "",
     nextAuthUrl: "",
     metaAppId: "",
-    metaAppSecret: ""
+    metaAppSecret: "",
+    tiktokAdvertiserId: "",
+    tiktokAppId: "",
+    tiktokAppSecret: "",
+    tiktokAccessToken: ""
   });
 
   useEffect(() => {
@@ -94,7 +98,11 @@ export default function SettingsModal({ isOpen, onClose, onSave }: { isOpen: boo
               nextAuthSecret: res.data.nextAuthSecret || "",
               nextAuthUrl: res.data.nextAuthUrl || "",
               metaAppId: res.data.metaAppId || "",
-              metaAppSecret: res.data.metaAppSecret || ""
+              metaAppSecret: res.data.metaAppSecret || "",
+              tiktokAdvertiserId: res.data.tiktokAdvertiserId || "",
+              tiktokAppId: res.data.tiktokAppId || "",
+              tiktokAppSecret: res.data.tiktokAppSecret || "",
+              tiktokAccessToken: res.data.tiktokAccessToken || ""
             });
           }
           setFetching(false);
@@ -675,6 +683,53 @@ export default function SettingsModal({ isOpen, onClose, onSave }: { isOpen: boo
                     <input type="password"
                       value={settings.metaAppSecret} 
                       onChange={e => setSettings({...settings, metaAppSecret: e.target.value})} 
+                      placeholder="Deixe em branco para usar o .env"
+                      style={{ padding: "0.8rem", borderRadius: "6px", border: "1px solid var(--card-border)", background: "var(--card-bg)", color: "var(--foreground)", fontFamily: "monospace", fontSize: "0.8rem" }} 
+                    />
+                  </label>
+                </div>
+
+                {/* Agrupamento: TikTok Ads */}
+                <div style={{ background: "var(--background-main)", borderRadius: "12px", border: "1px solid var(--card-border)", padding: "1.5rem", display: "flex", flexDirection: "column", gap: "1.5rem" }}>
+                  <h3 style={{ fontSize: "1rem", fontWeight: 600, color: "var(--foreground)", margin: 0, display: "flex", alignItems: "center", gap: "0.5rem" }}>
+                    TikTok Ads
+                  </h3>
+                  
+                  <label style={{ display: "flex", flexDirection: "column", gap: "0.5rem", fontSize: "0.85rem" }}>
+                    <span style={{ fontWeight: 600 }}>Advertiser ID</span>
+                    <input type="text"
+                      value={settings.tiktokAdvertiserId} 
+                      onChange={e => setSettings({...settings, tiktokAdvertiserId: e.target.value})} 
+                      placeholder="Deixe em branco para usar o .env"
+                      style={{ padding: "0.8rem", borderRadius: "6px", border: "1px solid var(--card-border)", background: "var(--card-bg)", color: "var(--foreground)", fontFamily: "monospace", fontSize: "0.8rem" }} 
+                    />
+                  </label>
+
+                  <label style={{ display: "flex", flexDirection: "column", gap: "0.5rem", fontSize: "0.85rem" }}>
+                    <span style={{ fontWeight: 600 }}>Access Token</span>
+                    <input type="password"
+                      value={settings.tiktokAccessToken} 
+                      onChange={e => setSettings({...settings, tiktokAccessToken: e.target.value})} 
+                      placeholder="Deixe em branco para usar o .env"
+                      style={{ padding: "0.8rem", borderRadius: "6px", border: "1px solid var(--card-border)", background: "var(--card-bg)", color: "var(--foreground)", fontFamily: "monospace", fontSize: "0.8rem" }} 
+                    />
+                  </label>
+                  
+                  <label style={{ display: "flex", flexDirection: "column", gap: "0.5rem", fontSize: "0.85rem" }}>
+                    <span style={{ fontWeight: 600 }}>App ID</span>
+                    <input type="text"
+                      value={settings.tiktokAppId} 
+                      onChange={e => setSettings({...settings, tiktokAppId: e.target.value})} 
+                      placeholder="Deixe em branco para usar o .env"
+                      style={{ padding: "0.8rem", borderRadius: "6px", border: "1px solid var(--card-border)", background: "var(--card-bg)", color: "var(--foreground)", fontFamily: "monospace", fontSize: "0.8rem" }} 
+                    />
+                  </label>
+                  
+                  <label style={{ display: "flex", flexDirection: "column", gap: "0.5rem", fontSize: "0.85rem" }}>
+                    <span style={{ fontWeight: 600 }}>App Secret</span>
+                    <input type="password"
+                      value={settings.tiktokAppSecret} 
+                      onChange={e => setSettings({...settings, tiktokAppSecret: e.target.value})} 
                       placeholder="Deixe em branco para usar o .env"
                       style={{ padding: "0.8rem", borderRadius: "6px", border: "1px solid var(--card-border)", background: "var(--card-bg)", color: "var(--foreground)", fontFamily: "monospace", fontSize: "0.8rem" }} 
                     />

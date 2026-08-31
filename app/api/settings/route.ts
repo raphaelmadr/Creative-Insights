@@ -1,9 +1,7 @@
 import { NextResponse } from 'next/server';
-import { PrismaClient } from '@prisma/client';
+import prisma from "@/lib/prisma";
 
 export const dynamic = 'force-dynamic';
-
-const prisma = new PrismaClient();
 
 const DEFAULT_HYPOTHESIS_PROMPT = `Você é um Diretor de Criação de Growth Marketing focado totalmente na conversão e performance de criativos (estáticos e vídeos). 
 Sua missão é gerar uma análise rápida, direta e voltada para a equipe criativa sobre UM ÚNICO anúncio.
@@ -151,7 +149,8 @@ export async function POST(request: Request) {
       teamCreativeGoal, cronSyncEnabled, cronSyncMode, cronSyncInterval,
       cpanelUploadUrl, cpanelUploadSecret,
       googleClientId, googleClientSecret, nextAuthSecret, nextAuthUrl,
-      metaAppId, metaAppSecret
+      metaAppId, metaAppSecret,
+      tiktokAdvertiserId, tiktokAppId, tiktokAppSecret, tiktokAccessToken
     } = body;
 
     const updateData: any = {
@@ -192,6 +191,10 @@ export async function POST(request: Request) {
     if (nextAuthUrl !== undefined) updateData.nextAuthUrl = nextAuthUrl;
     if (metaAppId !== undefined) updateData.metaAppId = metaAppId;
     if (metaAppSecret !== undefined) updateData.metaAppSecret = metaAppSecret;
+    if (tiktokAdvertiserId !== undefined) updateData.tiktokAdvertiserId = tiktokAdvertiserId;
+    if (tiktokAppId !== undefined) updateData.tiktokAppId = tiktokAppId;
+    if (tiktokAppSecret !== undefined) updateData.tiktokAppSecret = tiktokAppSecret;
+    if (tiktokAccessToken !== undefined) updateData.tiktokAccessToken = tiktokAccessToken;
 
     const settings = await prisma.systemSettings.upsert({
       where: { id: 1 },
@@ -230,6 +233,10 @@ export async function POST(request: Request) {
         ...(nextAuthUrl !== undefined && { nextAuthUrl }),
         ...(metaAppId !== undefined && { metaAppId }),
         ...(metaAppSecret !== undefined && { metaAppSecret }),
+        ...(tiktokAdvertiserId !== undefined && { tiktokAdvertiserId }),
+        ...(tiktokAppId !== undefined && { tiktokAppId }),
+        ...(tiktokAppSecret !== undefined && { tiktokAppSecret }),
+        ...(tiktokAccessToken !== undefined && { tiktokAccessToken }),
       }
     });
 

@@ -90,6 +90,7 @@ model AdCreative {
   videoUrl        String?  @db.Text
   mediaType       String   @default("image")
   publisherPlatforms String?
+  platform        String   @default("META") // "META", "TIKTOK", "GOOGLE"
   status          String?
   createdTime     DateTime?
   metrics         AdDailyMetrics[]
@@ -141,6 +142,11 @@ model SystemSettings {
   metaAppId         String?
   metaAppSecret     String?  @db.Text
   metaAccessToken   String?  @db.Text
+  
+  tiktokAdvertiserId String?
+  tiktokAppId        String?
+  tiktokAppSecret    String? @db.Text
+  tiktokAccessToken  String? @db.Text
   
   googleClientId    String?  @db.Text
   googleClientSecret String? @db.Text

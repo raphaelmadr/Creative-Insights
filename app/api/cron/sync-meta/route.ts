@@ -11,8 +11,7 @@ export async function GET(req: Request) {
       return new NextResponse('Unauthorized', { status: 401 });
     }
 
-    const { PrismaClient } = await import('@prisma/client');
-    const prisma = new PrismaClient();
+    const prisma = (await import('@/lib/prisma')).default;
     const settings = await prisma.systemSettings.findUnique({ where: { id: 1 } });
 
     if (settings && !settings.cronSyncEnabled) {

@@ -1,9 +1,7 @@
 import { NextResponse } from "next/server";
-import { PrismaClient } from "@prisma/client";
+import prisma from "@/lib/prisma";
 
 export const maxDuration = 300;
-
-const prisma = new PrismaClient();
 
 export async function POST(req: Request) {
   try {
