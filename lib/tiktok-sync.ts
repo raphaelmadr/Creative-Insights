@@ -123,7 +123,7 @@ export async function runTikTokSync(
       const chunk_start = currentStart.toISOString().split('T')[0];
       const chunk_end = currentEnd.toISOString().split('T')[0];
 
-      const reportUrl = `https://business-api.tiktok.com/open_api/v1.3/report/integrated/get/?advertiser_id=${advertiserId}&report_type=BASIC&data_level=AUCTION_AD&dimensions=%5B%22ad_id%22%2C%22stat_time_day%22%5D&metrics=%5B%22spend%22%2C%22cpc%22%2C%22cpm%22%2C%22ctr%22%2C%22conversion%22%2C%22cost_per_conversion%22%2C%22clicks%22%2C%22impressions%22%2C%22reach%22%2C%22frequency%22%2C%22total_purchase_value%22%5D&start_date=${chunk_start}&end_date=${chunk_end}&page_size=1000`;
+      const reportUrl = `https://business-api.tiktok.com/open_api/v1.3/report/integrated/get/?advertiser_id=${advertiserId}&report_type=BASIC&data_level=AUCTION_AD&dimensions=%5B%22ad_id%22%2C%22stat_time_day%22%5D&metrics=%5B%22spend%22%2C%22cpc%22%2C%22cpm%22%2C%22ctr%22%2C%22conversion%22%2C%22cost_per_conversion%22%2C%22clicks%22%2C%22impressions%22%2C%22reach%22%2C%22frequency%22%2C%22total_purchase_value%22%2C%22likes%22%2C%22comments%22%2C%22shares%22%2C%22video_play_actions%22%2C%22video_views_p25%22%2C%22video_views_p50%22%2C%22video_views_p75%22%2C%22video_views_p100%22%5D&start_date=${chunk_start}&end_date=${chunk_end}&page_size=1000`;
       
       const res = await fetchTikTok(reportUrl, accessToken);
       if (res && res.list) {
@@ -299,6 +299,14 @@ export async function runTikTokSync(
     const purchases = parseInt(m.conversion || "0");
     const purchaseValue = parseFloat(m.total_purchase_value || "0");
     const cpm = impressions > 0 ? (spend / impressions) * 1000 : 0;
+    const likes = parseInt(m.likes || "0");
+    const comments = parseInt(m.comments || "0");
+    const shares = parseInt(m.shares || "0");
+    const videoViews = parseInt(m.video_play_actions || "0");
+    const videoViews25p = parseInt(m.video_views_p25 || "0");
+    const videoViews50p = parseInt(m.video_views_p50 || "0");
+    const videoViews75p = parseInt(m.video_views_p75 || "0");
+    const videoViews100p = parseInt(m.video_views_p100 || "0");
 
     const upsertData = {
       where: {
@@ -320,7 +328,15 @@ export async function runTikTokSync(
         clicks,
         reach,
         frequency,
-        cpm
+        cpm,
+        likes,
+        comments,
+        shares,
+        videoViews,
+        videoViews25p,
+        videoViews50p,
+        videoViews75p,
+        videoViews100p
       },
       create: {
         adCreativeId: adId,
@@ -337,7 +353,15 @@ export async function runTikTokSync(
         clicks,
         reach,
         frequency,
-        cpm
+        cpm,
+        likes,
+        comments,
+        shares,
+        videoViews,
+        videoViews25p,
+        videoViews50p,
+        videoViews75p,
+        videoViews100p
       }
     };
 

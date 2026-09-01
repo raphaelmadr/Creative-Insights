@@ -114,6 +114,16 @@ model AdDailyMetrics {
   riskApprovedValue Float  @default(0)
   grossValue      Float    @default(0)
   messages        Int      @default(0)
+  
+  // Métricas Extras (Engajamento / Retenção)
+  likes           Int      @default(0)
+  comments        Int      @default(0)
+  shares          Int      @default(0)
+  videoViews      Int      @default(0)
+  videoViews25p   Int      @default(0)
+  videoViews50p   Int      @default(0)
+  videoViews75p   Int      @default(0)
+  videoViews100p  Int      @default(0)
   creative        AdCreative @relation(fields: [adCreativeId], references: [id], onDelete: Cascade)
 
   @@unique([adCreativeId, date])

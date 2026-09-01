@@ -51,7 +51,7 @@ export async function runMetaSync(
 
   // --- 1. Fetch Insights (Paginated by Day) ---
   if (onProgress) onProgress("Buscando novos dados do Meta...", 10);
-  const insightFields = "ad_id,ad_name,adset_id,adset_name,campaign_name,spend,purchase_roas,actions,action_values,cpm,ctr,cpc,impressions,clicks,reach,frequency,date_start,date_stop";
+  const insightFields = "ad_id,ad_name,adset_id,adset_name,campaign_name,spend,purchase_roas,actions,action_values,cpm,ctr,cpc,impressions,clicks,reach,frequency,date_start,date_stop,video_p25_watched_actions,video_p50_watched_actions,video_p75_watched_actions,video_p100_watched_actions,video_play_actions";
 
   let currentDate = new Date(sinceDate);
   while (currentDate <= untilDate) {
@@ -534,6 +534,23 @@ export async function runMetaSync(
         if (netOrdersObj) netOrders = parseInt(netOrdersObj.value);
       }
       
+      let likes = 0; let comments = 0; let shares = 0; let videoViews = 0;
+      let videoViews25p = 0; let videoViews50p = 0; let videoViews75p = 0; let videoViews100p = 0;
+
+      if (row.actions) {
+        likes = getFallbackValue(row.actions, ['post_reaction', 'like']);
+        comments = getFallbackValue(row.actions, ['post_comment', 'comment']);
+        shares = getFallbackValue(row.actions, ['post_engagement', 'post', 'share']);
+      }
+      
+      if (row.video_play_actions) videoViews = getFallbackValue(row.video_play_actions, ['video_view']);
+      else if (row.actions) videoViews = getFallbackValue(row.actions, ['video_view']);
+      
+      if (row.video_p25_watched_actions) videoViews25p = getFallbackValue(row.video_p25_watched_actions, ['video_p25_watched_actions']);
+      if (row.video_p50_watched_actions) videoViews50p = getFallbackValue(row.video_p50_watched_actions, ['video_p50_watched_actions']);
+      if (row.video_p75_watched_actions) videoViews75p = getFallbackValue(row.video_p75_watched_actions, ['video_p75_watched_actions']);
+      if (row.video_p100_watched_actions) videoViews100p = getFallbackValue(row.video_p100_watched_actions, ['video_p100_watched_actions']);
+      
       let grossValue = 0;
       if (row.action_values) {
         const riskApprovedObj = row.action_values.find((a: any) => a.action_type === 'offsite_conversion.custom.2105075753380751');
@@ -565,7 +582,15 @@ export async function runMetaSync(
           netOrders,
           riskApprovedValue,
           grossValue,
-          messages
+          messages,
+          likes,
+          comments,
+          shares,
+          videoViews,
+          videoViews25p,
+          videoViews50p,
+          videoViews75p,
+          videoViews100p
         },
         create: {
           adCreativeId: adId,
@@ -583,7 +608,15 @@ export async function runMetaSync(
           netOrders,
           riskApprovedValue,
           grossValue,
-          messages
+          messages,
+          likes,
+          comments,
+          shares,
+          videoViews,
+          videoViews25p,
+          videoViews50p,
+          videoViews75p,
+          videoViews100p
         }
       });
       syncedMetrics++;
