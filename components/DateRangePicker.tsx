@@ -170,7 +170,8 @@ export default function DateRangePicker({ dateFrom, dateTo, onChange }: DateRang
   };
 
   const applyPreset = (preset: string) => {
-    const today = new Date();
+    const now = new Date();
+    const today = new Date(now.toLocaleString("en-US", { timeZone: "America/Sao_Paulo" }));
     const tUTC = new Date(Date.UTC(today.getFullYear(), today.getMonth(), today.getDate()));
     let newStart = tUTC;
     let newEnd = tUTC;
@@ -204,8 +205,9 @@ export default function DateRangePicker({ dateFrom, dateTo, onChange }: DateRang
   };
 
   const handleApply = () => {
-    if (start && end) {
-      onChange(toDateInputValue(start), toDateInputValue(end));
+    if (start) {
+      const finalEnd = end || start;
+      onChange(toDateInputValue(start), toDateInputValue(finalEnd));
       setIsOpen(false);
     }
   };
@@ -318,16 +320,11 @@ export default function DateRangePicker({ dateFrom, dateTo, onChange }: DateRang
 
       {/* Popover */}
       {isOpen && (
-        <div style={{
-          position: "absolute", top: "calc(100% + 8px)", right: 0, zIndex: 9999,
-          background: "var(--card-bg)", border: "1px solid var(--card-border)", borderRadius: "12px",
-          boxShadow: "0 10px 40px rgba(0,0,0,0.15)", display: "flex", flexDirection: "column",
-          width: "max-content", overflow: "hidden", color: "var(--foreground)"
-        }}>
+        <div className="datePickerPopover">
           
-          <div style={{ display: "flex", borderBottom: "1px solid var(--card-border)" }}>
+          <div className="datePickerLayout">
             {/* Sidebar Presets */}
-            <div style={{ width: "140px", borderRight: "1px solid var(--card-border)", padding: "1rem", display: "flex", flexDirection: "column", gap: "0.5rem" }}>
+            <div className="datePickerPresets">
               {[
                 { label: "Hoje", val: "today" },
                 { label: "Ontem", val: "yesterday" },
@@ -354,7 +351,7 @@ export default function DateRangePicker({ dateFrom, dateTo, onChange }: DateRang
             </div>
 
             {/* Calendars Area */}
-            <div style={{ padding: "1.5rem", display: "flex", gap: "2rem", position: "relative" }}>
+            <div className="datePickerCalendars">
               
               {/* Prev Button */}
               <button 
@@ -379,8 +376,8 @@ export default function DateRangePicker({ dateFrom, dateTo, onChange }: DateRang
           </div>
 
           {/* Footer Area */}
-          <div style={{ padding: "1rem 1.5rem", display: "flex", justifyContent: "space-between", alignItems: "center", background: "var(--background-main)" }}>
-            <div style={{ display: "flex", gap: "0.5rem", alignItems: "center" }}>
+          <div className="datePickerFooter">
+            <div className="datePickerFooterInner" style={{ display: "flex", gap: "0.5rem", alignItems: "center" }}>
               <div style={{ padding: "0.4rem 0.75rem", background: "var(--card-bg)", border: "1px solid var(--card-border)", borderRadius: "6px", fontSize: "0.85rem", fontWeight: 600 }}>
                 {start ? formatDisplay(start) : "DD/MM/YYYY"}
               </div>
@@ -390,7 +387,7 @@ export default function DateRangePicker({ dateFrom, dateTo, onChange }: DateRang
               </div>
             </div>
             
-            <div style={{ display: "flex", gap: "0.75rem" }}>
+            <div className="datePickerFooterInner" style={{ display: "flex", gap: "0.75rem" }}>
               <button 
                 onClick={() => setIsOpen(false)}
                 style={{ padding: "0.5rem 1rem", borderRadius: "6px", border: "1px solid var(--card-border)", background: "var(--card-bg)", fontSize: "0.85rem", fontWeight: 600, cursor: "pointer", color: "var(--foreground)" }}
@@ -399,8 +396,8 @@ export default function DateRangePicker({ dateFrom, dateTo, onChange }: DateRang
               </button>
               <button 
                 onClick={handleApply}
-                disabled={!start || !end}
-                style={{ padding: "0.5rem 1rem", borderRadius: "6px", border: "none", background: "var(--primary)", fontSize: "0.85rem", fontWeight: 600, cursor: "pointer", color: "#fff", opacity: (!start || !end) ? 0.5 : 1 }}
+                disabled={!start}
+                style={{ padding: "0.5rem 1rem", borderRadius: "6px", border: "none", background: "var(--primary)", fontSize: "0.85rem", fontWeight: 600, cursor: "pointer", color: "#fff", opacity: (!start) ? 0.5 : 1 }}
               >
                 Aplicar
               </button>

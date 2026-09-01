@@ -8,7 +8,8 @@ export async function GET(request: Request) {
     const monthParam = searchParams.get("month");
     const yearParam = searchParams.get("year");
     
-    const today = new Date();
+    const now = new Date();
+    const today = new Date(now.toLocaleString("en-US", { timeZone: "America/Sao_Paulo" }));
     const currentMonth = today.getMonth() + 1;
     const currentYear = today.getFullYear();
     
@@ -144,7 +145,7 @@ export async function GET(request: Request) {
         stats.netOrders += metric.netOrders;
         
         if (creative && metric.adCreativeId) {
-          const isStatusActive = creative.status === "ACTIVE";
+          const isStatusActive = creative.status && ["ACTIVE", "ENABLE", "ENABLED"].includes(creative.status.toUpperCase());
           if (isStatusActive) {
             stats.activeAds.add(metric.adCreativeId);
           }

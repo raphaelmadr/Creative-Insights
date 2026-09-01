@@ -7,7 +7,8 @@ export async function GET(req: Request) {
     const monthParam = searchParams.get("month");
     const yearParam = searchParams.get("year");
     
-    const today = new Date();
+    const now = new Date();
+    const today = new Date(now.toLocaleString("en-US", { timeZone: "America/Sao_Paulo" }));
     const targetMonth = monthParam ? parseInt(monthParam) : today.getMonth() + 1;
     const targetYear = yearParam ? parseInt(yearParam) : today.getFullYear();
 

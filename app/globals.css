@@ -89,8 +89,52 @@ h1, h2, h3, h4, h5, h6 {
 .glass-panel {
   background: var(--card-bg);
   border: 1px solid var(--card-border);
-  border-radius: 8px;
+  font-weight: 500;
   transition: all 0.2s ease;
+}
+
+.datePickerPopover {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  z-index: 9999;
+  background: var(--card-bg);
+  border: 1px solid var(--card-border);
+  border-radius: 12px;
+  box-shadow: 0 10px 40px rgba(0,0,0,0.15);
+  display: flex;
+  flex-direction: column;
+  width: max-content;
+  overflow: hidden;
+  color: var(--foreground);
+}
+
+.datePickerLayout {
+  display: flex;
+  border-bottom: 1px solid var(--card-border);
+}
+
+.mobileDrawer {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+}
+
+@media (max-width: 768px) {
+  .datePickerPopover {
+    position: fixed !important;
+    top: 50% !important;
+    left: 50% !important;
+    transform: translate(-50%, -50%) !important;
+    width: 90vw !important;
+    max-width: 380px !important;
+    max-height: 90vh !important;
+    overflow-y: auto !important;
+  }
+  
+  .datePickerLayout {
+    flex-direction: column !important;
+  }
 }
 
 .glass-panel:hover {
@@ -296,5 +340,70 @@ h1, h2, h3, h4, h5, h6 {
 
 .spin {
   animation: spin 1s linear infinite;
+}
+
+
+
+.datePickerCalendars {
+  padding: 1.5rem;
+  display: flex;
+  gap: 2rem;
+  position: relative;
+}
+
+@media (max-width: 768px) {
+  .datePickerCalendars {
+    flex-direction: column;
+    padding: 1rem;
+    gap: 1.5rem;
+  }
+}
+
+
+.datePickerPresets {
+  width: 140px;
+  border-right: 1px solid var(--card-border);
+  padding: 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+@media (max-width: 768px) {
+  .datePickerPresets {
+    width: 100% !important;
+    border-right: none !important;
+    border-bottom: 1px solid var(--card-border) !important;
+    flex-direction: row !important;
+    flex-wrap: wrap !important;
+    padding: 1rem !important;
+    gap: 0.5rem !important;
+  }
+}
+
+
+.datePickerFooter {
+  padding: 1rem 1.5rem;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  background: var(--background-main);
+  border-top: 1px solid var(--card-border);
+}
+
+@media (max-width: 768px) {
+  .datePickerFooter {
+    flex-direction: column !important;
+    gap: 1rem !important;
+    padding: 1rem !important;
+  }
+}
+
+
+@media (max-width: 768px) {
+  .datePickerFooterInner {
+    width: 100% !important;
+    justify-content: space-between !important;
+  }
 }
 

@@ -88,7 +88,8 @@ export async function runTikTokSync(
     }
   });
 
-  const today = new Date();
+  const now = new Date();
+  const today = new Date(now.toLocaleString("en-US", { timeZone: "America/Sao_Paulo" }));
   
   let sinceDate: Date, untilDate: Date;
   
@@ -109,12 +110,29 @@ export async function runTikTokSync(
   // 1. Fetch Report Data
   let reportData: any[] = [];
   try {
-    const reportUrl = `https://business-api.tiktok.com/open_api/v1.3/report/integrated/get/?advertiser_id=${advertiserId}&report_type=BASIC&data_level=AUCTION_AD&dimensions=%5B%22ad_id%22%2C%22stat_time_day%22%5D&metrics=%5B%22spend%22%2C%22cpc%22%2C%22cpm%22%2C%22ctr%22%2C%22conversion%22%2C%22cost_per_conversion%22%2C%22clicks%22%2C%22impressions%22%2C%22reach%22%2C%22frequency%22%2C%22total_purchase_value%22%5D&start_date=${start_date}&end_date=${end_date}&page_size=1000`;
+    let currentStart = new Date(sinceDate);
     
-    // In a real scenario with many ads, we should handle pagination for reports too
-    const res = await fetchTikTok(reportUrl, accessToken);
-    if (res && res.list) {
-      reportData = res.list;
+    while (currentStart <= untilDate) {
+      let currentEnd = new Date(currentStart);
+      currentEnd.setDate(currentStart.getDate() + 29); // max 30 days inclusive
+      
+      if (currentEnd > untilDate) {
+        currentEnd = new Date(untilDate);
+      }
+
+      const chunk_start = currentStart.toISOString().split('T')[0];
+      const chunk_end = currentEnd.toISOString().split('T')[0];
+
+      const reportUrl = `https://business-api.tiktok.com/open_api/v1.3/report/integrated/get/?advertiser_id=${advertiserId}&report_type=BASIC&data_level=AUCTION_AD&dimensions=%5B%22ad_id%22%2C%22stat_time_day%22%5D&metrics=%5B%22spend%22%2C%22cpc%22%2C%22cpm%22%2C%22ctr%22%2C%22conversion%22%2C%22cost_per_conversion%22%2C%22clicks%22%2C%22impressions%22%2C%22reach%22%2C%22frequency%22%2C%22total_purchase_value%22%5D&start_date=${chunk_start}&end_date=${chunk_end}&page_size=1000`;
+      
+      const res = await fetchTikTok(reportUrl, accessToken);
+      if (res && res.list) {
+        reportData.push(...res.list);
+      }
+
+      // Move to next chunk
+      currentStart = new Date(currentEnd);
+      currentStart.setDate(currentStart.getDate() + 1);
     }
   } catch (error) {
     console.error("Erro ao buscar relatórios do TikTok:", error);
@@ -162,7 +180,7 @@ export async function runTikTokSync(
   if (onProgress) onProgress("Salvando dados no banco...", 80);
 
   // 3. Upsert AdCreatives
-  const adsToUpsert = [];
+  let processedAds = 0;
   for (const adId of adIds) {
     const info = adsInfoMap[adId];
     if (!info) continue;
@@ -212,7 +230,7 @@ export async function runTikTokSync(
       }
     }
 
-    adsToUpsert.push({
+    const adData = {
       id: adId,
       platform: "TIKTOK",
       adName: adNameStr,
@@ -225,24 +243,39 @@ export async function runTikTokSync(
       imageUrl,
       thumbnailUrl,
       videoUrl
-    });
-  }
+    };
 
-  // Execute AdCreatives Upsert
-  for (const ad of adsToUpsert) {
-    await prisma.adCreative.upsert({
-      where: { id: ad.id },
-      update: {
-        adName: ad.adName,
-        adsetName: ad.adsetName,
-        campaignName: ad.campaignName,
-        status: ad.status,
-        designer: ad.designer,
-        platform: ad.platform,
-        publisherPlatforms: ad.publisherPlatforms
-      },
-      create: ad
-    });
+    // Upsert AdCreative immediately to keep DB connection active
+    let adRetries = 3;
+    while (adRetries > 0) {
+      try {
+        await prisma.adCreative.upsert({
+          where: { id: adData.id },
+          update: {
+            adName: adData.adName,
+            adsetName: adData.adsetName,
+            campaignName: adData.campaignName,
+            status: adData.status,
+            designer: adData.designer,
+            platform: adData.platform,
+            publisherPlatforms: adData.publisherPlatforms,
+            imageUrl: adData.imageUrl || undefined,
+            thumbnailUrl: adData.thumbnailUrl || undefined,
+            videoUrl: adData.videoUrl || undefined,
+          },
+          create: adData
+        });
+        break;
+      } catch (err: any) {
+        if (adRetries > 1) {
+          adRetries--;
+          await new Promise(r => setTimeout(r, 2000));
+        } else {
+          throw err;
+        }
+      }
+    }
+    processedAds++;
   }
 
   // 4. Upsert Daily Metrics
@@ -267,7 +300,7 @@ export async function runTikTokSync(
     const purchaseValue = parseFloat(m.total_purchase_value || "0");
     const cpm = impressions > 0 ? (spend / impressions) * 1000 : 0;
 
-    await prisma.adDailyMetrics.upsert({
+    const upsertData = {
       where: {
         adCreativeId_date: {
           adCreativeId: adId,
@@ -306,7 +339,22 @@ export async function runTikTokSync(
         frequency,
         cpm
       }
-    });
+    };
+
+    let retries = 3;
+    while (retries > 0) {
+      try {
+        await prisma.adDailyMetrics.upsert(upsertData);
+        break;
+      } catch (err: any) {
+        if (retries > 1) {
+          retries--;
+          await new Promise(r => setTimeout(r, 2000));
+        } else {
+          throw err;
+        }
+      }
+    }
     processedMetrics++;
   }
 

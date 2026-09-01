@@ -19,7 +19,8 @@ export default function EquipePage() {
   const [teamCreativeGoal, setTeamCreativeGoal] = useState(625);
   const [syncing, setSyncing] = useState(false);
   
-  const today = new Date();
+  const now = new Date();
+  const today = new Date(now.toLocaleString("en-US", { timeZone: "America/Sao_Paulo" }));
   const [selectedMonth, setSelectedMonth] = useState(today.getMonth() + 1);
   const [selectedYear, setSelectedYear] = useState(today.getFullYear());
 

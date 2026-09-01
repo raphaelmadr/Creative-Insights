@@ -16,7 +16,8 @@ function toDateInputValue(date: Date): string {
 
 function todayUTC(): Date {
   const now = new Date();
-  return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
+  const spTime = new Date(now.toLocaleString("en-US", { timeZone: "America/Sao_Paulo" }));
+  return new Date(Date.UTC(spTime.getFullYear(), spTime.getMonth(), spTime.getDate()));
 }
 
 function daysAgoUTC(days: number): Date {

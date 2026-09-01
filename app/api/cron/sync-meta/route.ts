@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { runMetaSync } from "@/lib/meta-sync";
+import { runTikTokSync } from "@/lib/tiktok-sync";
 
 // Rota recomendada pela Vercel para Cron Jobs
 // https://vercel.com/docs/cron-jobs
@@ -35,8 +36,19 @@ export async function GET(req: Request) {
     console.log(`[Cron] Iniciando Meta Sync Background... Modo: ${mode}`);
     
     const { syncedAds, syncedMetrics } = await runMetaSync(mode, (msg, perc) => {
-      console.log(`[Cron Sync ${perc}%] ${msg}`);
+      console.log(`[Cron Meta ${perc}%] ${msg}`);
     });
+
+    console.log(`[Cron] Iniciando TikTok Sync Background... Modo: ${mode}`);
+    let tiktokStatus = "Success";
+    try {
+      await runTikTokSync(mode, (msg, perc) => {
+        console.log(`[Cron TikTok ${perc}%] ${msg}`);
+      });
+    } catch (e: any) {
+      console.error(`[Cron] TikTok Sync erro:`, e);
+      tiktokStatus = `Failed: ${e.message}`;
+    }
 
     // Atualiza o horário da última execução do cron
     await prisma.systemSettings.update({
@@ -44,9 +56,9 @@ export async function GET(req: Request) {
       data: { lastCronSyncAt: new Date() }
     });
 
-    console.log(`[Cron] Meta Sync concluído. Ads: ${syncedAds}, Metrics: ${syncedMetrics}`);
+    console.log(`[Cron] Sync concluído. Meta Ads: ${syncedAds}, Meta Metrics: ${syncedMetrics}. TikTok: ${tiktokStatus}`);
 
-    return NextResponse.json({ success: true, syncedAds, syncedMetrics });
+    return NextResponse.json({ success: true, meta: { syncedAds, syncedMetrics }, tiktok: tiktokStatus });
   } catch (error: any) {
     console.error("[Cron] Error running meta sync:", error);
     return NextResponse.json({ success: false, error: error.message }, { status: 500 });

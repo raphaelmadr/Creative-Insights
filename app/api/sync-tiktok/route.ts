@@ -8,6 +8,8 @@ export async function POST(req: Request) {
   try {
     const { searchParams } = new URL(req.url);
     const mode = searchParams.get("mode") as "full" | "metrics" || "full";
+    const month = searchParams.has("month") ? parseInt(searchParams.get("month")!) : undefined;
+    const year = searchParams.has("year") ? parseInt(searchParams.get("year")!) : undefined;
     
     // Configura encoder para streaming
     const encoder = new TextEncoder();
@@ -27,7 +29,7 @@ export async function POST(req: Request) {
     // Inicia processo em background e retorna o stream
     (async () => {
       try {
-        await runTikTokSync(mode, onProgress);
+        await runTikTokSync(mode, onProgress, month, year);
         await writer.write(encoder.encode(JSON.stringify({ type: 'complete', message: "Concluído", percentage: 100 }) + '\n'));
       } catch (error: any) {
         console.error("TikTok Sync Error:", error);

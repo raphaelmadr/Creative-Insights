@@ -32,7 +32,8 @@ export async function runMetaSync(
     }
   });
 
-  const today = new Date();
+  const now = new Date();
+  const today = new Date(now.toLocaleString("en-US", { timeZone: "America/Sao_Paulo" }));
   
   let sinceDate: Date, untilDate: Date;
   
