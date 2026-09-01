@@ -61,7 +61,17 @@ Refinamos significativamente o que extraímos do Facebook Graph API para ter dad
 
 ---
 
-## 📈 Atualização Recente (Agosto 2026)
+## 📈 Atualização Recente (Setembro 2026)
+
+### 🎯 1. Metas Mensais de KPIs (Goals & Pace)
+Implementado um novo sistema robusto para acompanhamento de ritmo de metas no Dashboard Criativo.
+* **Configuração por Mês:** A aba de Configurações agora possui um gerenciador de "Metas KPIs" onde é possível definir valores específicos de Investimento (Spend), Receita Líquida (Valor Aprovado) e CPA para cada mês do ano.
+* **Histórico Preservado:** A arquitetura do banco de dados salva a meta referente ao mês específico. Quando o calendário é alterado para meses anteriores, a plataforma busca e exibe a respectiva meta daquela data.
+* **Indicador de Pace:** Os 3 principais *cards* de KPI do dashboard exibem em tempo real o indicador "Meta: R$ XXX | Pace: YYY%", calculando a porcentagem de atingimento de meta de acordo com o calendário selecionado.
+
+---
+
+## 📈 Atualização Passada (Agosto 2026)
 
 ### 📊 1. Filtros de Período na Similaridade
 A página de **Similaridade (Auditoria de Entity IDs)** agora possui os mesmos filtros de período avançados presentes no Dashboard criativo.

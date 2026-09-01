@@ -5,13 +5,11 @@ import Link from "next/link";
 import { Moon, Sun, Bell, Settings, RefreshCw, Database, Image as ImageIcon, Sparkles, Menu, X } from "lucide-react";
 import { useTheme } from "./ThemeProvider";
 import { useNotifications } from "./NotificationProvider";
-import SettingsModal from "./SettingsModal";
 import styles from "./TopBar.module.css";
 
 export default function TopBar() {
   const { theme, toggleTheme } = useTheme();
   const { unreadCount, isSyncingAll, lastSyncAt, lastFastSyncAt, lastDeepSyncAt, syncAll, updates, isSyncingMeta, syncMessage, syncProgress, isSearching, loadingText } = useNotifications();
-  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isNotificationsOpen, setIsNotificationsOpen] = useState(false);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [isSyncMenuOpen, setIsSyncMenuOpen] = useState(false);
@@ -150,11 +148,13 @@ export default function TopBar() {
                   <X size={24} />
                 </button>
               </div>
-            <Link href="/" className={styles.navLink} onClick={() => setIsMobileMenuOpen(false)}>Início</Link>
-            <Link href="/insights" className={styles.navLink} onClick={() => setIsMobileMenuOpen(false)}>Insights</Link>
-            <Link href="/similaridade" className={styles.navLink} onClick={() => setIsMobileMenuOpen(false)}>Auditoria de Entity IDs</Link>
-            <Link href="/analises" className={styles.navLink} onClick={() => setIsMobileMenuOpen(false)}>Análises</Link>
-            <Link href="/equipe" className={styles.navLink} onClick={() => setIsMobileMenuOpen(false)}>Equipe</Link>
+            <nav style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
+              <Link href="/" className={styles.navLink} onClick={() => setIsMobileMenuOpen(false)}>Início</Link>
+              <Link href="/insights" className={styles.navLink} onClick={() => setIsMobileMenuOpen(false)}>Insights</Link>
+              <Link href="/similaridade" className={styles.navLink} onClick={() => setIsMobileMenuOpen(false)}>Auditoria de Entity IDs</Link>
+              <Link href="/analises" className={styles.navLink} onClick={() => setIsMobileMenuOpen(false)}>Análises</Link>
+              <Link href="/equipe" className={styles.navLink} onClick={() => setIsMobileMenuOpen(false)}>Equipe</Link>
+            </nav>
             
             <div style={{ padding: "0.5rem 0", display: "flex", gap: "1rem" }}>
               {integrationsIcons}
@@ -270,9 +270,9 @@ export default function TopBar() {
             )}
           </div>
 
-          <button className={styles.iconButton} onClick={() => setIsSettingsOpen(true)} title="Configurações">
+          <Link href="/configuracoes" className={styles.iconButton} title="Configurações" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
             <Settings size={20} />
-          </button>
+          </Link>
 
           <button className={styles.iconButton} onClick={toggleTheme} title="Alternar Tema">
             {theme === "light" ? <Moon size={20} /> : <Sun size={20} />}
@@ -281,11 +281,6 @@ export default function TopBar() {
       </header>
 
       {/* Mobile popups rendered outside of the sticky header to bypass iOS Safari fixed positioning bugs */}
-      <SettingsModal 
-        isOpen={isSettingsOpen} 
-        onClose={() => setIsSettingsOpen(false)} 
-        onSave={() => window.location.reload()}
-      />
       
       {isNotificationsOpen && (
         <div 

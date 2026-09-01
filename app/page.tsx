@@ -49,6 +49,7 @@ function formatPercentBR(value: string): string {
 
 export default function Home() {
   const [metrics, setMetrics] = useState<{ totalSpend: string; totalRiskApprovedValue: string; totalGrossValue: string; avgCtr: string; avgCpa: string }>({ totalSpend: "0.00", totalRiskApprovedValue: "0.00", totalGrossValue: "0.00", avgCtr: "0.00", avgCpa: "0.00" });
+  const [currentGoal, setCurrentGoal] = useState({ spendGoal: 0, revenueGoal: 0, cpaGoal: 0 });
   const { analyzeCampaigns, isSearching, loadingText } = useNotifications();
 
   const [dateFrom, setDateFrom] = useState<string>(() => {
@@ -68,6 +69,69 @@ export default function Home() {
     if (!selectedDesigner) return null;
     return creators.find(c => c.acronym === selectedDesigner) || null;
   }, [selectedDesigner, creators]);
+
+  
+  useEffect(() => {
+    if (!dateTo) return;
+    const dateObj = new Date(dateTo);
+    const m = dateObj.getUTCMonth() + 1;
+    const y = dateObj.getUTCFullYear();
+    fetch(`/api/goals?month=${m}&year=${y}`)
+      .then(res => res.json())
+      .then(res => {
+        if (res.success && res.data) {
+          setCurrentGoal({
+            spendGoal: res.data.spendGoal || 0,
+            revenueGoal: res.data.revenueGoal || 0,
+            cpaGoal: res.data.cpaGoal || 0
+          });
+        } else {
+          setCurrentGoal({ spendGoal: 0, revenueGoal: 0, cpaGoal: 0 });
+        }
+      });
+  }, [dateTo]);
+
+  // Pace Calculations
+  const spendPace = currentGoal.spendGoal > 0 ? (parseFloat(metrics.totalSpend) / currentGoal.spendGoal) * 100 : 0;
+  const revenuePace = currentGoal.revenueGoal > 0 ? (parseFloat(metrics.totalRiskApprovedValue) / currentGoal.revenueGoal) * 100 : 0;
+  const cpaPace = currentGoal.cpaGoal > 0 ? (parseFloat(metrics.avgCpa) / currentGoal.cpaGoal) * 100 : 0;
+
+  const renderPace = (pace: number, inverse: boolean = false) => {
+    if (pace === 0) return null;
+    let color = "var(--primary)";
+    if (!inverse && pace >= 100) color = "var(--success)";
+    else if (inverse && pace > 100) color = "#ef4444";
+
+    return <span style={{ marginLeft: "6px", color: color, fontWeight: 500 }}>| Pace: {pace.toFixed(1)}%</span>;
+  };
+
+  const renderProgressBar = (pace: number, inverse: boolean = false) => {
+    if (pace === 0) return null;
+    const progress = Math.min(pace, 100);
+    let color = "var(--primary)";
+    let bg = "rgba(59, 130, 246, 0.2)";
+    
+    if (!inverse && pace >= 100) {
+      color = "var(--success)";
+      bg = "rgba(75, 209, 132, 0.2)";
+    } else if (inverse && pace > 100) {
+      color = "#ef4444";
+      bg = "rgba(239, 68, 68, 0.2)";
+    }
+    
+    return (
+      <div style={{ marginTop: "0.75rem", width: "100%" }}>
+        <div style={{ width: "100%", height: "4px", background: bg, borderRadius: "100px", overflow: "hidden" }}>
+          <motion.div 
+            initial={{ width: "0%" }}
+            animate={{ width: `${progress}%` }}
+            transition={{ type: "spring", stiffness: 50, damping: 20 }}
+            style={{ height: "100%", background: color }} 
+          />
+        </div>
+      </div>
+    );
+  };
 
   useEffect(() => {
     fetch("/api/creators")
@@ -268,7 +332,8 @@ export default function Home() {
                 <div className="allu-card-value">
                   <AnimatedNumber value={parseFloat(metrics.totalSpend) || 0} prefix="R$ " decimals={2} />
                 </div>
-                <div className="allu-card-subtext">gasto nas campanhas</div>
+                <div className="allu-card-subtext">Meta: R$ {currentGoal.spendGoal.toLocaleString('pt-BR')} {renderPace(spendPace)}</div>
+                {renderProgressBar(spendPace)}
               </motion.div>
               <motion.div className="allu-card" variants={{ hidden: { opacity: 0, y: 20 }, show: { opacity: 1, y: 0, transition: { type: "spring", stiffness: 300, damping: 24 } } }}>
                 <div className="allu-card-label">◇ VALOR BRUTO</div>
@@ -282,14 +347,29 @@ export default function Home() {
                 <div className="allu-card-value">
                   <AnimatedNumber value={parseFloat(metrics.totalRiskApprovedValue) || 0} prefix="R$ " decimals={2} />
                 </div>
-                <div className="allu-card-subtext">real aprovado</div>
+                <div className="allu-card-subtext">Meta: R$ {currentGoal.revenueGoal.toLocaleString('pt-BR')} {renderPace(revenuePace)}</div>
+                {renderProgressBar(revenuePace)}
               </motion.div>
               <motion.div className="allu-card" variants={{ hidden: { opacity: 0, y: 20 }, show: { opacity: 1, y: 0, transition: { type: "spring", stiffness: 300, damping: 24 } } }}>
                 <div className="allu-card-label">◇ CPA MÉDIO</div>
                 <div className="allu-card-value">
                   <AnimatedNumber value={parseFloat(metrics.avgCpa) || 0} prefix="R$ " decimals={2} />
                 </div>
-                <div className="allu-card-subtext">custo por aprovado</div>
+                <div className="allu-card-subtext" style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
+                  <span>Meta: R$ {currentGoal.cpaGoal.toLocaleString('pt-BR')}</span>
+                  {currentGoal.cpaGoal > 0 && (
+                    <>
+                      <span style={{ color: "var(--border)" }}>|</span>
+                      {parseFloat(metrics.avgCpa) <= currentGoal.cpaGoal ? (
+                        <span style={{ color: "var(--success, #10b981)", fontWeight: 600 }}>Dentro da expectativa</span>
+                      ) : (
+                        <span style={{ color: "var(--danger, #ef4444)", fontWeight: 600 }}>
+                          Fora do ideal ({((parseFloat(metrics.avgCpa) / currentGoal.cpaGoal - 1) * 100).toFixed(0)}% acima)
+                        </span>
+                      )}
+                    </>
+                  )}
+                </div>
               </motion.div>
             </motion.div>
           </div>

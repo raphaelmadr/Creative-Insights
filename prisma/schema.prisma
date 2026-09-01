@@ -187,3 +187,17 @@ model SystemLog {
   url       String?  // A URL onde o erro ocorreu (se aplicável)
   createdAt DateTime @default(now())
 }
+
+model MonthlyGoal {
+  id          String   @id @default(uuid())
+  month       Int
+  year        Int
+  spendGoal   Float    @default(0)
+  revenueGoal Float    @default(0)
+  cpaGoal     Float    @default(0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@unique([month, year])
+}
+
