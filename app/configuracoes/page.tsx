@@ -239,10 +239,10 @@ export default function ConfiguracoesPage() {
     try {
       const mGoal = Number(newCreator.monthlyGoal) || 50000;
       const mVolGoal = Number(newCreator.monthlyVolumeGoal) || 30;
-      const res = await fetch(`/api/creators/${editingCreatorId}`, {
+      const res = await fetch(`/api/creators`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ...newCreator, monthlyGoal: mGoal, monthlyVolumeGoal: mVolGoal })
+        body: JSON.stringify({ id: editingCreatorId, ...newCreator, monthlyGoal: mGoal, monthlyVolumeGoal: mVolGoal })
       });
       if (res.ok) {
         setNewCreator({ name: "", acronym: "", avatarUrl: "", monthlyGoal: 50000, monthlyVolumeGoal: 30 });
@@ -273,7 +273,11 @@ export default function ConfiguracoesPage() {
   const handleDeleteCreator = async (id: string) => {
     if (!confirm("Tem certeza que deseja remover este criador?")) return;
     try {
-      const res = await fetch(`/api/creators/${id}`, { method: "DELETE" });
+      const res = await fetch(`/api/creators`, {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id })
+      });
       if (res.ok) {
         fetchCreators();
       }
