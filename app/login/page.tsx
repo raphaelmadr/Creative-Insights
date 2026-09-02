@@ -118,6 +118,39 @@ export default function LoginPage() {
                 </>
               )}
             </button>
+            
+            {process.env.NODE_ENV === 'development' && (
+              <button
+                onClick={() => {
+                  setLoading(true);
+                  signIn("credentials", { callbackUrl: "/" });
+                }}
+                disabled={loading}
+                style={{
+                  background: "#111827",
+                  color: "#ffffff",
+                  padding: "0.8rem",
+                  borderRadius: "8px",
+                  fontWeight: 600,
+                  fontSize: "1rem",
+                  cursor: loading ? "not-allowed" : "pointer",
+                  opacity: loading ? 0.7 : 1,
+                  transition: "all 0.2s",
+                  border: "none",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  gap: "0.75rem",
+                  boxShadow: "0 1px 2px rgba(0,0,0,0.1)"
+                }}
+              >
+                {loading ? (
+                  <span style={{ display: "inline-block", width: "16px", height: "16px", border: "2px solid #ffffff", borderTopColor: "transparent", borderRadius: "50%", animation: "spin 1s linear infinite" }} />
+                ) : (
+                  "Bypass Login (Dev Only)"
+                )}
+              </button>
+            )}
           </div>
         )}
         

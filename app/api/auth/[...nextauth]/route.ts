@@ -1,5 +1,6 @@
 import NextAuth, { NextAuthOptions } from "next-auth";
 import GoogleProvider from "next-auth/providers/google";
+import CredentialsProvider from "next-auth/providers/credentials";
 import { PrismaAdapter } from "@next-auth/prisma-adapter";
 import prisma from "@/lib/prisma";
 
@@ -15,6 +16,17 @@ async function getAuthOptions(): Promise<NextAuthOptions> {
         clientId: settings?.googleClientId || process.env.GOOGLE_CLIENT_ID || "",
         clientSecret: settings?.googleClientSecret || process.env.GOOGLE_CLIENT_SECRET || "",
       }),
+      ...(process.env.NODE_ENV === "development"
+        ? [
+            CredentialsProvider({
+              name: "Bypass Local",
+              credentials: {},
+              async authorize() {
+                return { id: "dev-id", name: "Dev User", email: "dev@allugator.com" };
+              }
+            })
+          ]
+        : [])
     ],
     secret: settings?.nextAuthSecret || process.env.NEXTAUTH_SECRET || "fallback_secret_for_dev_only_12345",
     trustHost: true,

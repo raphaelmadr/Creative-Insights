@@ -1,6 +1,13 @@
 # Changelog: Creative Insights (Fase 1)
 Data: 31 de Agosto de 2026
 
+## 🚀 Novas Funcionalidades: Ambiente de Desenvolvimento
+* **Bypass de Login (Localhost):** Adicionado suporte a login de desenvolvimento rápido (Bypass) sem necessidade de credenciais de produção. Em ambiente de desenvolvimento local (`NODE_ENV === 'development'`), a tela de login exibe um botão de "Bypass Login" que usa o provedor `Credentials` para autenticar um usuário estático (dev@allugator.com), agilizando a implementação e teste de features.
+
+## 🐛 Correções de Bugs & Regras de Negócio (Setembro 2026)
+* **Critérios Flexíveis para Winners e Super Winners:** A lógica de classificação de "Winners" e "Super Winners" foi ajustada. Anteriormente, era obrigatório que as 3 métricas estivessem configuradas para ranquear os anúncios. Agora, caso o usuário defina `0` em qualquer uma das três metas de corte (Investimento, Receita Líquida ou CPA), o sistema ignorará a meta com valor 0 e utilizará apenas as outras métricas para validar o anúncio.
+* **Sincronização Profunda do TikTok Ads:** Corrigido um problema gravíssimo onde as imagens dos anúncios do TikTok (criativos) não estavam sendo carregadas na interface e apareciam com links quebrados. O botão de "Sincronizar Redes -> Sincronização Profunda" estava ignorando o parâmetro e acionando sempre a versão métrica rápida. Agora, ao acionar a sincronização profunda, o sistema extrairá com sucesso as capas de vídeo no TikTok em alta definição e atualizará os painéis antigos que estavam quebrando as imagens.
+
 ## 🚀 Novas Funcionalidades: Motor de Sincronização TikTok Ads
 * **Integração com a Marketing API (v1.3):** Adicionado suporte para leitura de desempenho e listagem de anúncios na plataforma TikTok Ads, permitindo uma visão cross-channel.
 * **Módulo `lib/tiktok-sync.ts`:** Motor exclusivo para orquestrar a ingestão de dados, respeitando paginação e transformando os relatórios de conversão em métricas padronizadas para nosso banco (upserting em `AdCreative` e `AdDailyMetrics`).

@@ -159,14 +159,14 @@ export async function GET(req: Request) {
       const ctr = agg.impressions > 0 ? (agg.clicks / agg.impressions) * 100 : 0;
 
       const isSuperWinner =
-        agg.spend >= SUPER_WINNER_SPEND_THRESHOLD &&
-        agg.riskApprovedValue >= SUPER_WINNER_VALUE_THRESHOLD &&
-        cpa <= SUPER_WINNER_MAX_CPA;
+        (SUPER_WINNER_SPEND_THRESHOLD === 0 || agg.spend >= SUPER_WINNER_SPEND_THRESHOLD) &&
+        (SUPER_WINNER_VALUE_THRESHOLD === 0 || agg.riskApprovedValue >= SUPER_WINNER_VALUE_THRESHOLD) &&
+        (SUPER_WINNER_MAX_CPA === 0 || cpa <= SUPER_WINNER_MAX_CPA);
 
       const isWinner =
-        agg.spend >= WINNER_SPEND_THRESHOLD &&
-        agg.riskApprovedValue >= WINNER_VALUE_THRESHOLD &&
-        cpa <= WINNER_MAX_CPA;
+        (WINNER_SPEND_THRESHOLD === 0 || agg.spend >= WINNER_SPEND_THRESHOLD) &&
+        (WINNER_VALUE_THRESHOLD === 0 || agg.riskApprovedValue >= WINNER_VALUE_THRESHOLD) &&
+        (WINNER_MAX_CPA === 0 || cpa <= WINNER_MAX_CPA);
 
       if (isSuperWinner || isWinner) {
         const creativeData = {

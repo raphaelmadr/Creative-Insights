@@ -604,36 +604,62 @@ export default function CreativeView({ dateFrom, dateTo, statusFilter, channelFi
       )}
 
       {/* Glossário / Informações (Dashboard) */}
-      {data?.settings && (
-        <div className="fixed-grid-4" style={{ marginBottom: "1rem" }}>
-          <div className="allu-card allu-card-highlight">
-            <div className="allu-card-label">▶ SUPER WINNERS</div>
-            <div className="allu-card-subtext">
-              Anúncios de alta performance que tiveram um <strong>investimento</strong> acima de <strong>R$ {data.settings.superWinnerSpend.toLocaleString("pt-BR")}</strong>, geraram uma <strong>receita líquida</strong> maior que <strong>R$ {data.settings.superWinnerReturn.toLocaleString("pt-BR")}</strong> e mantiveram o <strong>CPA</strong> abaixo de <strong>R$ {data.settings.superWinnerCpa?.toLocaleString("pt-BR") || "50"}</strong>.
-            </div>
-          </div>
-          <div className="allu-card">
-            <div className="allu-card-label">◇ WINNERS</div>
-            <div className="allu-card-subtext">
-              Anúncios validados que tiveram um <strong>investimento</strong> acima de <strong>R$ {data.settings.winnerSpend.toLocaleString("pt-BR")}</strong>, geraram uma <strong>receita líquida</strong> maior que <strong>R$ {data.settings.winnerReturn.toLocaleString("pt-BR")}</strong> e mantiveram o <strong>CPA</strong> abaixo de <strong>R$ {data.settings.winnerCpa?.toLocaleString("pt-BR") || "60"}</strong>.
-            </div>
-          </div>
-          <div className="allu-card">
-            <div className="allu-card-label">◇ ÁREA DE TESTES</div>
-            <div className="allu-card-subtext">
-              Anúncios em validação agrupados por conjunto. Podem ou não ter atingido as métricas de Winner ainda.
-            </div>
-          </div>
-          <div className="allu-card">
-            <div className="allu-card-label">◇ FILTRO DE VEICULAÇÃO</div>
-            <div className="allu-card-subtext">
-              Exibindo e calculando estritamente métricas de anúncios com status 
-              <strong> {statusFilter === 'INACTIVE' ? 'DESATIVADO' : statusFilter === 'ALL' ? 'ATIVO E DESATIVADO' : 'ATIVO'} </strong> 
-              atualmente na Meta Ads.
-            </div>
-          </div>
-        </div>
-      )}
+      {(() => {
+        const formatRules = (spend: number, ret: number, cpa: number) => {
+          const rules = [];
+          if (spend > 0) rules.push(`tiveram um <strong>investimento</strong> acima de <strong>R$ ${spend.toLocaleString("pt-BR")}</strong>`);
+          if (ret > 0) rules.push(`geraram uma <strong>receita líquida</strong> maior que <strong>R$ ${ret.toLocaleString("pt-BR")}</strong>`);
+          if (cpa > 0) rules.push(`mantiveram o <strong>CPA</strong> abaixo de <strong>R$ ${cpa.toLocaleString("pt-BR")}</strong>`);
+          if (rules.length === 0) return "não possuem metas definidas";
+          if (rules.length === 1) return rules[0];
+          const last = rules.pop();
+          return rules.join(", ") + " e " + last;
+        };
+
+        const formatShortRules = (spend: number, ret: number, cpa: number) => {
+          const rules = [];
+          if (spend > 0) rules.push(`gastou > ${(spend / 1000).toFixed(0)}k`);
+          if (ret > 0) rules.push(`faturou > ${(ret / 1000).toFixed(0)}k`);
+          if (cpa > 0) rules.push(`cpa < ${cpa}`);
+          return rules.length ? rules.join(", ").replace(/, ([^,]*)$/, " e $1") : "sem regras";
+        };
+
+        const formatEmptyRules = (spend: number, ret: number, cpa: number) => {
+          const rules = [];
+          if (spend > 0) rules.push(`gasto ≥ R$ ${spend}`);
+          if (ret > 0) rules.push(`valor aprovado ≥ R$ ${ret}`);
+          if (cpa > 0) rules.push(`CPA ≤ R$ ${cpa}`);
+          return rules.length ? rules.join(", ").replace(/, ([^,]*)$/, " e $1") : "sem regras";
+        };
+
+        return (
+          <>
+            {data?.settings && (
+              <div className="fixed-grid-4" style={{ marginBottom: "1rem" }}>
+                <div className="allu-card allu-card-highlight">
+                  <div className="allu-card-label">▶ SUPER WINNERS</div>
+                  <div className="allu-card-subtext" dangerouslySetInnerHTML={{ __html: `Anúncios de alta performance que ${formatRules(data.settings.superWinnerSpend || 0, data.settings.superWinnerReturn || 0, data.settings.superWinnerCpa || 0)}.` }} />
+                </div>
+                <div className="allu-card">
+                  <div className="allu-card-label">◇ WINNERS</div>
+                  <div className="allu-card-subtext" dangerouslySetInnerHTML={{ __html: `Anúncios validados que ${formatRules(data.settings.winnerSpend || 0, data.settings.winnerReturn || 0, data.settings.winnerCpa || 0)}.` }} />
+                </div>
+                <div className="allu-card">
+                  <div className="allu-card-label">◇ ÁREA DE TESTES</div>
+                  <div className="allu-card-subtext">
+                    Anúncios em validação agrupados por conjunto. Podem ou não ter atingido as métricas de Winner ainda.
+                  </div>
+                </div>
+                <div className="allu-card">
+                  <div className="allu-card-label">◇ FILTRO DE VEICULAÇÃO</div>
+                  <div className="allu-card-subtext">
+                    Exibindo e calculando estritamente métricas de anúncios com status 
+                    <strong> {statusFilter === 'INACTIVE' ? 'DESATIVADO' : statusFilter === 'ALL' ? 'ATIVO E DESATIVADO' : 'ATIVO'} </strong> 
+                    atualmente na Meta Ads.
+                  </div>
+                </div>
+              </div>
+            )}
 
       {/* Controles Globais */}
       {data && (
@@ -679,7 +705,7 @@ export default function CreativeView({ dateFrom, dateTo, statusFilter, channelFi
           <div className="section-header" style={{ marginBottom: 0 }}>
             <span className="section-number">02</span>
             <h2 className="section-title">super winners ({filteredSuperWinners.length})</h2>
-            <span className="section-subtitle">gastou &gt; {data?.settings ? (data.settings.superWinnerSpend / 1000).toFixed(0) + 'k' : '1k'}, faturou &gt; {data?.settings ? (data.settings.superWinnerReturn / 1000).toFixed(0) + 'k' : '5k'} e cpa &lt; {data?.settings ? data.settings.superWinnerCpa : '50'}</span>
+            <span className="section-subtitle">{data?.settings ? formatShortRules(data.settings.superWinnerSpend || 0, data.settings.superWinnerReturn || 0, data.settings.superWinnerCpa || 0) : 'gastou > 1k, faturou > 5k e cpa < 50'}</span>
           </div>
           <button 
             onClick={() => setIsSuperWinnersCollapsed(!isSuperWinnersCollapsed)}
@@ -691,7 +717,7 @@ export default function CreativeView({ dateFrom, dateTo, statusFilter, channelFi
 
         {!isSuperWinnersCollapsed && (
           filteredSuperWinners.length === 0 ? (
-            <p style={{ opacity: 0.5 }}>Nenhum criativo super winner no período (gasto ≥ R$ {data?.settings?.superWinnerSpend || 1000}, valor aprovado ≥ R$ {data?.settings?.superWinnerReturn || 5000} e CPA ≤ R$ {data?.settings?.superWinnerCpa || 50}, dentro do período selecionado).</p>
+            <p style={{ opacity: 0.5 }}>Nenhum criativo super winner no período ({data?.settings ? formatEmptyRules(data.settings.superWinnerSpend || 0, data.settings.superWinnerReturn || 0, data.settings.superWinnerCpa || 0) : 'gasto ≥ R$ 1000, valor aprovado ≥ R$ 5000 e CPA ≤ R$ 50'}, dentro do período selecionado).</p>
           ) : (
             <>
               <motion.div 
@@ -718,7 +744,7 @@ export default function CreativeView({ dateFrom, dateTo, statusFilter, channelFi
           <div className="section-header" style={{ marginBottom: 0 }}>
             <span className="section-number">03</span>
             <h2 className="section-title">winners ({filteredWinners.length})</h2>
-            <span className="section-subtitle">gastou &gt; {data?.settings ? (data.settings.winnerSpend / 1000).toFixed(0) + 'k' : '1k'}, faturou &gt; {data?.settings ? (data.settings.winnerReturn / 1000).toFixed(0) + 'k' : '1k'} e cpa &lt; {data?.settings ? data.settings.winnerCpa : '80'}</span>
+            <span className="section-subtitle">{data?.settings ? formatShortRules(data.settings.winnerSpend || 0, data.settings.winnerReturn || 0, data.settings.winnerCpa || 0) : 'gastou > 1k, faturou > 1k e cpa < 80'}</span>
           </div>
           <button 
             onClick={() => setIsWinnersCollapsed(!isWinnersCollapsed)}
@@ -730,7 +756,7 @@ export default function CreativeView({ dateFrom, dateTo, statusFilter, channelFi
 
         {!isWinnersCollapsed && (
           filteredWinners.length === 0 ? (
-            <p style={{ opacity: 0.5 }}>Nenhum criativo winner no período (gasto ≥ R$ {data?.settings?.winnerSpend || 1000}, valor aprovado ≥ R$ {data?.settings?.winnerReturn || 1000} e CPA ≤ R$ {data?.settings?.winnerCpa || 80}, dentro do período selecionado).</p>
+            <p style={{ opacity: 0.5 }}>Nenhum criativo winner no período ({data?.settings ? formatEmptyRules(data.settings.winnerSpend || 0, data.settings.winnerReturn || 0, data.settings.winnerCpa || 0) : 'gasto ≥ R$ 1000, valor aprovado ≥ R$ 1000 e CPA ≤ R$ 80'}, dentro do período selecionado).</p>
           ) : (
             <>
               <motion.div 
@@ -909,6 +935,9 @@ export default function CreativeView({ dateFrom, dateTo, statusFilter, channelFi
         document.body
       )}
 
+          </>
+        );
+      })()}
     </div>
   );
 }

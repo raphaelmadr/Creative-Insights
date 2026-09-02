@@ -95,13 +95,13 @@ export default function ConfiguracoesPage() {
     ]).then(([settingsRes, goalsRes]) => {
       if (settingsRes.success && settingsRes.data) {
         setSettings({
-          teamCreativeGoal: settingsRes.data.teamCreativeGoal || 300,
-          superWinnerSpend: settingsRes.data.superWinnerSpend || 1000,
-          superWinnerReturn: settingsRes.data.superWinnerReturn || 10000,
-          superWinnerCpa: settingsRes.data.superWinnerCpa || 50,
-          winnerSpend: settingsRes.data.winnerSpend || 500,
-          winnerReturn: settingsRes.data.winnerReturn || 2000,
-          winnerCpa: settingsRes.data.winnerCpa || 60,
+          teamCreativeGoal: settingsRes.data.teamCreativeGoal ?? 300,
+          superWinnerSpend: settingsRes.data.superWinnerSpend ?? 1000,
+          superWinnerReturn: settingsRes.data.superWinnerReturn ?? 10000,
+          superWinnerCpa: settingsRes.data.superWinnerCpa ?? 50,
+          winnerSpend: settingsRes.data.winnerSpend ?? 500,
+          winnerReturn: settingsRes.data.winnerReturn ?? 2000,
+          winnerCpa: settingsRes.data.winnerCpa ?? 60,
           hypothesisPrompt: settingsRes.data.hypothesisPrompt || "",
           insightsPrompt: settingsRes.data.insightsPrompt || "",
           andromedaPrompt: settingsRes.data.andromedaPrompt || "",

@@ -402,15 +402,16 @@ export default function NotificationProvider({ children }: { children: ReactNode
     }
   };
 
-  const syncAll = async () => {
+  const syncAll = async (mode: 'fast' | 'deep' = 'fast') => {
     if (isSyncingAll) return;
     setIsSyncingAll(true);
-    setToastMsg({ id: "sync-process", title: `Iniciando sincronização das redes...`, isNew: false });
+    setToastMsg({ id: "sync-process", title: `Iniciando sincronização das redes (${mode === 'deep' ? 'Profunda' : 'Rápida'})...`, isNew: false });
     
     try {
+      const apiMode = mode === 'deep' ? 'full' : 'metrics';
       await Promise.all([
-        syncMeta('metrics'),
-        runSyncStream(`/api/sync-tiktok?mode=metrics`, "TikTok").catch(e => console.error("TikTok error:", e))
+        syncMeta(apiMode),
+        runSyncStream(`/api/sync-tiktok?mode=${apiMode}`, "TikTok").catch(e => console.error("TikTok error:", e))
       ]);
       setToastMsg({ id: "sync-process", title: `✅ Sincronização das redes concluída com sucesso!`, isNew: true });
     } catch (err: any) {
