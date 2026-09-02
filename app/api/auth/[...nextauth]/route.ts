@@ -29,7 +29,6 @@ async function getAuthOptions(): Promise<NextAuthOptions> {
         : [])
     ],
     secret: settings?.nextAuthSecret || process.env.NEXTAUTH_SECRET || "fallback_secret_for_dev_only_12345",
-    trustHost: true,
     session: {
       strategy: "jwt",
     },
@@ -48,9 +47,11 @@ async function getAuthOptions(): Promise<NextAuthOptions> {
   };
 }
 
-const handler = async (req: Request, context: any) => {
+import { NextRequest } from "next/server";
+
+const handler = async (req: NextRequest, context: any) => {
   const options = await getAuthOptions();
-  return NextAuth(req, context, options);
+  return (NextAuth as any)(req, context, options);
 };
 
 export { handler as GET, handler as POST };

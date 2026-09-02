@@ -47,15 +47,14 @@ export async function GET(req: Request) {
         updatedAt: new Date()
       } as any;
     }
+    const SUPER_WINNER_SPEND_THRESHOLD = settings!.superWinnerSpend ?? 1000;
+    const SUPER_WINNER_VALUE_THRESHOLD = settings!.superWinnerReturn ?? 5000;
+    const SUPER_WINNER_MAX_CPA = settings!.superWinnerCpa ?? 50;
 
-    const SUPER_WINNER_SPEND_THRESHOLD = settings!.superWinnerSpend;
-    const SUPER_WINNER_VALUE_THRESHOLD = settings!.superWinnerReturn;
-    const SUPER_WINNER_MAX_CPA = settings!.superWinnerCpa || 50;
 
-
-    const WINNER_SPEND_THRESHOLD = settings!.winnerSpend;
-    const WINNER_VALUE_THRESHOLD = settings!.winnerReturn;
-    const WINNER_MAX_CPA = settings!.winnerCpa || 60;
+    const WINNER_SPEND_THRESHOLD = settings!.winnerSpend ?? 1000;
+    const WINNER_VALUE_THRESHOLD = settings!.winnerReturn ?? 1000;
+    const WINNER_MAX_CPA = settings!.winnerCpa ?? 60;
 
     const superWinners: any[] = [];
     const winners: any[] = [];

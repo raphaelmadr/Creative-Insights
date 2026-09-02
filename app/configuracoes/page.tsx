@@ -469,7 +469,7 @@ export default function ConfiguracoesPage() {
                       {creators.map(c => (
                         <div key={c.id} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "1rem", border: "1px solid var(--card-border)", borderRadius: "8px", background: "var(--card-bg)" }}>
                           <div style={{ display: "flex", alignItems: "center", gap: "1rem" }}>
-                            <Avatar name={c.name} url={c.avatarUrl} size={40} />
+                            <Avatar name={c.name} url={c.avatarUrl} size="md" />
                             <div style={{ display: "flex", flexDirection: "column" }}>
                               <span style={{ fontWeight: 600 }}>{c.name} <span style={{ color: "var(--muted)", fontWeight: 400 }}>({c.acronym})</span></span>
                               <span style={{ fontSize: "0.8rem", color: "var(--muted)" }}>Meta: R$ {parseFloat(c.monthlyGoal).toLocaleString('pt-BR')} | {c.monthlyVolumeGoal} peças</span>
