@@ -581,12 +581,12 @@ export default function CreativeView({ dateFrom, dateTo, statusFilter, channelFi
             <div style={{ display: "flex", gap: "0.4rem", opacity: 0.5, color: "var(--foreground)" }} title="TikTok Ads">
               <TikTokIcon size={12} />
             </div>
-          ) : creative.publisherPlatforms ? (
-            <div style={{ display: "flex", gap: "0.4rem", opacity: 0.5, color: "var(--foreground)" }} title={`Canais: ${creative.publisherPlatforms}`}>
+          ) : creative.platform === "META" ? (
+            <div style={{ display: "flex", gap: "0.4rem", opacity: 0.5, color: "var(--foreground)" }} title={creative.publisherPlatforms ? `Canais: ${creative.publisherPlatforms}` : "Meta Ads"}>
               <FbIcon size={12} />
-              {creative.publisherPlatforms.includes("instagram") && <InstaIcon size={12} />}
-              {creative.publisherPlatforms.includes("messenger") && <MessengerIcon size={12} />}
-              {creative.publisherPlatforms.includes("audience_network") && <AudienceIcon size={12} />}
+              {creative.publisherPlatforms?.includes("instagram") && <InstaIcon size={12} />}
+              {creative.publisherPlatforms?.includes("messenger") && <MessengerIcon size={12} />}
+              {creative.publisherPlatforms?.includes("audience_network") && <AudienceIcon size={12} />}
             </div>
           ) : null}
         </div>
