@@ -15,6 +15,7 @@ async function getAuthOptions(): Promise<NextAuthOptions> {
       }),
     ],
     secret: settings?.nextAuthSecret || process.env.NEXTAUTH_SECRET || "fallback_secret_for_dev_only_12345",
+    trustHost: true,
     session: {
       strategy: "jwt",
     },
