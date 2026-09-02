@@ -3,6 +3,8 @@ import GoogleProvider from "next-auth/providers/google";
 import { PrismaAdapter } from "@next-auth/prisma-adapter";
 import prisma from "@/lib/prisma";
 
+export const dynamic = "force-dynamic";
+
 async function getAuthOptions(): Promise<NextAuthOptions> {
   const settings = await prisma.systemSettings.findUnique({ where: { id: 1 } });
 

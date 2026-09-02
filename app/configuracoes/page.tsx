@@ -595,6 +595,14 @@ export default function ConfiguracoesPage() {
                     </div>
                     <hr style={{ border: "none", borderTop: "1px solid var(--card-border)" }} />
                     <div style={{ display: "flex", flexDirection: "column", gap: "1.5rem" }}>
+                      <h3 style={{ fontSize: "1.1rem", fontWeight: 600, color: "var(--foreground)", margin: 0, paddingLeft: "0.5rem", borderLeft: "4px solid #DB4437" }}>Google OAuth (Login)</h3>
+                      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "1.5rem" }}>
+                        <label style={{ display: "flex", flexDirection: "column", gap: "0.5rem", fontSize: "0.9rem" }}><span style={{ fontWeight: 600 }}>Client ID</span><input type="text" value={settings.googleClientId} onChange={e => setSettings({...settings, googleClientId: e.target.value})} style={{ padding: "0.8rem", borderRadius: "8px", border: "1px solid var(--card-border)", background: "var(--card-bg)", color: "var(--foreground)", fontFamily: "monospace" }} /></label>
+                        <label style={{ display: "flex", flexDirection: "column", gap: "0.5rem", fontSize: "0.9rem" }}><span style={{ fontWeight: 600 }}>Client Secret</span><input type="password" value={settings.googleClientSecret} onChange={e => setSettings({...settings, googleClientSecret: e.target.value})} style={{ padding: "0.8rem", borderRadius: "8px", border: "1px solid var(--card-border)", background: "var(--card-bg)", color: "var(--foreground)", fontFamily: "monospace" }} /></label>
+                      </div>
+                    </div>
+                    <hr style={{ border: "none", borderTop: "1px solid var(--card-border)" }} />
+                    <div style={{ display: "flex", flexDirection: "column", gap: "1.5rem" }}>
                       <h3 style={{ fontSize: "1.1rem", fontWeight: 600, color: "var(--foreground)", margin: 0, paddingLeft: "0.5rem", borderLeft: "4px solid #10b981" }}>Provedores de IA</h3>
                       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "1.5rem" }}>
                         <label style={{ display: "flex", flexDirection: "column", gap: "0.5rem", fontSize: "0.9rem" }}><span style={{ fontWeight: 600 }}>Google Gemini API Key</span><input type="password" value={settings.geminiApiKey} onChange={e => setSettings({...settings, geminiApiKey: e.target.value})} style={{ padding: "0.8rem", borderRadius: "8px", border: "1px solid var(--card-border)", background: "var(--card-bg)", color: "var(--foreground)", fontFamily: "monospace" }} /></label>
