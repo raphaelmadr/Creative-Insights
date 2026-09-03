@@ -40,6 +40,7 @@ model CreatorMonthlyReport {
   netOrders         Int      @default(0)
   roas              Float    @default(0)
   activeAdsCount    Int      @default(0)
+  deliveredPieces   Int      @default(0)
   createdAt         DateTime @default(now())
   updatedAt         DateTime @updatedAt
   creator           Creator  @relation(fields: [creatorId], references: [id], onDelete: Cascade)
@@ -142,6 +143,9 @@ model SystemSettings {
   winnerSpend       Float    @default(1000)
   winnerReturn      Float    @default(1000)
   winnerCpa         Float    @default(60)
+  
+  creativeCategories String? @db.Text
+  
   hypothesisPrompt  String?  @db.Text
   insightsPrompt    String?  @db.Text
   andromedaPrompt   String?  @db.Text

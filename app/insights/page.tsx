@@ -57,15 +57,13 @@ export default function InsightsPage() {
                 display: "flex", 
                 alignItems: "center", 
                 gap: "0.5rem", 
-                color: (isSearching || loading) ? "gray" : "#fff",
-                background: (isSearching || loading) ? "rgba(255,255,255,0.05)" : "var(--primary)",
-                border: "none",
+                color: (isSearching || loading) ? "var(--muted)" : "var(--foreground)",
                 fontWeight: 600,
                 cursor: (isSearching || loading) ? "not-allowed" : "pointer",
                 transition: "all 0.2s"
               }}
             >
-              <RefreshCcw size={18} className={isSearching ? "spin" : ""} />
+              <RefreshCcw size={18} color="var(--primary)" className={isSearching ? "spin" : ""} />
               {isSearching ? "Buscando IA..." : "Forçar Busca Manual"}
             </button>
             

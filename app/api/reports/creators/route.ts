@@ -27,6 +27,7 @@ export async function GET(request: Request) {
 
       if (savedReports.length > 0) {
         const formattedSaved = savedReports.map((rep: any) => ({
+          creatorId: rep.creatorId,
           name: rep.creator.name,
           acronym: rep.creator.acronym,
           avatarUrl: rep.creator.avatarUrl,
@@ -39,6 +40,7 @@ export async function GET(request: Request) {
           roas: rep.roas,
           monthlyGoal: rep.creator.monthlyGoal ?? 50000,
           monthlyVolumeGoal: rep.creator.monthlyVolumeGoal ?? 30,
+          deliveredPieces: rep.deliveredPieces,
           isSaved: true
         })).sort((a: any, b: any) => b.riskApprovedValue - a.riskApprovedValue);
         
@@ -69,6 +71,15 @@ export async function GET(request: Request) {
       },
       include: {
         creative: true
+      }
+    });
+
+    const deliveries = await prisma.delivery.findMany({
+      where: {
+        date: {
+          gte: startDate,
+          lte: endDate
+        }
       }
     });
 
@@ -106,7 +117,8 @@ export async function GET(request: Request) {
         clicks: 0,
         impressions: 0,
         netOrders: 0,
-        activeAds: new Set()
+        activeAds: new Set(),
+        deliveredPieces: 0
       };
     });
     
@@ -153,6 +165,13 @@ export async function GET(request: Request) {
       }
     });
 
+    deliveries.forEach(delivery => {
+      const stats = creatorStats[delivery.creatorId];
+      if (stats) {
+        stats.deliveredPieces += delivery.pieces;
+      }
+    });
+
     const formattedStats = Object.values(creatorStats).map((stats: any) => {
       const cpa = stats.netOrders > 0 ? stats.spend / stats.netOrders : 0;
       const roas = stats.spend > 0 ? stats.grossValue / stats.spend : 0;
@@ -170,6 +189,7 @@ export async function GET(request: Request) {
         grossValue: stats.grossValue,
         riskApprovedValue: stats.riskApprovedValue,
         activeAdsCount: stats.activeAds.size,
+        deliveredPieces: stats.deliveredPieces,
         cpa,
         roas
       };
@@ -194,7 +214,8 @@ export async function GET(request: Request) {
             purchases: stat.purchases,
             netOrders: stat.netOrders,
             roas: stat.roas,
-            activeAdsCount: stat.activeAdsCount
+            activeAdsCount: stat.activeAdsCount,
+            deliveredPieces: stat.deliveredPieces
           },
           create: {
             creatorId: stat.creatorId,
@@ -206,7 +227,8 @@ export async function GET(request: Request) {
             purchases: stat.purchases,
             netOrders: stat.netOrders,
             roas: stat.roas,
-            activeAdsCount: stat.activeAdsCount
+            activeAdsCount: stat.activeAdsCount,
+            deliveredPieces: stat.deliveredPieces
           }
         });
       }

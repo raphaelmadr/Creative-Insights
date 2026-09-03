@@ -2,12 +2,14 @@
 
 import React, { useState } from "react";
 import Link from "next/link";
+import { usePathname } from "next/navigation";
 import { Moon, Sun, Bell, Settings, RefreshCw, Database, Image as ImageIcon, Sparkles, Menu, X } from "lucide-react";
 import { useTheme } from "./ThemeProvider";
 import { useNotifications } from "./NotificationProvider";
 import styles from "./TopBar.module.css";
 
 export default function TopBar() {
+  const pathname = usePathname();
   const { theme, toggleTheme } = useTheme();
   const { unreadCount, isSyncingAll, lastSyncAt, lastFastSyncAt, lastDeepSyncAt, syncAll, updates, isSyncingMeta, syncMessage, syncProgress, isSearching, loadingText } = useNotifications();
   const [isNotificationsOpen, setIsNotificationsOpen] = useState(false);
@@ -130,11 +132,12 @@ export default function TopBar() {
           </Link>
 
           <nav className={styles.desktopNav} style={{ display: "flex", gap: "1.5rem", alignItems: "center", marginLeft: "2rem" }}>
-            <Link href="/" className={styles.navLink}>Início</Link>
-            <Link href="/insights" className={styles.navLink}>Insights</Link>
-            <Link href="/similaridade" className={styles.navLink}>Auditoria de Entity IDs</Link>
-            <Link href="/analises" className={styles.navLink}>Análises</Link>
-            <Link href="/equipe" className={styles.navLink}>Equipe</Link>
+            <Link href="/" className={`${styles.navLink} ${pathname === "/" ? styles.active : ""}`}>Início</Link>
+            <Link href="/anuncios" className={`${styles.navLink} ${pathname.startsWith("/anuncios") ? styles.active : ""}`}>Anúncios</Link>
+            <Link href="/insights" className={`${styles.navLink} ${pathname.startsWith("/insights") ? styles.active : ""}`}>Insights</Link>
+            <Link href="/similaridade" className={`${styles.navLink} ${pathname.startsWith("/similaridade") ? styles.active : ""}`}>Auditoria de Entity IDs</Link>
+            <Link href="/analises" className={`${styles.navLink} ${pathname.startsWith("/analises") ? styles.active : ""}`}>Análises</Link>
+            <Link href="/equipe" className={`${styles.navLink} ${pathname.startsWith("/equipe") ? styles.active : ""}`}>Equipe</Link>
           </nav>
         </div>
 
@@ -149,8 +152,9 @@ export default function TopBar() {
                 </button>
               </div>
             <nav style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
-              <Link href="/" className={styles.navLink} onClick={() => setIsMobileMenuOpen(false)}>Início</Link>
-              <Link href="/insights" className={styles.navLink} onClick={() => setIsMobileMenuOpen(false)}>Insights</Link>
+              <Link href="/" className={`${styles.navLink} ${pathname === "/" ? styles.active : ""}`}>Início</Link>
+              <Link href="/anuncios" className={`${styles.navLink} ${pathname.startsWith("/anuncios") ? styles.active : ""}`}>Anúncios</Link>
+              <Link href="/insights" className={`${styles.navLink} ${pathname.startsWith("/insights") ? styles.active : ""}`}>Insights</Link>
               <Link href="/similaridade" className={styles.navLink} onClick={() => setIsMobileMenuOpen(false)}>Auditoria de Entity IDs</Link>
               <Link href="/analises" className={styles.navLink} onClick={() => setIsMobileMenuOpen(false)}>Análises</Link>
               <Link href="/equipe" className={styles.navLink} onClick={() => setIsMobileMenuOpen(false)}>Equipe</Link>

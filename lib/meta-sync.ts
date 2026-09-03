@@ -1,6 +1,21 @@
 import prisma from "./prisma";
 import { throttledFetch, fetchWithBisection, MetaApiError, WallClockLimitError, resetWallClock } from "./throttled-fetch";
 
+async function withDbRetry<T>(fn: () => Promise<T>, maxRetries = 5, initialDelay = 2000): Promise<T> {
+  let attempt = 0;
+  while (attempt < maxRetries) {
+    try {
+      return await fn();
+    } catch (error: any) {
+      attempt++;
+      if (attempt >= maxRetries) throw error;
+      console.warn(`[withDbRetry] Falha no banco (tentativa ${attempt}/${maxRetries}). Esperando ${initialDelay * attempt}ms... Erro: ${error.message}`);
+      await new Promise(r => setTimeout(r, initialDelay * attempt));
+    }
+  }
+  throw new Error("unreachable");
+}
+
 export async function runMetaSync(
   mode: "full" | "metrics" = "full",
   onProgress?: (message: string, percentage: number) => void,
@@ -10,8 +25,8 @@ export async function runMetaSync(
   resetWallClock();
   const settings = await prisma.systemSettings.findUnique({ where: { id: 1 } });
   
-  let metaAccountId = settings?.metaAdAccountId;
-  const metaToken = settings?.metaAccessToken;
+  let metaAccountId = settings?.metaAdAccountId || process.env.META_AD_ACCOUNT_ID;
+  const metaToken = settings?.metaAccessToken || process.env.META_ACCESS_TOKEN;
 
   if (metaAccountId && !metaAccountId.startsWith('act_')) {
     metaAccountId = `act_${metaAccountId}`;
@@ -326,7 +341,7 @@ export async function runMetaSync(
     let designer: string | null = null;
     const adNameLower = adName.toLowerCase();
     for (const ac of validAcronyms) {
-      const regex = new RegExp(`(^|[-_ ])${ac}(?:[-._ ]|\\b|$)`, "i");
+      const regex = new RegExp(`(^|[-_ .])${ac}(?:[-._ ]|\\b|$)`, "i");
       if (regex.test(adNameLower)) {
         designer = ac.toUpperCase();
         break;
@@ -421,7 +436,7 @@ export async function runMetaSync(
       }
     }
 
-    let adCreative = await prisma.adCreative.findUnique({ where: { id: adId } });
+    let adCreative = await withDbRetry(() => prisma.adCreative.findUnique({ where: { id: adId } }));
     if (!adCreative) {
       if (rows && rows.length > 0) {
         const createData: any = {
@@ -442,7 +457,7 @@ export async function runMetaSync(
           createData.mediaType = "image";
         }
         
-        await prisma.adCreative.create({ data: createData });
+        await withDbRetry(() => prisma.adCreative.create({ data: createData }));
         syncedAds++;
       }
     } else {
@@ -465,21 +480,11 @@ export async function runMetaSync(
       }
       
       if (Object.keys(updateData).length > 0) {
-        try {
-          await prisma.adCreative.update({
-            where: { id: adId },
-            data: updateData
-          });
-          syncedAds++;
-        } catch (dbError: any) {
-          console.warn(`Transient DB error for ad ${adId}, retrying in 2s...`);
-          await new Promise(r => setTimeout(r, 2000));
-          await prisma.adCreative.update({
-            where: { id: adId },
-            data: updateData
-          });
-          syncedAds++;
-        }
+        await withDbRetry(() => prisma.adCreative.update({
+          where: { id: adId },
+          data: updateData
+        }));
+        syncedAds++;
       }
     }
   }
@@ -561,7 +566,7 @@ export async function runMetaSync(
 
       const dateStart = new Date(`${row.date_start}T00:00:00Z`);
 
-      await prisma.adDailyMetrics.upsert({
+      await withDbRetry(() => prisma.adDailyMetrics.upsert({
         where: {
           adCreativeId_date: {
             adCreativeId: adId,
@@ -618,7 +623,7 @@ export async function runMetaSync(
           videoViews75p,
           videoViews100p
         }
-      });
+      }));
       syncedMetrics++;
     }
   }
@@ -630,15 +635,15 @@ export async function runMetaSync(
     if (mode === "full") updateSettings.lastDeepSyncAt = now;
     else updateSettings.lastFastSyncAt = now;
     
-    await prisma.systemSettings.update({
+    await withDbRetry(() => prisma.systemSettings.update({
       where: { id: 1 },
       data: updateSettings
-    });
+    }));
 
     if (onProgress) onProgress("Sincronização concluída com sucesso!", 100);
   } else {
     if (onProgress) onProgress("Sincronização abortada por limite de tempo/taxa. Agende novamente para continuar.", 100);
   }
 
-  return { syncedAds, syncedMetrics };
+  return { syncedAds, syncedMetrics, reachedLimit: reachedWallClock };
 }

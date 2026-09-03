@@ -140,6 +140,7 @@ export async function POST(request: Request) {
     const { 
       superWinnerSpend, superWinnerReturn, superWinnerCpa, 
       winnerSpend, winnerReturn, winnerCpa, 
+      creativeCategories,
       hypothesisPrompt, insightsPrompt, andromedaPrompt, 
       tavilySearchQuery, marketInsightsPrompt,
       metaAdAccountId, metaAccessToken, geminiApiKey, 
@@ -163,6 +164,7 @@ export async function POST(request: Request) {
     };
 
     if (hypothesisPrompt) updateData.hypothesisPrompt = hypothesisPrompt;
+    if (creativeCategories !== undefined) updateData.creativeCategories = creativeCategories;
     if (insightsPrompt) updateData.insightsPrompt = insightsPrompt;
     if (andromedaPrompt) updateData.andromedaPrompt = andromedaPrompt;
     if (tavilySearchQuery) updateData.tavilySearchQuery = tavilySearchQuery;
@@ -208,6 +210,7 @@ export async function POST(request: Request) {
         winnerReturn: parseFloat(winnerReturn) || 1000,
         winnerCpa: parseFloat(winnerCpa) || 60,
         ...(hypothesisPrompt && { hypothesisPrompt }),
+        ...(creativeCategories !== undefined && { creativeCategories }),
         ...(insightsPrompt && { insightsPrompt }),
         ...(andromedaPrompt && { andromedaPrompt }),
         ...(tavilySearchQuery && { tavilySearchQuery }),

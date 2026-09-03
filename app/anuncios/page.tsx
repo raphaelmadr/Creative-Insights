@@ -1,7 +1,7 @@
 "use client";
 
 import TopBar from "@/components/TopBar";
-import FunnelsOverview from "@/components/FunnelsOverview";
+import CreativeView from "@/components/CreativeView";
 import DateRangePicker from "@/components/DateRangePicker";
 import { Avatar } from "@/components/Avatar";
 import { useEffect, useState, useMemo } from "react";
@@ -165,10 +165,10 @@ export default function Home() {
           <div style={{ display: "flex", flexDirection: "column", gap: "1.5rem", marginBottom: "1rem" }}>
             <div style={{ display: "flex", flexDirection: "column", gap: "0.25rem" }}>
               <h1 style={{ fontSize: "2.5rem", fontWeight: 800, margin: 0, wordBreak: "break-word" }} className="lowercase-title">
-                dashboard criativo<span className="dot-green">.</span>
+                biblioteca de anúncios<span className="dot-green">.</span>
               </h1>
               <p style={{ color: "#6B7280", maxWidth: "600px", lineHeight: 1.6, margin: 0 }} className="lowercase-title">
-                acompanhe a performance real dos seus criativos a partir de seu histórico.
+                explore a galeria completa, hipóteses da IA e a performance individual de cada peça.
               </p>
             </div>
             
@@ -306,86 +306,8 @@ export default function Home() {
             </div>
           </div>
 
-          <div>
-            <div className="section-header" style={{ marginBottom: "0.5rem" }}>
-              <span className="section-number">01</span>
-              <h2 className="section-title">métricas globais</h2>
-              <span className="section-subtitle">período selecionado</span>
-            </div>
-            
-            <div style={{ display: "flex", alignItems: "flex-start", gap: "0.75rem", background: "rgba(59, 130, 246, 0.05)", border: "1px solid rgba(59, 130, 246, 0.15)", padding: "1rem", borderRadius: "8px", marginBottom: "1.5rem" }}>
-              <div style={{ color: "#3b82f6", flexShrink: 0, marginTop: "2px" }}>
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="16" x2="12" y2="12"></line><line x1="12" y1="8" x2="12.01" y2="8"></line></svg>
-              </div>
-              <p style={{ margin: 0, fontSize: "0.85rem", color: "var(--foreground)", opacity: 0.8, lineHeight: 1.5 }}>
-                <strong>Aviso sobre Atribuição da Meta:</strong> O Meta Ads leva de 1 a 24 horas para atualizar e exibir os dados de uma compra no Gerenciador de Anúncios. Em muitos casos o evento aparece em poucas horas, mas o painel pode demorar até 48 horas para consolidar a atribuição correta e refletir todas as conversões.{" "}
-                <a href="https://www.reddit.com/r/FacebookAds/comments/1t4kh4m/ads_manager_data_update_time/?tl=pt-br" target="_blank" rel="noopener noreferrer" style={{ color: "#3b82f6", textDecoration: "none" }}>[1]</a>{" "}
-                <a href="https://www.reddit.com/r/PPC/comments/1ku6n7h/how_long_does_it_take_for_meta_ads_to_start/?tl=pt-br" target="_blank" rel="noopener noreferrer" style={{ color: "#3b82f6", textDecoration: "none" }}>[2]</a>{" "}
-                <a href="https://www.reddit.com/r/PPC/comments/122p8ge/how_long_does_it_take_for_conversions_to_show_up/?tl=pt-br" target="_blank" rel="noopener noreferrer" style={{ color: "#3b82f6", textDecoration: "none" }}>[3]</a>
-              </p>
-            </div>
-
-            <motion.div 
-              className="fixed-grid-4"
-              initial="hidden"
-              animate="show"
-              variants={{
-                hidden: { opacity: 0 },
-                show: {
-                  opacity: 1,
-                  transition: { staggerChildren: 0.1 }
-                }
-              }}
-            >
-              <motion.div className="allu-card" variants={{ hidden: { opacity: 0, y: 20 }, show: { opacity: 1, y: 0, transition: { type: "spring", stiffness: 300, damping: 24 } } }}>
-                <div className="allu-card-label">◇ INVESTIMENTO TOTAL</div>
-                <div className="allu-card-value">
-                  <AnimatedNumber value={parseFloat(metrics.totalSpend) || 0} prefix="R$ " decimals={2} />
-                </div>
-                <div className="allu-card-subtext">Meta: R$ {currentGoal.spendGoal.toLocaleString('pt-BR')} {renderPace(spendPace)}</div>
-                {renderProgressBar(spendPace)}
-              </motion.div>
-              <motion.div className="allu-card" variants={{ hidden: { opacity: 0, y: 20 }, show: { opacity: 1, y: 0, transition: { type: "spring", stiffness: 300, damping: 24 } } }}>
-                <div className="allu-card-label">◇ VALOR BRUTO</div>
-                <div className="allu-card-value">
-                  <AnimatedNumber value={parseFloat(metrics.totalGrossValue) || 0} prefix="R$ " decimals={2} />
-                </div>
-                <div className="allu-card-subtext">gerado no período</div>
-              </motion.div>
-              <motion.div className="allu-card allu-card-highlight" variants={{ hidden: { opacity: 0, y: 20 }, show: { opacity: 1, y: 0, transition: { type: "spring", stiffness: 300, damping: 24 } } }}>
-                <div className="allu-card-label">▶ VALOR APROVADO</div>
-                <div className="allu-card-value">
-                  <AnimatedNumber value={parseFloat(metrics.totalRiskApprovedValue) || 0} prefix="R$ " decimals={2} />
-                </div>
-                <div className="allu-card-subtext">Meta: R$ {currentGoal.revenueGoal.toLocaleString('pt-BR')} {renderPace(revenuePace)}</div>
-                {renderProgressBar(revenuePace)}
-              </motion.div>
-              <motion.div className="allu-card" variants={{ hidden: { opacity: 0, y: 20 }, show: { opacity: 1, y: 0, transition: { type: "spring", stiffness: 300, damping: 24 } } }}>
-                <div className="allu-card-label">◇ CPA MÉDIO</div>
-                <div className="allu-card-value">
-                  <AnimatedNumber value={parseFloat(metrics.avgCpa) || 0} prefix="R$ " decimals={2} />
-                </div>
-                <div className="allu-card-subtext" style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
-                  <span>Meta: R$ {currentGoal.cpaGoal.toLocaleString('pt-BR')}</span>
-                  {currentGoal.cpaGoal > 0 && (
-                    <>
-                      <span style={{ color: "var(--border)" }}>|</span>
-                      {parseFloat(metrics.avgCpa) <= currentGoal.cpaGoal ? (
-                        <span style={{ color: "var(--success, #10b981)", fontWeight: 600 }}>Dentro da expectativa</span>
-                      ) : (
-                        <span style={{ color: "var(--danger, #ef4444)", fontWeight: 600 }}>
-                          Fora do ideal ({((parseFloat(metrics.avgCpa) / currentGoal.cpaGoal - 1) * 100).toFixed(0)}% acima)
-                        </span>
-                      )}
-                    </>
-                  )}
-                </div>
-              </motion.div>
-            </motion.div>
-          </div>
-          
           <div style={{ flex: 1, marginTop: "-1rem" }}>
-            <FunnelsOverview 
+            <CreativeView 
               dateFrom={dateFrom} 
               dateTo={dateTo} 
               statusFilter={statusFilter} 

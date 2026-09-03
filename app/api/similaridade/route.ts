@@ -63,9 +63,11 @@ export async function GET(req: NextRequest) {
       
       if (spend < 200) continue;
       
-      if (uniqueAdsMap.has(ad.adName)) {
+      const groupKey = ad.id;
+      
+      if (uniqueAdsMap.has(groupKey)) {
         // Soma as métricas do mesmo criativo rodando em múltiplos lugares
-        const existing = uniqueAdsMap.get(ad.adName);
+        const existing = uniqueAdsMap.get(groupKey);
         existing.spend += spend;
         existing.grossValue += grossValue;
         existing.impressions += impressions;
@@ -78,7 +80,7 @@ export async function GET(req: NextRequest) {
         existing.cpm = existing.impressions > 0 ? (existing.spend / existing.impressions) * 1000 : 0;
         existing.campaignName = "Várias campanhas (Multi-AdSet)";
       } else {
-        uniqueAdsMap.set(ad.adName, {
+        uniqueAdsMap.set(groupKey, {
           id: ad.id,
           adName: ad.adName,
           campaignName: ad.campaignName,

@@ -7,6 +7,7 @@ import { Sparkles, Activity, Target, TrendingUp, Award, Image as ImageIcon, Load
 import { motion, AnimatePresence } from "framer-motion";
 import { Avatar } from "@/components/Avatar";
 import { Skeleton } from "@/components/Skeleton";
+import { CreativeCard } from "./CreativeCard";
 import { useCacheFetch } from "@/hooks/useCacheFetch";
 
 const FbIcon = ({ size = 12 }) => (
@@ -281,25 +282,22 @@ export default function CreativeView({ dateFrom, dateTo, statusFilter, channelFi
   const statusParam = statusFilter || "ACTIVE";
   const url = `/api/db-ads?from=${dateFrom}&to=${dateTo}&status=${statusParam}`;
   const { data: fetchRes, loading, isRevalidating, mutate } = useCacheFetch<any>(url);
-  const data: {superWinners: any[], winners: any[], testes: Record<string, any[]>, settings?: any} | null = fetchRes?.success ? fetchRes.data : null;
+  const data: {categorizedAds: any[], testes: Record<string, any[]>, settings?: any} | null = fetchRes?.success ? fetchRes.data : null;
 
   useEffect(() => {
     if (syncCounter > 0) mutate();
   }, [syncCounter]); // Removing mutate from deps to avoid re-renders if hook signature varies
 
   const [hoveredPreview, setHoveredPreview] = useState<{url: string, isVideo?: boolean, adName: string, cardId: string} | null>(null);
-  const [superWinnersVisible, setSuperWinnersVisible] = useState(PAGE_SIZE);
-  const [winnersVisible, setWinnersVisible] = useState(PAGE_SIZE);
+  const [categoriesVisible, setCategoriesVisible] = useState<Record<string, number>>({});
   const [testesGroupsVisible, setTestesGroupsVisible] = useState(PAGE_SIZE_GROUPS);
   const [testesAdsVisible, setTestesAdsVisible] = useState<Record<string, number>>({});
   const [collapsedGroups, setCollapsedGroups] = useState<Record<string, boolean>>({});
-  const [isSuperWinnersCollapsed, setIsSuperWinnersCollapsed] = useState(false);
-  const [isWinnersCollapsed, setIsWinnersCollapsed] = useState(false);
+  const [categoriesCollapsed, setCategoriesCollapsed] = useState<Record<string, boolean>>({});
   const [isTestesCollapsed, setIsTestesCollapsed] = useState(false);
 
   useEffect(() => {
-    setSuperWinnersVisible(PAGE_SIZE);
-    setWinnersVisible(PAGE_SIZE);
+    setCategoriesVisible({});
     setTestesGroupsVisible(PAGE_SIZE_GROUPS);
     setTestesAdsVisible({});
   }, [data, selectedDesigner]);
@@ -333,8 +331,7 @@ export default function CreativeView({ dateFrom, dateTo, statusFilter, channelFi
     return (creative.platform || "META").toUpperCase() === channelFilter.toUpperCase();
   }, [channelFilter]);
 
-  const baseSuperWinners = React.useMemo(() => data ? data.superWinners.filter(c => filterByDesigner(c) && filterByChannel(c)) : [], [data, filterByDesigner, filterByChannel]);
-  const baseWinners = React.useMemo(() => data ? data.winners.filter(c => filterByDesigner(c) && filterByChannel(c)) : [], [data, filterByDesigner, filterByChannel]);
+  const baseCategories = React.useMemo(() => data && data.categorizedAds ? data.categorizedAds.map((cat: any) => ({ ...cat, ads: cat.ads.filter((c: any) => filterByDesigner(c) && filterByChannel(c)) })) : [], [data, filterByDesigner, filterByChannel]);
 
   const baseTestes = React.useMemo(() => {
     const obj: Record<string, any[]> = {};
@@ -360,8 +357,7 @@ export default function CreativeView({ dateFrom, dateTo, statusFilter, channelFi
     return createdDate >= start && createdDate <= end;
   }, [hideOldAds, dateFrom, dateTo]);
 
-  const filteredSuperWinners = React.useMemo(() => baseSuperWinners.filter(filterByDate), [baseSuperWinners, filterByDate]);
-  const filteredWinners = React.useMemo(() => baseWinners.filter(filterByDate), [baseWinners, filterByDate]);
+  const filteredCategories = React.useMemo(() => baseCategories.map(cat => ({ ...cat, ads: cat.ads.filter(filterByDate) })), [baseCategories, filterByDate]);
   const filteredTestes = React.useMemo(() => {
     const obj: Record<string, any[]> = {};
     Object.entries(baseTestes).forEach(([adsetName, ads]) => {
@@ -375,7 +371,7 @@ export default function CreativeView({ dateFrom, dateTo, statusFilter, channelFi
 
   useEffect(() => {
     if (data && onMetricsUpdate) {
-      console.log("data size:", data.superWinners.length, data.winners.length); console.log("filtered size:", filteredSuperWinners.length, filteredWinners.length); console.log("selected designer:", selectedDesigner); let totalSpend = 0;
+      console.log("data size:", data.categorizedAds?.length); console.log("filtered size:", filteredCategories.length); console.log("selected designer:", selectedDesigner); let totalSpend = 0;
       let totalRiskApprovedValue = 0;
       let totalGrossValue = 0;
       let totalImpressions = 0;
@@ -405,8 +401,7 @@ export default function CreativeView({ dateFrom, dateTo, statusFilter, channelFi
         return createdDate >= start && createdDate <= end;
       };
 
-      baseSuperWinners.filter(filterForMetrics).forEach(processCreative);
-      baseWinners.filter(filterForMetrics).forEach(processCreative);
+      baseCategories.forEach(cat => cat.ads.filter(filterForMetrics).forEach(processCreative));
       Object.values(baseTestes).flat().filter(filterForMetrics).forEach(processCreative);
 
       const globalCtr = totalImpressions > 0 ? (totalClicks / totalImpressions) * 100 : 0;
@@ -420,7 +415,7 @@ export default function CreativeView({ dateFrom, dateTo, statusFilter, channelFi
         totalGrossValue: totalGrossValue.toFixed(2),
       });
     }
-  }, [baseSuperWinners, baseWinners, baseTestes, data, dateFrom, dateTo, onMetricsUpdate]);
+  }, [baseCategories, baseTestes, data, dateFrom, dateTo, onMetricsUpdate]);
 
   if (loading && !data) return (
     <div style={{ display: "flex", flexDirection: "column", gap: "2rem" }}>
@@ -451,199 +446,55 @@ export default function CreativeView({ dateFrom, dateTo, statusFilter, channelFi
   if (!data) return <div>Erro ao carregar dados.</div>;
 
 
-  const renderCreativeCard = (creative: any, tier?: "super" | "winner") => {
-    const isHovered = hoveredPreview?.cardId === creative.id;
-    
-    // Resolve creator for this card
-    const creatorAcronym = (creative.designer || "").trim().toUpperCase();
-    const matchingCreator = creators.find(c => {
-      const acronyms = c.acronym.split(",").map((s: string) => s.trim().toUpperCase());
-      return acronyms.includes(creatorAcronym);
-    });
-    
-    return (
-      <motion.div
-        key={creative.id}
-        variants={{ hidden: { opacity: 0, y: 20 }, show: { opacity: 1, y: 0, transition: { type: "spring", stiffness: 200, damping: 20 } } }}
-        className={`glass-panel ${styles.card}`}
-        style={{
-          position: "relative",
-          zIndex: isHovered ? 1000 : 1,
-          transition: "all 0.3s ease",
-          boxShadow: isHovered ? "0 0 0 2px var(--primary), 0 20px 40px rgba(0,0,0,0.5)" : "none"
-        }}
-      >
-        {/* Badges removed per user request */}
-        <div 
-          className={styles.imageWrapper} 
-          style={{ position: "relative", cursor: creative.videoUrl ? "default" : "zoom-in", overflow: "hidden" }}
-          onClick={(e) => {
-            if (creative.videoUrl) return; // Vídeos usam o player nativo para fullscreen
-            const url = creative.image_url || creative.thumbnail_url;
-            if (url) setHoveredPreview({ url, isVideo: false, adName: creative.ad_name, cardId: creative.id });
-          }}
-        >
-        {creative.videoUrl ? (
-          <video 
-            src={creative.videoUrl} 
-            poster={creative.thumbnail_url || creative.image_url || ""}
-            style={{ width: "100%", aspectRatio: "1 / 1", objectFit: "cover", borderRadius: "8px", transition: "transform 0.3s ease" }} 
-            controls
-            preload="metadata"
-            onClick={(e) => e.stopPropagation()}
-          />
-        ) : creative.image_url ? (
-          <SafeImage 
-            src={creative.image_url} 
-            alt={creative.ad_name} 
-            style={{ width: "100%", aspectRatio: "1 / 1", objectFit: "cover", borderRadius: "8px", transition: "transform 0.3s ease" }} 
-          />
-        ) : (
-          <div style={{ width: "100%", aspectRatio: "1 / 1", background: "var(--card-border)", borderRadius: "8px", display: "flex", alignItems: "center", justifyContent: "center" }}>
-            <ImageIcon size={32} opacity={0.3} />
-          </div>
-        )}
-        
-        {matchingCreator && (
-          <div style={{
-            position: "absolute",
-            top: "8px",
-            left: "8px",
-            zIndex: 10,
-            display: "flex",
-            alignItems: "center",
-            gap: "0.4rem",
-            background: "rgba(0,0,0,0.6)",
-            backdropFilter: "blur(4px)",
-            WebkitBackdropFilter: "blur(4px)",
-            padding: "4px 8px 4px 4px",
-            borderRadius: "100px",
-            color: "white",
-            pointerEvents: "none"
-          }} title={`Criador: ${matchingCreator.name}`}>
-            <Avatar src={matchingCreator.avatarUrl} name={matchingCreator.name} size="xs" isActive={matchingCreator.active !== false} />
-            <span style={{ fontSize: "0.7rem", fontWeight: 600 }}>{matchingCreator.name.split(" ")[0]}</span>
-          </div>
-        )}
-      </div>
-      
-      <div className={styles.info}>
-        <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: "1rem" }}>
-          <div style={{ flex: "1 1 120px", display: "flex", flexDirection: "column", gap: "0.4rem" }}>
-            <div style={{ display: "flex", alignItems: "flex-start", gap: "0.25rem" }}>
-              <h4 style={{ 
-                margin: 0, fontSize: "0.8rem", lineHeight: 1.3, opacity: 0.9, wordBreak: "break-all", fontWeight: 600,
-                display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden", minHeight: "2.6em"
-              }}>
-                {creative.ad_name}
-              </h4>
-              <CopyButton text={creative.ad_name} />
-            </div>
-          </div>
-          <div style={{ flex: "2 1 200px", display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.4rem" }}>
-            <MetricMiniCard
-              label="Invest."
-              value={formatCurrencyCompact(parseFloat(creative.spend))}
-              title={formatCurrencyFull(parseFloat(creative.spend))}
-              tone="neutral"
-            />
-            <MetricMiniCard
-              label="CPA"
-              value={formatCurrencyCompact(parseFloat(creative.cpa))}
-              title={formatCurrencyFull(parseFloat(creative.cpa))}
-              tone="neutral"
-            />
-            <MetricMiniCard
-              label="Rec. Bruta"
-              value={formatCurrencyCompact(parseFloat(creative.grossValue))}
-              title={formatCurrencyFull(parseFloat(creative.grossValue))}
-              tone="good"
-            />
-            <MetricMiniCard
-              label="Rec. Líquida"
-              value={formatCurrencyCompact(parseFloat(creative.riskApprovedValue))}
-              title={formatCurrencyFull(parseFloat(creative.riskApprovedValue))}
-              tone={approvedValueTone(parseFloat(creative.riskApprovedValue))}
-            />
-          </div>
-        </div>
-        
-        <CreativeHypothesis creative={creative} />
 
-        <div style={{ marginTop: "0.75rem", display: "flex", justifyContent: "space-between", alignItems: "center", borderTop: "1px solid var(--card-border)", paddingTop: "0.5rem" }}>
-          {creative.createdTime ? (
-            <span style={{ fontSize: "0.65rem", color: "var(--foreground)", opacity: 0.5, fontWeight: 500 }} title="Anúncio rodando desde">
-              Desde {new Date(creative.createdTime).toLocaleDateString("pt-BR", { timeZone: "UTC" })}
-            </span>
-          ) : <span />}
-          
-          {creative.platform === "TIKTOK" ? (
-            <div style={{ display: "flex", gap: "0.4rem", opacity: 0.5, color: "var(--foreground)" }} title="TikTok Ads">
-              <TikTokIcon size={12} />
-            </div>
-          ) : creative.platform === "META" ? (
-            <div style={{ display: "flex", gap: "0.4rem", opacity: 0.5, color: "var(--foreground)" }} title={creative.publisherPlatforms ? `Canais: ${creative.publisherPlatforms}` : "Meta Ads"}>
-              <FbIcon size={12} />
-              {creative.publisherPlatforms?.includes("instagram") && <InstaIcon size={12} />}
-              {creative.publisherPlatforms?.includes("messenger") && <MessengerIcon size={12} />}
-              {creative.publisherPlatforms?.includes("audience_network") && <AudienceIcon size={12} />}
-            </div>
-          ) : null}
-        </div>
-      </div>
-    </motion.div>
-    );
+  const formatRules = (spend: number, ret: number, cpa: number) => {
+    const rules = [];
+    if (spend > 0) rules.push(`tiveram um <strong>investimento</strong> acima de <strong>R$ ${spend.toLocaleString("pt-BR")}</strong>`);
+    if (ret > 0) rules.push(`geraram uma <strong>receita líquida</strong> maior que <strong>R$ ${ret.toLocaleString("pt-BR")}</strong>`);
+    if (cpa > 0) rules.push(`mantiveram o <strong>CPA</strong> abaixo de <strong>R$ ${cpa.toLocaleString("pt-BR")}</strong>`);
+    if (rules.length === 0) return "não possuem metas definidas";
+    if (rules.length === 1) return rules[0];
+    const last = rules.pop();
+    return rules.join(", ") + " e " + last;
+  };
+
+  const formatShortRules = (spend: number, ret: number, cpa: number) => {
+    const rules = [];
+    if (spend > 0) rules.push(`gastou > ${(spend / 1000).toFixed(0)}k`);
+    if (ret > 0) rules.push(`faturou > ${(ret / 1000).toFixed(0)}k`);
+    if (cpa > 0) rules.push(`cpa < ${cpa}`);
+    return rules.length ? rules.join(", ").replace(/, ([^,]*)$/, " e $1") : "sem regras";
+  };
+
+  const formatEmptyRules = (spend: number, ret: number, cpa: number) => {
+    const rules = [];
+    if (spend > 0) rules.push(`gasto ≥ R$ ${spend}`);
+    if (ret > 0) rules.push(`valor aprovado ≥ R$ ${ret}`);
+    if (cpa > 0) rules.push(`CPA ≤ R$ ${cpa}`);
+    return rules.length ? rules.join(", ").replace(/, ([^,]*)$/, " e $1") : "sem regras";
   };
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: "2rem" }}>
-      {loading && data && (
-        <div style={{ textAlign: "center", opacity: 0.5, fontSize: "0.9rem" }}>
-          Recarregando dados do período...
+    <div style={{ display: "flex", flexDirection: "column", gap: "2rem", minHeight: "50vh" }}>
+      {loading ? (
+        <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: "4rem 0", gap: "1rem", opacity: 0.7, height: "100%", margin: "auto" }}>
+          <Loader2 size={32} style={{ animation: "spin 2s linear infinite" }} />
+          <div style={{ fontSize: "1rem" }}>Analisando e aplicando métricas...</div>
         </div>
-      )}
-
-      {/* Glossário / Informações (Dashboard) */}
-      {(() => {
-        const formatRules = (spend: number, ret: number, cpa: number) => {
-          const rules = [];
-          if (spend > 0) rules.push(`tiveram um <strong>investimento</strong> acima de <strong>R$ ${spend.toLocaleString("pt-BR")}</strong>`);
-          if (ret > 0) rules.push(`geraram uma <strong>receita líquida</strong> maior que <strong>R$ ${ret.toLocaleString("pt-BR")}</strong>`);
-          if (cpa > 0) rules.push(`mantiveram o <strong>CPA</strong> abaixo de <strong>R$ ${cpa.toLocaleString("pt-BR")}</strong>`);
-          if (rules.length === 0) return "não possuem metas definidas";
-          if (rules.length === 1) return rules[0];
-          const last = rules.pop();
-          return rules.join(", ") + " e " + last;
-        };
-
-        const formatShortRules = (spend: number, ret: number, cpa: number) => {
-          const rules = [];
-          if (spend > 0) rules.push(`gastou > ${(spend / 1000).toFixed(0)}k`);
-          if (ret > 0) rules.push(`faturou > ${(ret / 1000).toFixed(0)}k`);
-          if (cpa > 0) rules.push(`cpa < ${cpa}`);
-          return rules.length ? rules.join(", ").replace(/, ([^,]*)$/, " e $1") : "sem regras";
-        };
-
-        const formatEmptyRules = (spend: number, ret: number, cpa: number) => {
-          const rules = [];
-          if (spend > 0) rules.push(`gasto ≥ R$ ${spend}`);
-          if (ret > 0) rules.push(`valor aprovado ≥ R$ ${ret}`);
-          if (cpa > 0) rules.push(`CPA ≤ R$ ${cpa}`);
-          return rules.length ? rules.join(", ").replace(/, ([^,]*)$/, " e $1") : "sem regras";
-        };
-
-        return (
-          <>
-            {data?.settings && (
+      ) : (
+        <>
+          
+          {/* Glossário / Informações (Dashboard) */}
+            {data?.categorizedAds && (
               <div className="fixed-grid-4" style={{ marginBottom: "1rem" }}>
-                <div className="allu-card allu-card-highlight">
-                  <div className="allu-card-label">▶ SUPER WINNERS</div>
-                  <div className="allu-card-subtext" dangerouslySetInnerHTML={{ __html: `Anúncios de alta performance que ${formatRules(data.settings.superWinnerSpend || 0, data.settings.superWinnerReturn || 0, data.settings.superWinnerCpa || 0)}.` }} />
-                </div>
-                <div className="allu-card">
-                  <div className="allu-card-label">◇ WINNERS</div>
-                  <div className="allu-card-subtext" dangerouslySetInnerHTML={{ __html: `Anúncios validados que ${formatRules(data.settings.winnerSpend || 0, data.settings.winnerReturn || 0, data.settings.winnerCpa || 0)}.` }} />
-                </div>
+                {data.categorizedAds.map((cat, idx) => (
+                  <div key={cat.id} className={`allu-card ${idx === 0 ? 'allu-card-highlight' : ''}`}>
+                    <div className="allu-card-label" style={{ color: "var(--foreground)" }}>{cat.emoji} {cat.name.toUpperCase()}</div>
+                    <div className="allu-card-subtext">
+                      Critérios variam por plataforma (Meta, TikTok, Google). Consulte as regras em Configurações.
+                    </div>
+                  </div>
+                ))}
                 <div className="allu-card">
                   <div className="allu-card-label">◇ ÁREA DE TESTES</div>
                   <div className="allu-card-subtext">
@@ -660,24 +511,24 @@ export default function CreativeView({ dateFrom, dateTo, statusFilter, channelFi
                 </div>
               </div>
             )}
-
-      {/* Controles Globais */}
+{/* Controles Globais */}
       {data && (
         <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: "-1rem", position: "relative", zIndex: 10 }}>
           <button 
             onClick={() => {
               const allAdSets = Object.keys(filteredTestes);
               const allGroupsCollapsed = allAdSets.every(adset => collapsedGroups[adset]);
-              const isEverythingCollapsed = isSuperWinnersCollapsed && isWinnersCollapsed && isTestesCollapsed && (allAdSets.length === 0 || allGroupsCollapsed);
+              const allCatsCollapsed = filteredCategories.every(cat => categoriesCollapsed[cat.id]);
+              const isEverythingCollapsed = allCatsCollapsed && isTestesCollapsed && (allAdSets.length === 0 || allGroupsCollapsed);
               
               if (isEverythingCollapsed) {
-                setIsSuperWinnersCollapsed(false);
-                setIsWinnersCollapsed(false);
+                setCategoriesCollapsed({});
                 setIsTestesCollapsed(false);
                 setCollapsedGroups({});
               } else {
-                setIsSuperWinnersCollapsed(true);
-                setIsWinnersCollapsed(true);
+                const newCatsState: Record<string, boolean> = {};
+                filteredCategories.forEach(cat => newCatsState[cat.id] = true);
+                setCategoriesCollapsed(newCatsState);
                 setIsTestesCollapsed(true);
                 const newState: Record<string, boolean> = {};
                 allAdSets.forEach(adset => newState[adset] = true);
@@ -692,90 +543,62 @@ export default function CreativeView({ dateFrom, dateTo, statusFilter, channelFi
             onMouseOver={e => e.currentTarget.style.transform = "translateY(-1px)"}
             onMouseOut={e => e.currentTarget.style.transform = "translateY(0)"}
           >
-            {isSuperWinnersCollapsed && isWinnersCollapsed && isTestesCollapsed && (Object.keys(filteredTestes).length === 0 || Object.keys(filteredTestes).every(adset => collapsedGroups[adset])) 
+            {filteredCategories.every(cat => categoriesCollapsed[cat.id]) && isTestesCollapsed && (Object.keys(filteredTestes).length === 0 || Object.keys(filteredTestes).every(adset => collapsedGroups[adset])) 
               ? <><ChevronRight size={16} /> Expandir tudo</> 
               : <><ChevronDown size={16} /> Recolher tudo</>}
           </button>
         </div>
       )}
 
-      {/* Seção Super Winners */}
-      <section>
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", flexWrap: "wrap", gap: "1rem", marginBottom: "1rem" }}>
-          <div className="section-header" style={{ marginBottom: 0 }}>
-            <span className="section-number">02</span>
-            <h2 className="section-title">super winners ({filteredSuperWinners.length})</h2>
-            <span className="section-subtitle">{data?.settings ? formatShortRules(data.settings.superWinnerSpend || 0, data.settings.superWinnerReturn || 0, data.settings.superWinnerCpa || 0) : 'gastou > 1k, faturou > 5k e cpa < 50'}</span>
-          </div>
-          <button 
-            onClick={() => setIsSuperWinnersCollapsed(!isSuperWinnersCollapsed)}
-            style={{ fontSize: "0.8rem", opacity: 0.7, cursor: "pointer", textDecoration: "underline", display: "flex", alignItems: "center", gap: "0.25rem" }}
-          >
-            {isSuperWinnersCollapsed ? <><ChevronRight size={14} /> Expandir</> : <><ChevronDown size={14} /> Recolher</>}
-          </button>
-        </div>
-
-        {!isSuperWinnersCollapsed && (
-          filteredSuperWinners.length === 0 ? (
-            <p style={{ opacity: 0.5 }}>Nenhum criativo super winner no período ({data?.settings ? formatEmptyRules(data.settings.superWinnerSpend || 0, data.settings.superWinnerReturn || 0, data.settings.superWinnerCpa || 0) : 'gasto ≥ R$ 1000, valor aprovado ≥ R$ 5000 e CPA ≤ R$ 50'}, dentro do período selecionado).</p>
-          ) : (
-            <>
-              <motion.div 
-                className={styles.grid}
-                initial="hidden" animate="show"
-                variants={{ hidden: {}, show: { transition: { staggerChildren: 0.05 } } }}
+      
+      {/* Categorias Dinâmicas */}
+      {filteredCategories.map((cat, idx) => {
+        const isCollapsed = categoriesCollapsed[cat.id] || false;
+        const visibleCount = categoriesVisible[cat.id] || PAGE_SIZE;
+        const numStr = (idx + 2).toString().padStart(2, '0');
+        
+        return (
+          <section key={cat.id}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", flexWrap: "wrap", gap: "1rem", marginBottom: "1rem" }}>
+              <div className="section-header" style={{ marginBottom: 0 }}>
+                <span className="section-number" style={{ color: "var(--foreground)" }}>{cat.emoji}</span>
+                <h2 className="section-title" style={{ color: "var(--foreground)" }}>{cat.name.toLowerCase()} ({cat.ads.length})</h2>
+                <span className="section-subtitle">regras baseadas em plataforma</span>
+              </div>
+              <button 
+                onClick={() => setCategoriesCollapsed(prev => ({ ...prev, [cat.id]: !isCollapsed }))}
+                style={{ fontSize: "0.8rem", opacity: 0.7, cursor: "pointer", textDecoration: "underline", display: "flex", alignItems: "center", gap: "0.25rem" }}
               >
-                {filteredSuperWinners.slice(0, superWinnersVisible).map(c => renderCreativeCard(c, "super"))}
-              </motion.div>
-              {filteredSuperWinners.length > superWinnersVisible && (
-                <InfiniteScrollTrigger
-                  remaining={filteredSuperWinners.length - superWinnersVisible}
-                  onLoadMore={() => setSuperWinnersVisible(v => v + PAGE_SIZE)}
-                />
-              )}
-            </>
-          )
-        )}
-      </section>
+                {isCollapsed ? <><ChevronRight size={14} /> Expandir</> : <><ChevronDown size={14} /> Recolher</>}
+              </button>
+            </div>
 
-      {/* Seção Winners */}
-      <section>
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", flexWrap: "wrap", gap: "1rem", marginBottom: "1rem" }}>
-          <div className="section-header" style={{ marginBottom: 0 }}>
-            <span className="section-number">03</span>
-            <h2 className="section-title">winners ({filteredWinners.length})</h2>
-            <span className="section-subtitle">{data?.settings ? formatShortRules(data.settings.winnerSpend || 0, data.settings.winnerReturn || 0, data.settings.winnerCpa || 0) : 'gastou > 1k, faturou > 1k e cpa < 80'}</span>
-          </div>
-          <button 
-            onClick={() => setIsWinnersCollapsed(!isWinnersCollapsed)}
-            style={{ fontSize: "0.8rem", opacity: 0.7, cursor: "pointer", textDecoration: "underline", display: "flex", alignItems: "center", gap: "0.25rem" }}
-          >
-            {isWinnersCollapsed ? <><ChevronRight size={14} /> Expandir</> : <><ChevronDown size={14} /> Recolher</>}
-          </button>
-        </div>
-
-        {!isWinnersCollapsed && (
-          filteredWinners.length === 0 ? (
-            <p style={{ opacity: 0.5 }}>Nenhum criativo winner no período ({data?.settings ? formatEmptyRules(data.settings.winnerSpend || 0, data.settings.winnerReturn || 0, data.settings.winnerCpa || 0) : 'gasto ≥ R$ 1000, valor aprovado ≥ R$ 1000 e CPA ≤ R$ 80'}, dentro do período selecionado).</p>
-          ) : (
-            <>
-              <motion.div 
-                className={styles.grid}
-                initial="hidden" animate="show"
-                variants={{ hidden: {}, show: { transition: { staggerChildren: 0.05 } } }}
-              >
-                {filteredWinners.slice(0, winnersVisible).map(c => renderCreativeCard(c, "winner"))}
-              </motion.div>
-              {filteredWinners.length > winnersVisible && (
-                <InfiniteScrollTrigger
-                  remaining={filteredWinners.length - winnersVisible}
-                  onLoadMore={() => setWinnersVisible(v => v + PAGE_SIZE)}
-                />
-              )}
-            </>
-          )
-        )}
-      </section>
+            {!isCollapsed && (
+              cat.ads.length === 0 ? (
+                <p style={{ opacity: 0.5 }}>Nenhum criativo {cat.name} no período selecionado.</p>
+              ) : (
+                <>
+                  <motion.div 
+                    className={styles.grid}
+                    initial="hidden" animate="show"
+                    variants={{ hidden: {}, show: { transition: { staggerChildren: 0.05 } } }}
+                  >
+                    {cat.ads.slice(0, visibleCount).map((c: any) => (
+                      <CreativeCard key={c.id} creative={c} creators={creators} hoveredPreview={hoveredPreview} setHoveredPreview={setHoveredPreview} tier="super" />
+                    ))}
+                  </motion.div>
+                  {cat.ads.length > visibleCount && (
+                    <InfiniteScrollTrigger
+                      remaining={cat.ads.length - visibleCount}
+                      onLoadMore={() => setCategoriesVisible(prev => ({ ...prev, [cat.id]: (prev[cat.id] || PAGE_SIZE) + PAGE_SIZE }))}
+                    />
+                  )}
+                </>
+              )
+            )}
+          </section>
+        );
+      })}
 
       {/* Seção Testes (Agrupada por Conjunto) */}
       <section>
@@ -818,7 +641,9 @@ export default function CreativeView({ dateFrom, dateTo, statusFilter, channelFi
                             initial="hidden" animate="show"
                             variants={{ hidden: {}, show: { transition: { staggerChildren: 0.05 } } }}
                           >
-                            {ads.slice(0, visibleCount).map(c => renderCreativeCard(c))}
+                            {ads.slice(0, visibleCount).map((c: any) => (
+                              <CreativeCard key={c.id} creative={c} creators={creators} hoveredPreview={hoveredPreview} setHoveredPreview={setHoveredPreview} />
+                            ))}
                           </motion.div>
                           {ads.length > visibleCount && (
                             <InfiniteScrollTrigger
@@ -846,7 +671,7 @@ export default function CreativeView({ dateFrom, dateTo, statusFilter, channelFi
 
       {/* Overlay de Blur e Balão Flutuante via Portal (resolve problemas de stacking context e overflow) */}
       {hoveredPreview && typeof document !== "undefined" && createPortal(
-        <>
+        <div style={{ position: "fixed", inset: 0, zIndex: 900 }}>
           {/* Overlay que borra tudo exceto o card (o card ganha z-index 1000) */}
           <div 
             onClick={() => setHoveredPreview(null)}
@@ -931,13 +756,11 @@ export default function CreativeView({ dateFrom, dateTo, statusFilter, channelFi
               </div>
             </div>
           </div>
-        </>,
+        </div>,
         document.body
       )}
-
-          </>
-        );
-      })()}
+      </>
+      )}
     </div>
   );
 }

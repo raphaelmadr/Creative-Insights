@@ -1,6 +1,29 @@
 import { NextResponse } from "next/server";
 import prisma from "@/lib/prisma";
 
+const DEFAULT_CATEGORIES = [
+  {
+    id: "cat_super_winners",
+    name: "Super Winners",
+    color: "var(--success)",
+    rules: {
+      META: { minSpend: 1000, minReturn: 5000, maxCpa: 50 },
+      TIKTOK: { minSpend: 1000, minReturn: 5000, maxCpa: 50 },
+      GOOGLE: { minSpend: 1000, minReturn: 5000, maxCpa: 50 },
+    }
+  },
+  {
+    id: "cat_winners",
+    name: "Winners",
+    color: "var(--primary)",
+    rules: {
+      META: { minSpend: 500, minReturn: 2000, maxCpa: 60 },
+      TIKTOK: { minSpend: 500, minReturn: 2000, maxCpa: 60 },
+      GOOGLE: { minSpend: 500, minReturn: 2000, maxCpa: 60 },
+    }
+  }
+];
+
 export async function GET(req: Request) {
   try {
     const url = new URL(req.url);
@@ -35,29 +58,27 @@ export async function GET(req: Request) {
     });
 
     let settings = await prisma.systemSettings.findUnique({ where: { id: 1 } });
-    if (!settings) {
-      settings = {
-        id: 1,
-        superWinnerSpend: 1000,
-        superWinnerReturn: 5000,
-        superWinnerCpa: 50,
-        winnerSpend: 1000,
-        winnerReturn: 1000,
-        winnerCpa: 60,
-        updatedAt: new Date()
-      } as any;
+    
+    let categories: any[] = [];
+    if (settings?.creativeCategories) {
+      try {
+        categories = JSON.parse(settings.creativeCategories);
+      } catch (e) {
+        categories = DEFAULT_CATEGORIES;
+      }
+    } else {
+      categories = JSON.parse(JSON.stringify(DEFAULT_CATEGORIES));
+      if (settings) {
+        categories[0].rules.META.minSpend = settings.superWinnerSpend ?? 1000;
+        categories[0].rules.META.minReturn = settings.superWinnerReturn ?? 5000;
+        categories[0].rules.META.maxCpa = settings.superWinnerCpa ?? 50;
+        categories[1].rules.META.minSpend = settings.winnerSpend ?? 500;
+        categories[1].rules.META.minReturn = settings.winnerReturn ?? 2000;
+        categories[1].rules.META.maxCpa = settings.winnerCpa ?? 60;
+      }
     }
-    const SUPER_WINNER_SPEND_THRESHOLD = settings!.superWinnerSpend ?? 1000;
-    const SUPER_WINNER_VALUE_THRESHOLD = settings!.superWinnerReturn ?? 5000;
-    const SUPER_WINNER_MAX_CPA = settings!.superWinnerCpa ?? 50;
 
-
-    const WINNER_SPEND_THRESHOLD = settings!.winnerSpend ?? 1000;
-    const WINNER_VALUE_THRESHOLD = settings!.winnerReturn ?? 1000;
-    const WINNER_MAX_CPA = settings!.winnerCpa ?? 60;
-
-    const superWinners: any[] = [];
-    const winners: any[] = [];
+    const categorizedAds = categories.map(cat => ({ ...cat, ads: [] as any[] }));
     const testes: Record<string, any[]> = {};
     let totalSpend = 0;
     let totalImpressions = 0;
@@ -97,10 +118,10 @@ export async function GET(req: Request) {
       totalRiskApprovedValue += riskApprovedValue;
       totalGrossValue += grossValue;
 
-      const adName = (ad.adName || "Desconhecido").trim();
+      const groupKey = ad.id;
 
-      if (!aggregatedAds.has(adName)) {
-        aggregatedAds.set(adName, {
+      if (!aggregatedAds.has(groupKey)) {
+        aggregatedAds.set(groupKey, {
           id: ad.id,
           ad_name: ad.adName,
           designer: ad.designer,
@@ -113,9 +134,9 @@ export async function GET(req: Request) {
           createdTime: ad.createdTime,
           spend, impressions, clicks, riskApprovedValue, grossValue, netOrders, purchases
         });
-        originalAdsByCreative.set(adName, []);
+        originalAdsByCreative.set(groupKey, []);
       } else {
-        const agg = aggregatedAds.get(adName);
+        const agg = aggregatedAds.get(groupKey);
         agg.spend += spend;
         agg.impressions += impressions;
         agg.clicks += clicks;
@@ -128,7 +149,7 @@ export async function GET(req: Request) {
       const ctr = impressions > 0 ? (clicks / impressions) * 100 : 0;
       const cpa = netOrders > 0 ? (spend / netOrders) : spend;
 
-      originalAdsByCreative.get(adName)!.push({
+      originalAdsByCreative.get(groupKey)!.push({
         adsetName: ad.adsetName,
         individualData: {
           id: ad.id,
@@ -153,21 +174,33 @@ export async function GET(req: Request) {
       });
     }
 
-    for (const [adName, agg] of aggregatedAds.entries()) {
+    for (const [groupKey, agg] of aggregatedAds.entries()) {
       const cpa = agg.netOrders > 0 ? (agg.spend / agg.netOrders) : agg.spend;
       const ctr = agg.impressions > 0 ? (agg.clicks / agg.impressions) * 100 : 0;
+      
+      const creativePlatform = (agg.platform || "META").toUpperCase();
 
-      const isSuperWinner =
-        (SUPER_WINNER_SPEND_THRESHOLD === 0 || agg.spend >= SUPER_WINNER_SPEND_THRESHOLD) &&
-        (SUPER_WINNER_VALUE_THRESHOLD === 0 || agg.riskApprovedValue >= SUPER_WINNER_VALUE_THRESHOLD) &&
-        (SUPER_WINNER_MAX_CPA === 0 || cpa <= SUPER_WINNER_MAX_CPA);
+      let matchedCategoryIndex = -1;
 
-      const isWinner =
-        (WINNER_SPEND_THRESHOLD === 0 || agg.spend >= WINNER_SPEND_THRESHOLD) &&
-        (WINNER_VALUE_THRESHOLD === 0 || agg.riskApprovedValue >= WINNER_VALUE_THRESHOLD) &&
-        (WINNER_MAX_CPA === 0 || cpa <= WINNER_MAX_CPA);
+      for (let i = 0; i < categories.length; i++) {
+        const catRules = categories[i].rules[creativePlatform] || categories[i].rules["META"]; // fallback
+        
+        const MIN_SPEND = catRules.minSpend || 0;
+        const MIN_RETURN = catRules.minReturn || 0;
+        const MAX_CPA = catRules.maxCpa || 0;
 
-      if (isSuperWinner || isWinner) {
+        const isMatch = 
+          (MIN_SPEND === 0 || agg.spend >= MIN_SPEND) &&
+          (MIN_RETURN === 0 || agg.riskApprovedValue >= MIN_RETURN) &&
+          (MAX_CPA === 0 || cpa <= MAX_CPA);
+
+        if (isMatch) {
+          matchedCategoryIndex = i;
+          break; // Stop at first match (priority)
+        }
+      }
+
+      if (matchedCategoryIndex !== -1) {
         const creativeData = {
           ...agg,
           spend: agg.spend.toFixed(2),
@@ -176,14 +209,9 @@ export async function GET(req: Request) {
           grossValue: agg.grossValue.toFixed(2),
           cpa: cpa.toFixed(2)
         };
-
-        if (isSuperWinner) {
-          superWinners.push(creativeData);
-        } else {
-          winners.push(creativeData);
-        }
+        categorizedAds[matchedCategoryIndex].ads.push(creativeData);
       } else {
-        const individuals = originalAdsByCreative.get(adName)!;
+        const individuals = originalAdsByCreative.get(groupKey)!;
         for (const ind of individuals) {
           const set = ind.adsetName || "Outros";
           if (!testes[set]) testes[set] = [];
@@ -195,8 +223,8 @@ export async function GET(req: Request) {
     // Sort: do maior para o menor valor aprovado (resultado real), com gasto como desempate
     const byResultDesc = (a: any, b: any) =>
       parseFloat(b.riskApprovedValue) - parseFloat(a.riskApprovedValue) || parseFloat(b.spend) - parseFloat(a.spend);
-    superWinners.sort(byResultDesc);
-    winners.sort(byResultDesc);
+    
+    categorizedAds.forEach(cat => cat.ads.sort(byResultDesc));
     Object.keys(testes).forEach(k => testes[k].sort(byResultDesc));
 
     const globalCtr = totalImpressions > 0 ? (totalClicks / totalImpressions) * 100 : 0;
@@ -204,22 +232,13 @@ export async function GET(req: Request) {
     return NextResponse.json({
       success: true,
       data: {
-        superWinners,
-        winners,
+        categorizedAds,
         testes,
         metrics: {
           totalSpend: totalSpend.toFixed(2),
           avgCtr: globalCtr.toFixed(2),
           totalRiskApprovedValue: totalRiskApprovedValue.toFixed(2),
           totalGrossValue: totalGrossValue.toFixed(2),
-        },
-        settings: {
-          superWinnerSpend: SUPER_WINNER_SPEND_THRESHOLD,
-          superWinnerReturn: SUPER_WINNER_VALUE_THRESHOLD,
-          superWinnerCpa: SUPER_WINNER_MAX_CPA,
-          winnerSpend: WINNER_SPEND_THRESHOLD,
-          winnerReturn: WINNER_VALUE_THRESHOLD,
-          winnerCpa: WINNER_MAX_CPA,
         }
       }
     });
