@@ -2,6 +2,7 @@ import fs from "fs";
 import { v4 as uuidv4 } from "uuid";
 import prisma from "./prisma";
 import { throttledFetch, fetchWithBisection, MetaApiError, WallClockLimitError, resetWallClock } from "./throttled-fetch";
+import { loadAliasIndex, resolveDesigner } from "./designer-match";
 
 function escapeSql(str: string | null | undefined): string {
   if (str === null || str === undefined) return "NULL";
@@ -58,14 +59,7 @@ export async function runMetaSyncSql(
 
   if (onProgress) onProgress("Conectando à Meta...", 5);
 
-  const creators = await prisma.creator.findMany({ select: { acronym: true } });
-  const validAcronyms: string[] = [];
-  creators.forEach(c => {
-    if (c.acronym.toUpperCase() !== "UNKNOWN") {
-      const split = c.acronym.split(',').map(s => s.trim().toLowerCase()).filter(Boolean);
-      validAcronyms.push(...split);
-    }
-  });
+  const aliases = await loadAliasIndex();
 
   const now = new Date();
   const today = new Date(now.toLocaleString("en-US", { timeZone: "America/Sao_Paulo" }));
@@ -353,15 +347,7 @@ export async function runMetaSyncSql(
       }
     }
 
-    let designer: string | null = null;
-    const adNameLower = adName.toLowerCase();
-    for (const ac of validAcronyms) {
-      const regex = new RegExp(`(^|[-_ .])${ac}(?:[-._ ]|\\b|$)`, "i");
-      if (regex.test(adNameLower)) {
-        designer = ac.toUpperCase();
-        break;
-      }
-    }
+    const designer = resolveDesigner(adName, aliases);
 
     let imageUrl = "";
     let thumbnailUrl = "";

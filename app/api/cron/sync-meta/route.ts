@@ -1,18 +1,19 @@
 import { NextResponse } from "next/server";
-import { runMetaSync } from "@/lib/meta-sync";
-import { runTikTokSync } from "@/lib/tiktok-sync";
+import { runAllChannelSyncs, summarizeOutcomes } from "@/lib/channels";
+
+export const maxDuration = 300;
 
 // Rota recomendada pela Vercel para Cron Jobs
 // https://vercel.com/docs/cron-jobs
 export async function GET(req: Request) {
   try {
     // Basic security for cron endpoints
-    const authHeader = req.headers.get('authorization');
+    const authHeader = req.headers.get("authorization");
     if (process.env.CRON_SECRET && authHeader !== `Bearer ${process.env.CRON_SECRET}`) {
-      return new NextResponse('Unauthorized', { status: 401 });
+      return new NextResponse("Unauthorized", { status: 401 });
     }
 
-    const prisma = (await import('@/lib/prisma')).default;
+    const prisma = (await import("@/lib/prisma")).default;
     const settings = await prisma.systemSettings.findUnique({ where: { id: 1 } });
 
     if (settings && !settings.cronSyncEnabled) {
@@ -21,10 +22,10 @@ export async function GET(req: Request) {
     }
 
     // Verifica se já passou o intervalo configurado desde a última execução
-    if (settings && settings.lastCronSyncAt) {
+    if (settings?.lastCronSyncAt) {
       const intervalMs = (settings.cronSyncInterval || 120) * 60 * 1000;
       const timeSinceLastSync = Date.now() - settings.lastCronSyncAt.getTime();
-      
+
       if (timeSinceLastSync < intervalMs) {
         console.log(`[Cron] Pulando execução. Tempo restante: ${Math.round((intervalMs - timeSinceLastSync) / 60000)} minutos.`);
         return NextResponse.json({ success: true, message: "Skipped - Interval not reached yet" });
@@ -33,34 +34,24 @@ export async function GET(req: Request) {
 
     const mode = (settings?.cronSyncMode as "full" | "metrics") || "metrics";
 
-    console.log(`[Cron] Iniciando Meta Sync Background... Modo: ${mode}`);
-    
-    const { syncedAds, syncedMetrics } = await runMetaSync(mode, (msg, perc) => {
-      console.log(`[Cron Meta ${perc}%] ${msg}`);
+    console.log(`[Cron] Iniciando sincronização de todos os canais configurados. Modo: ${mode}`);
+
+    // Mesma orquestração usada pelo botão da interface — um caminho só, sem
+    // divergência de comportamento entre execução manual e automática.
+    const { outcomes, ok } = await runAllChannelSyncs(mode, (message, percentage) => {
+      console.log(`[Cron ${percentage}%] ${message}`);
     });
 
-    console.log(`[Cron] Iniciando TikTok Sync Background... Modo: ${mode}`);
-    let tiktokStatus = "Success";
-    try {
-      await runTikTokSync(mode, (msg, perc) => {
-        console.log(`[Cron TikTok ${perc}%] ${msg}`);
-      });
-    } catch (e: any) {
-      console.error(`[Cron] TikTok Sync erro:`, e);
-      tiktokStatus = `Failed: ${e.message}`;
-    }
-
-    // Atualiza o horário da última execução do cron
     await prisma.systemSettings.update({
       where: { id: 1 },
-      data: { lastCronSyncAt: new Date() }
+      data: { lastCronSyncAt: new Date() },
     });
 
-    console.log(`[Cron] Sync concluído. Meta Ads: ${syncedAds}, Meta Metrics: ${syncedMetrics}. TikTok: ${tiktokStatus}`);
+    console.log(`[Cron] Sync finalizado. ${summarizeOutcomes(outcomes)}`);
 
-    return NextResponse.json({ success: true, meta: { syncedAds, syncedMetrics }, tiktok: tiktokStatus });
+    return NextResponse.json({ success: ok, outcomes });
   } catch (error: any) {
-    console.error("[Cron] Error running meta sync:", error);
+    console.error("[Cron] Error running sync:", error);
     return NextResponse.json({ success: false, error: error.message }, { status: 500 });
   }
 }

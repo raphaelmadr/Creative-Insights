@@ -1,10 +1,12 @@
 import { NextResponse } from "next/server";
 import prisma from "@/lib/prisma";
+import { loadAliasIndex, resolveDesigner } from "@/lib/designer-match";
 
 export const dynamic = 'force-dynamic';
 
 export async function GET() {
   const settings = await prisma.systemSettings.findUnique({ where: { id: 1 } });
+  const aliases = await loadAliasIndex();
   let metaAccountId = settings?.metaAdAccountId;
   const metaToken = settings?.metaAccessToken;
 
@@ -123,19 +125,10 @@ export async function GET() {
         imageUrl = videoHiRes || staticHiRes || creative.thumbnail_url || null;
       }
 
-      // Extrair o responsável pelo criativo (ex: _RM.png, _PP.mov)
-      // A regex procura um underline seguido de 2 a 3 letras pouco antes da extensão do arquivo ou " — Cópia"
-      let designer = null;
-      if (adNode.name) {
-        const adNameLower = adNode.name.toLowerCase();
-        // Fallback: match like meta-sync logic if possible, or just a simple regex 
-        const match = adNameLower.match(/([_\- ][a-z]{2,3}(?:[\._ \-]|\b|$)|[a-z]{2,3}(?:\.[a-z0-9]{3,4})?$)/);
-        if (match && match[1]) {
-          // extract just the acronym part
-          const acMatch = match[1].match(/[a-z]{2,3}/);
-          if (acMatch) designer = acMatch[0].toUpperCase();
-        }
-      }
+      // Responsável pelo criativo, pela mesma regra usada nos syncs.
+      // A regex anterior aqui casava qualquer sequência de 2-3 letras após um
+      // separador, inventando "designers" como ADS que nem são criadores cadastrados.
+      const designer = resolveDesigner(adNode.name, aliases);
 
       const creativeData = {
         id: adNode.id,

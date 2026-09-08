@@ -37,7 +37,7 @@ interface NotificationContextType {
   syncMessage: string;
   syncProgress: number;
   isSyncingAll: boolean;
-  syncAll: (mode?: 'fast' | 'deep') => Promise<void>;
+  syncAll: () => Promise<void>;
   lastReadDate: Date | null;
 }
 
@@ -62,7 +62,7 @@ const NotificationContext = createContext<NotificationContextType>({
   syncMessage: "",
   syncProgress: 0,
   isSyncingAll: false,
-  syncAll: async (mode?: 'fast' | 'deep') => {},
+  syncAll: async () => {},
   lastReadDate: null,
 });
 
@@ -333,6 +333,7 @@ export default function NotificationProvider({ children }: { children: ReactNode
     const decoder = new TextDecoder();
     let done = false;
     let buffer = "";
+    let completion: any = null;
 
     while (!done) {
       const { value, done: readerDone } = await reader.read();
@@ -357,12 +358,15 @@ export default function NotificationProvider({ children }: { children: ReactNode
           if (data.type === 'progress' || data.type === 'complete') {
             setSyncMessage(prefixMessage ? `[${prefixMessage}] ${data.message}` : data.message);
             setSyncProgress(data.percentage);
+            if (data.type === 'complete') completion = data;
           } else if (data.type === 'error') {
             throw new Error(data.error);
           }
         }
       }
     }
+
+    return completion;
   };
 
   const syncMeta = async (mode: 'metrics' | 'full' = 'full') => {
@@ -402,23 +406,52 @@ export default function NotificationProvider({ children }: { children: ReactNode
     }
   };
 
-  const syncAll = async (mode: 'fast' | 'deep' = 'fast') => {
+  /**
+   * Sincroniza todos os canais configurados.
+   *
+   * Sempre profunda e sempre no mês corrente: é a única operação de
+   * sincronização exposta na interface, idêntica em desktop e mobile.
+   *
+   * O backend percorre os canais em série e reporta o resultado de cada um; um
+   * canal que falha aparece como erro em vez de ser silenciosamente ignorado,
+   * como acontecia quando Meta e TikTok rodavam em Promise.all.
+   */
+  const syncAll = async () => {
     if (isSyncingAll) return;
+
     setIsSyncingAll(true);
-    setToastMsg({ id: "sync-process", title: `Iniciando sincronização das redes (${mode === 'deep' ? 'Profunda' : 'Rápida'})...`, isNew: false });
-    
+    setIsSyncingMeta(true);
+    setSyncProgress(0);
+    setSyncMessage("Iniciando sincronização das redes...");
+    setToastMsg({ id: "sync-process", title: "Sincronizando redes (mês atual)...", isNew: false });
+
     try {
-      const apiMode = mode === 'deep' ? 'full' : 'metrics';
-      await Promise.all([
-        syncMeta(apiMode),
-        runSyncStream(`/api/sync-tiktok?mode=${apiMode}`, "TikTok").catch(e => console.error("TikTok error:", e))
-      ]);
-      setToastMsg({ id: "sync-process", title: `✅ Sincronização das redes concluída com sucesso!`, isNew: true });
+      const completion = await runSyncStream("/api/sync-all");
+
+      const nowStr = new Date().toISOString();
+      setLastSyncAt(nowStr);
+      setLastDeepSyncAt(nowStr);
+      setSyncCounter(prev => prev + 1);
+
+      setToastMsg({
+        id: "sync-process",
+        title: completion?.partial
+          ? `⚠️ ${completion.message}`
+          : `✅ ${completion?.message || "Sincronização das redes concluída!"}`,
+        isNew: true,
+      });
     } catch (err: any) {
       console.error("Erro na sincronização geral:", err);
-      setToastMsg({ id: "sync-process", title: `❌ Erro na sincronização geral: ${err.message || "Timeout"}`, isNew: false, isError: true });
+      setToastMsg({
+        id: "sync-process",
+        title: `❌ ${err.message || "Erro na sincronização das redes."}`,
+        isNew: false,
+        isError: true,
+      });
     } finally {
       setIsSyncingAll(false);
+      setIsSyncingMeta(false);
+      setTimeout(() => setToastMsg(null), 6000);
     }
   };
 

@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import prisma from "@/lib/prisma";
+import { ACTIVE_AD_STATUSES } from "@/lib/ad-status";
 
 const DEFAULT_CATEGORIES = [
   {
@@ -42,8 +43,8 @@ export async function GET(req: Request) {
     const statusFilter = statusParam === "ALL"
       ? undefined
       : statusParam === "INACTIVE"
-        ? { notIn: ["ACTIVE", "ENABLE"] }
-        : { in: ["ACTIVE", "ENABLE"] };
+        ? { notIn: ACTIVE_AD_STATUSES }
+        : { in: ACTIVE_AD_STATUSES };
 
     const ads = await prisma.adCreative.findMany({
       where: {
@@ -189,9 +190,15 @@ export async function GET(req: Request) {
         const MIN_RETURN = catRules.minReturn || 0;
         const MAX_CPA = catRules.maxCpa || 0;
 
+        // Retorno de referência: a receita aprovada em risco só existe na Meta
+        // (conversão customizada do pixel). Canais sem esse funil usam a receita
+        // bruta reportada pela própria plataforma, em vez de terem um valor
+        // aprovado forjado na gravação.
+        const returnValue = agg.riskApprovedValue > 0 ? agg.riskApprovedValue : agg.grossValue;
+
         const isMatch = 
           (MIN_SPEND === 0 || agg.spend >= MIN_SPEND) &&
-          (MIN_RETURN === 0 || agg.riskApprovedValue >= MIN_RETURN) &&
+          (MIN_RETURN === 0 || returnValue >= MIN_RETURN) &&
           (MAX_CPA === 0 || cpa <= MAX_CPA);
 
         if (isMatch) {

@@ -3,7 +3,7 @@
 import React, { useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Moon, Sun, Bell, Settings, RefreshCw, Database, Image as ImageIcon, Sparkles, Menu, X } from "lucide-react";
+import { Moon, Sun, Bell, Settings, RefreshCw, Image as ImageIcon, Sparkles, Menu, X } from "lucide-react";
 import { useTheme } from "./ThemeProvider";
 import { useNotifications } from "./NotificationProvider";
 import styles from "./TopBar.module.css";
@@ -11,10 +11,9 @@ import styles from "./TopBar.module.css";
 export default function TopBar() {
   const pathname = usePathname();
   const { theme, toggleTheme } = useTheme();
-  const { unreadCount, isSyncingAll, lastSyncAt, lastFastSyncAt, lastDeepSyncAt, syncAll, updates, isSyncingMeta, syncMessage, syncProgress, isSearching, loadingText } = useNotifications();
+  const { unreadCount, isSyncingAll, lastSyncAt, syncAll, updates, isSyncingMeta, syncMessage, syncProgress, isSearching, loadingText } = useNotifications();
   const [isNotificationsOpen, setIsNotificationsOpen] = useState(false);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
-  const [isSyncMenuOpen, setIsSyncMenuOpen] = useState(false);
   const [integrations, setIntegrations] = useState({ meta: true, tiktok: false, google: false });
 
   React.useEffect(() => {
@@ -165,56 +164,31 @@ export default function TopBar() {
             </div>
             
             <div style={{ borderTop: "1px solid var(--sidebar-border)", paddingTop: "1rem", marginTop: "0.5rem", display: "flex", flexDirection: "column", gap: "1rem" }}>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', width: '100%' }}>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
-                  <button 
-                    onClick={() => { syncAll('fast'); setIsMobileMenuOpen(false); }} 
-                    disabled={isSyncingAll}
-                    style={{
-                      display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem',
-                      padding: '0.75rem', borderRadius: '8px',
-                      border: '1px solid rgba(16, 185, 129, 0.4)',
-                      background: isSyncingAll ? 'transparent' : 'rgba(16, 185, 129, 0.15)',
-                      color: isSyncingAll ? 'var(--muted)' : 'var(--success)', fontSize: '0.85rem', fontWeight: 700,
-                      cursor: isSyncingAll ? 'not-allowed' : 'pointer',
-                      opacity: isSyncingAll ? 0.5 : 1,
-                      transition: 'all 0.2s', width: '100%'
-                    }}
-                  >
-                    <RefreshCw size={16} className={isSyncingAll ? "spin" : ""} style={{ animation: isSyncingAll ? "spin 2s linear infinite" : "none" }} />
-                    Sync Rápido
-                  </button>
-                  {lastFastSyncAt && (
-                    <span style={{ fontSize: '0.65rem', color: 'var(--muted)', textAlign: 'center', opacity: 0.7 }}>
-                      Última att: {new Date(lastFastSyncAt).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' })}
-                    </span>
-                  )}
-                </div>
-
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
-                  <button 
-                    onClick={() => { syncAll('deep'); setIsMobileMenuOpen(false); }} 
-                    disabled={isSyncingAll}
-                    style={{
-                      display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem',
-                      padding: '0.75rem', borderRadius: '8px',
-                      border: '1px solid rgba(59, 130, 246, 0.4)',
-                      background: isSyncingAll ? 'transparent' : 'rgba(59, 130, 246, 0.15)',
-                      color: isSyncingAll ? 'var(--muted)' : '#3b82f6', fontSize: '0.85rem', fontWeight: 700,
-                      cursor: isSyncingAll ? 'not-allowed' : 'pointer',
-                      opacity: isSyncingAll ? 0.5 : 1,
-                      transition: 'all 0.2s', width: '100%'
-                    }}
-                  >
-                    <Database size={16} className={isSyncingAll ? "spin" : ""} style={{ animation: isSyncingAll ? "spin 2s linear infinite" : "none" }} />
-                    Sync Profundo
-                  </button>
-                  {lastDeepSyncAt && (
-                    <span style={{ fontSize: '0.65rem', color: 'var(--muted)', textAlign: 'center', opacity: 0.7 }}>
-                      Última att: {new Date(lastDeepSyncAt).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' })}
-                    </span>
-                  )}
-                </div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem', width: '100%' }}>
+                {/* Mesmo botão e mesmo comportamento do desktop: sincronização
+                    profunda de todas as redes, sempre no mês corrente. */}
+                <button
+                  onClick={() => { syncAll(); setIsMobileMenuOpen(false); }}
+                  disabled={isSyncingAll}
+                  style={{
+                    display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem',
+                    padding: '0.75rem', borderRadius: '8px',
+                    border: '1px solid var(--card-border)',
+                    background: isSyncingAll ? 'transparent' : 'var(--card-bg)',
+                    color: isSyncingAll ? 'var(--muted)' : 'var(--foreground)', fontSize: '0.85rem', fontWeight: 700,
+                    cursor: isSyncingAll ? 'not-allowed' : 'pointer',
+                    opacity: isSyncingAll ? 0.5 : 1,
+                    transition: 'all 0.2s', width: '100%'
+                  }}
+                >
+                  <RefreshCw size={16} className={isSyncingAll ? "spin" : ""} style={{ animation: isSyncingAll ? "spin 2s linear infinite" : "none" }} />
+                  {isSyncingAll ? "Sincronizando..." : "Sincronizar Redes"}
+                </button>
+                {lastSyncAt && (
+                  <span style={{ fontSize: '0.65rem', color: 'var(--muted)', textAlign: 'center', opacity: 0.7 }}>
+                    Última att: {new Date(lastSyncAt).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' })}
+                  </span>
+                )}
               </div>
               </div>
             </div>
@@ -244,6 +218,11 @@ export default function TopBar() {
               <RefreshCw size={16} className={isSyncingAll ? "spin" : ""} style={{ animation: isSyncingAll ? "spin 2s linear infinite" : "none" }} />
               {isSyncingAll ? "Sincronizando..." : "Sincronizar Redes"}
             </button>
+            {lastSyncAt && !isSyncingAll && (
+              <span style={{ position: 'absolute', top: '100%', left: 0, right: 0, marginTop: '0.25rem', fontSize: '0.6rem', color: 'var(--muted)', textAlign: 'center', opacity: 0.7, whiteSpace: 'nowrap' }}>
+                Última att: {new Date(lastSyncAt).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' })}
+              </span>
+            )}
           </div>
 
           <div style={{ position: "relative" }}>

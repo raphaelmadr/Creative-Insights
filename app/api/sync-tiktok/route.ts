@@ -41,8 +41,8 @@ export async function POST(req: Request) {
 
     return new Response(stream.readable, {
       headers: {
-        "Content-Type": "text/event-stream",
-        "Cache-Control": "no-cache",
+        "Content-Type": "application/x-ndjson",
+        "Cache-Control": "no-cache, no-transform",
         "Connection": "keep-alive",
       },
     });

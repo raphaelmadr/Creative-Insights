@@ -5,6 +5,11 @@ export function resetWallClock() {
   START_TIME = Date.now();
 }
 
+/** Tempo restante antes do teto preventivo, em ms. Usado para orçar fases caras. */
+export function wallClockRemainingMs(): number {
+  return Math.max(0, WALL_CLOCK_LIMIT - (Date.now() - START_TIME));
+}
+
 export class MetaApiError extends Error {
   code: number;
   subcode?: number;

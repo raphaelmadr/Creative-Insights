@@ -1,5 +1,42 @@
 import prisma from "./prisma";
-import { throttledFetch, fetchWithBisection, MetaApiError, WallClockLimitError, resetWallClock } from "./throttled-fetch";
+import {
+  throttledFetch,
+  fetchWithBisection,
+  MetaApiError,
+  WallClockLimitError,
+  resetWallClock,
+  wallClockRemainingMs,
+} from "./throttled-fetch";
+import { loadAliasIndex, resolveDesigner } from "./designer-match";
+import { normalizeMetaStatus } from "./ad-status";
+import {
+  resolveStorageConfig,
+  isStorageConfigured,
+  isPermanentMediaUrl,
+  persistRemoteMedia,
+  runWithConcurrency,
+} from "./media-upload";
+import {
+  resolveSyncWindow,
+  eachDayYmd,
+  ymdToUtcDate,
+  addDaysYmd,
+} from "./date-utils";
+
+/**
+ * Janela em que o Meta ainda reescreve conversões já reportadas.
+ * Dias dentro dela são sempre rebuscados; fora dela, um dia que já tem métricas
+ * gravadas para este canal é considerado fechado.
+ */
+const REATTRIBUTION_WINDOW_DAYS = 7;
+
+/** Uploads simultâneos de mídia. Equilibra vazão e educação com o cPanel. */
+const MEDIA_UPLOAD_CONCURRENCY = 4;
+
+/** Margem de tempo reservada para as escritas no banco no fim da execução. */
+const DB_WRITE_RESERVE_MS = 25000;
+
+const BATCH_SIZE = 25;
 
 async function withDbRetry<T>(fn: () => Promise<T>, maxRetries = 5, initialDelay = 2000): Promise<T> {
   let attempt = 1;
@@ -18,6 +55,21 @@ async function withDbRetry<T>(fn: () => Promise<T>, maxRetries = 5, initialDelay
   }
 }
 
+function isRateOrTimeLimit(error: unknown): boolean {
+  return (
+    error instanceof WallClockLimitError ||
+    (error instanceof MetaApiError && error.isRateLimit)
+  );
+}
+
+interface ExistingAd {
+  id: string;
+  imageUrl: string | null;
+  thumbnailUrl: string | null;
+  videoUrl: string | null;
+  mediaType: string;
+}
+
 export async function runMetaSync(
   mode: "full" | "metrics" = "full",
   onProgress?: (message: string, percentage: number) => void,
@@ -25,12 +77,13 @@ export async function runMetaSync(
   targetYear?: number
 ) {
   resetWallClock();
+
   const settings = await prisma.systemSettings.findUnique({ where: { id: 1 } });
-  
+
   let metaAccountId = settings?.metaAdAccountId || process.env.META_AD_ACCOUNT_ID;
   const metaToken = settings?.metaAccessToken || process.env.META_ACCESS_TOKEN;
 
-  if (metaAccountId && !metaAccountId.startsWith('act_')) {
+  if (metaAccountId && !metaAccountId.startsWith("act_")) {
     metaAccountId = `act_${metaAccountId}`;
   }
 
@@ -38,193 +91,209 @@ export async function runMetaSync(
     throw new Error("Credenciais do Meta Ads não configuradas no painel nem no .env");
   }
 
-  if (onProgress) onProgress("Conectando à Meta...", 5);
-
-  const creators = await prisma.creator.findMany({ select: { acronym: true } });
-  const validAcronyms: string[] = [];
-  creators.forEach(c => {
-    if (c.acronym.toUpperCase() !== "UNKNOWN") {
-      const split = c.acronym.split(',').map(s => s.trim().toLowerCase()).filter(Boolean);
-      validAcronyms.push(...split);
-    }
-  });
-
-  const now = new Date();
-  const today = new Date(now.toLocaleString("en-US", { timeZone: "America/Sao_Paulo" }));
-  
-  let sinceDate: Date, untilDate: Date;
-  
-  if (targetMonth !== undefined && targetYear !== undefined) {
-    sinceDate = new Date(targetYear, targetMonth - 1, 1);
-    const isCurrentMonth = targetMonth === (today.getMonth() + 1) && targetYear === today.getFullYear();
-    untilDate = isCurrentMonth ? today : new Date(targetYear, targetMonth, 0); 
-  } else {
-    sinceDate = new Date(today.getFullYear(), today.getMonth(), 1);
-    untilDate = today;
+  const storage = resolveStorageConfig(settings);
+  if (mode === "full" && !isStorageConfigured(storage)) {
+    console.warn(
+      "[Meta Sync] Armazenamento de mídia não configurado (cpanelUploadUrl/cpanelUploadSecret). " +
+      "Criativos estáticos não serão persistidos e as URLs da Meta expirariam — o passo será pulado."
+    );
   }
-  
+
+  if (onProgress) onProgress("Conectando à Meta...", 3);
+
+  const aliases = await loadAliasIndex();
+  const { sinceYmd, untilYmd, todayYmd } = resolveSyncWindow(targetMonth, targetYear);
+
+  // Dias dentro da janela de reatribuição precisam ser rebuscados mesmo já tendo dados.
+  const reattributionCutoffYmd = addDaysYmd(todayYmd, -REATTRIBUTION_WINDOW_DAYS);
+
   const insightRows: any[] = [];
   let reachedWallClock = false;
 
-  // --- 1. Fetch Insights (Paginated by Day) ---
-  if (onProgress) onProgress("Buscando novos dados do Meta...", 10);
+  // --- 1. Insights (um dia por vez) ---
+  if (onProgress) onProgress(`Buscando dados de ${sinceYmd} a ${untilYmd}...`, 6);
+
   const insightFields = "ad_id,ad_name,adset_id,adset_name,campaign_name,spend,purchase_roas,actions,action_values,cpm,ctr,cpc,impressions,clicks,reach,frequency,date_start,date_stop,video_p25_watched_actions,video_p50_watched_actions,video_p75_watched_actions,video_p100_watched_actions,video_play_actions";
 
-  let currentDate = new Date(sinceDate);
-  while (currentDate <= untilDate) {
-    const dateStr = currentDate.toISOString().split('T')[0];
-    
+  const days = eachDayYmd(sinceYmd, untilYmd);
+
+  /**
+   * Quais dias já têm métricas DESTE canal.
+   *
+   * Antes isso era uma contagem por dia sem filtrar plataforma: bastava o
+   * TikTok gravar a data primeiro para o Meta pular aquele dia permanentemente.
+   * Também era uma query por dia; agora é uma só.
+   */
+  const daysWithData = new Set<string>();
+  if (days.length > 0) {
+    const grouped = await withDbRetry(() => prisma.adDailyMetrics.groupBy({
+      by: ["date"],
+      where: {
+        date: { gte: ymdToUtcDate(sinceYmd), lte: ymdToUtcDate(untilYmd) },
+        creative: { platform: "META" },
+      },
+      _count: { _all: true },
+    }));
+    grouped.forEach((row: any) => {
+      if (row._count._all > 0) daysWithData.add(row.date.toISOString().slice(0, 10));
+    });
+  }
+
+  let skippedDays = 0;
+
+  for (const dayYmd of days) {
+    const isWithinReattribution = dayYmd > reattributionCutoffYmd;
+
+    if (!isWithinReattribution && daysWithData.has(dayYmd)) {
+      skippedDays++;
+      continue;
+    }
+
     try {
-      // Check if this day is already synced
-      const existingMetricsCount = await prisma.adDailyMetrics.count({
-        where: {
-          date: new Date(dateStr)
-        }
-      });
-
-      const todayStr = new Date().toISOString().split('T')[0];
-      const isToday = dateStr === todayStr;
-
-      if (!isToday && existingMetricsCount > 0) {
-        if (onProgress) onProgress(`Pulando ${dateStr} (já sincronizado)...`, 15);
-        currentDate.setDate(currentDate.getDate() + 1);
-        continue;
+      if (onProgress) {
+        onProgress(`Buscando insights de ${dayYmd}...`, 6 + Math.floor((days.indexOf(dayYmd) / days.length) * 20));
       }
 
-      if (onProgress) onProgress(`Buscando insights para ${dateStr}...`, 15);
-      
-      const timeRangeStr = encodeURIComponent(JSON.stringify({ since: dateStr, until: dateStr }));
+      const timeRangeStr = encodeURIComponent(JSON.stringify({ since: dayYmd, until: dayYmd }));
       let metaUrl: string | null = `https://graph.facebook.com/v19.0/${metaAccountId}/insights?level=ad&time_range=${timeRangeStr}&time_increment=1&fields=${insightFields}&limit=500&access_token=${metaToken}`;
 
-      let page = 0;
       while (metaUrl) {
         const metaData = await throttledFetch(metaUrl);
         if (!metaData) break;
-
         insightRows.push(...(metaData.data || []));
         metaUrl = metaData.paging?.next || null;
-        page++;
       }
     } catch (err: any) {
-      if (err instanceof WallClockLimitError) {
-        if (onProgress) onProgress("Teto de tempo atingido (Timeout preventivo). Abortando com progresso salvo...", 20);
+      if (isRateOrTimeLimit(err)) {
+        if (onProgress) onProgress("Teto de tempo/taxa atingido. Salvando o progresso obtido...", 26);
         reachedWallClock = true;
         break;
-      } else if (err instanceof MetaApiError && err.isRateLimit) {
-        if (onProgress) onProgress("Limite da API da Meta atingido. Abortando com progresso salvo...", 20);
-        reachedWallClock = true;
-        break;
-      } else {
-        throw err;
       }
+      throw err;
     }
-    currentDate.setDate(currentDate.getDate() + 1);
+  }
+
+  if (skippedDays > 0) {
+    console.log(`[Meta Sync] ${skippedDays} dia(s) fechados fora da janela de reatribuição foram pulados.`);
   }
 
   const rowsByAdId: Record<string, any[]> = {};
   insightRows.forEach((row: any) => {
     if (!row.ad_id) return;
-    if (!rowsByAdId[row.ad_id]) rowsByAdId[row.ad_id] = [];
-    rowsByAdId[row.ad_id].push(row);
+    (rowsByAdId[row.ad_id] ||= []).push(row);
   });
-  const adIds = Object.keys(rowsByAdId);
-  const uniqueAdsetIds = Array.from(new Set(insightRows.map(r => r.adset_id).filter(Boolean)));
+  const adIdsWithInsights = Object.keys(rowsByAdId);
 
-  // --- 2. Cache DB Status ---
-  const existingAds = await prisma.adCreative.findMany({
-    select: { id: true, imageUrl: true, thumbnailUrl: true, videoUrl: true }
-  });
-  const existingIds = new Set(existingAds.map(a => a.id));
-  const settingsData = await prisma.systemSettings.findUnique({ where: { id: 1 } });
-  const globalCpanelUrl = settingsData?.cpanelUploadUrl || process.env.CPANEL_UPLOAD_URL;
+  // --- 2. Estado atual no banco ---
+  const existingAds: ExistingAd[] = await withDbRetry(() => prisma.adCreative.findMany({
+    where: { platform: "META" },
+    select: { id: true, imageUrl: true, thumbnailUrl: true, videoUrl: true, mediaType: true },
+  }));
+  const existingById = new Map(existingAds.map(ad => [ad.id, ad]));
 
-  const blurryExistingIds = new Set(
-    existingAds.filter(a => {
-      if (!a.imageUrl) return true;
-      if (a.imageUrl.includes('public.blob.vercel-storage.com') || a.imageUrl.includes('vercel.app')) return false;
-      
-      if (globalCpanelUrl) {
-        try {
-          const cpanelDomain = new URL(globalCpanelUrl).hostname;
-          if (a.imageUrl.includes(cpanelDomain)) return false;
-        } catch(e) {}
-      }
+  /**
+   * Um criativo precisa que sua mídia seja reprocessada quando:
+   *  - é novo;
+   *  - não tem imagem, ou a imagem ainda está num domínio de plataforma (expira);
+   *  - é vídeo e o link do vídeo não é permanente — links de `source` da Meta são
+   *    assinados e expiram, então precisam ser renovados a cada sync profundo.
+   *
+   * A ordem importa: a versão anterior retornava cedo assim que a CAPA estava no
+   * cPanel, e por isso a verificação do vídeo era inalcançável. 452 criativos de
+   * vídeo ficaram presos com link morto por causa disso.
+   */
+  const needsMediaRefresh = (ad: ExistingAd | undefined): boolean => {
+    if (!ad) return true;
 
-      if (a.imageUrl === a.thumbnailUrl) return true;
-      if (a.imageUrl.includes('fbcdn.net') || a.imageUrl.includes('scontent') || a.imageUrl.includes('facebook.com')) return true;
-      if (a.videoUrl && (a.videoUrl.includes('fbcdn.net') || a.videoUrl.includes('scontent') || a.videoUrl.includes('facebook.com'))) return true;
-      return false;
-    }).map(a => a.id)
-  );
+    const isVideo = ad.mediaType === "video" || !!ad.videoUrl;
+    if (isVideo && !isPermanentMediaUrl(ad.videoUrl, storage)) return true;
 
-  const refreshAdIds = Array.from(new Set([
-    ...adIds.filter((id) => !existingIds.has(id)),
-    ...Array.from(blurryExistingIds)
-  ]));
+    if (!ad.imageUrl) return true;
+    if (!isPermanentMediaUrl(ad.imageUrl, storage)) return true;
 
-  // Data maps
+    return false;
+  };
+
+  const refreshAdIds = mode === "full"
+    ? adIdsWithInsights.filter(id => needsMediaRefresh(existingById.get(id)))
+    : [];
+
+  // Mapas de dados
   const creativeDataMap: Record<string, any> = {};
-  const adStatusMap: Record<string, any> = {};
+  const adMetaMap: Record<string, any> = {};
   const hashToUrlMap: Record<string, string> = {};
   const videoPictureMap: Record<string, string> = {};
   const videoSourceMap: Record<string, string> = {};
-  const adsetTargetingMap: Record<string, any> = {};
+  const adsetPlatformsMap: Record<string, string> = {};
 
-  const BATCH_SIZE = 25; // Good balance for usage
-  
+  // --- 3. Enumeração de anúncios (ativos E inativos) ---
+  //
+  // Antes o status vinha de chamadas em lote por ID, restritas aos anúncios com
+  // entrega no mês — anúncios sem entrega nunca tinham status atualizado e 1721
+  // criativos ficaram gravados como "UNKNOWN". Percorrer /ads da conta custa uma
+  // chamada por 500 anúncios e cobre a conta inteira.
   if (!reachedWallClock) {
-    // --- 3. Fetch Status & Targeting ---
-    if (onProgress) onProgress(`Buscando status de ${adIds.length} anúncios...`, 30);
+    if (onProgress) onProgress("Enumerando anúncios da conta (ativos e inativos)...", 28);
 
     try {
-      for (let i = 0; i < adIds.length; i += BATCH_SIZE) {
-        const batchIds = adIds.slice(i, i + BATCH_SIZE);
-        const data = await fetchWithBisection(batchIds, (ids) => 
-          `https://graph.facebook.com/v19.0/?ids=${ids}&fields=status,created_time&access_token=${metaToken}`
+      let adsUrl: string | null = `https://graph.facebook.com/v19.0/${metaAccountId}/ads?fields=id,name,status,effective_status,created_time,adset{id,name},campaign{id,name}&limit=500&access_token=${metaToken}`;
+      let pages = 0;
+
+      while (adsUrl && pages < 60) {
+        const page = await throttledFetch(adsUrl);
+        if (!page) break;
+
+        if (page.error) {
+          console.warn(`[Meta Sync] Enumeração de anúncios indisponível: ${page.error.message}`);
+          break;
+        }
+
+        for (const ad of page.data || []) {
+          adMetaMap[ad.id] = ad;
+        }
+
+        adsUrl = page.paging?.next || null;
+        pages++;
+        if (onProgress) onProgress(`Enumerando anúncios (${Object.keys(adMetaMap).length})...`, 28);
+      }
+    } catch (err: any) {
+      if (isRateOrTimeLimit(err)) {
+        reachedWallClock = true;
+      } else {
+        console.warn(`[Meta Sync] Falha ao enumerar anúncios: ${err.message}`);
+      }
+    }
+  }
+
+  // Cobre anúncios com insights que não vieram na enumeração (raro, mas possível).
+  const missingMeta = adIdsWithInsights.filter(id => !adMetaMap[id]);
+  if (!reachedWallClock && missingMeta.length > 0) {
+    if (onProgress) onProgress(`Completando status de ${missingMeta.length} anúncios...`, 32);
+    try {
+      for (let i = 0; i < missingMeta.length; i += BATCH_SIZE) {
+        const batchIds = missingMeta.slice(i, i + BATCH_SIZE);
+        const data = await fetchWithBisection(batchIds, (ids) =>
+          `https://graph.facebook.com/v19.0/?ids=${ids}&fields=id,name,status,effective_status,created_time&access_token=${metaToken}`
         );
         if (data) {
           for (const adId of batchIds) {
-            if (data[adId]) adStatusMap[adId] = data[adId];
+            if (data[adId]) adMetaMap[adId] = data[adId];
           }
         }
       }
     } catch (err: any) {
-      if (err instanceof WallClockLimitError || (err instanceof MetaApiError && err.isRateLimit)) {
-        if (onProgress) onProgress("Teto atingido nos status. Salvando progresso...", 35);
-        reachedWallClock = true;
-      }
+      if (isRateOrTimeLimit(err)) reachedWallClock = true;
     }
   }
 
-  if (!reachedWallClock) {
-    if (onProgress) onProgress(`Buscando targeting de ${uniqueAdsetIds.length} conjuntos...`, 32);
-    try {
-      for (let i = 0; i < uniqueAdsetIds.length; i += BATCH_SIZE) {
-        const batchIds = uniqueAdsetIds.slice(i, i + BATCH_SIZE);
-        const data = await fetchWithBisection(batchIds, (ids) => 
-          `https://graph.facebook.com/v19.0/?ids=${ids}&fields=targeting&access_token=${metaToken}`
-        );
-        if (data) {
-          for (const adsetId of batchIds) {
-            if (data[adsetId]) adsetTargetingMap[adsetId] = data[adsetId].targeting;
-          }
-        }
-      }
-    } catch (err: any) {
-      if (err instanceof WallClockLimitError || (err instanceof MetaApiError && err.isRateLimit)) {
-        reachedWallClock = true;
-      }
-    }
-  }
-
-  // --- 4. Fetch Creatives ---
-  if (!reachedWallClock && mode === "full") {
+  // --- 4. Criativos e mídias ---
+  if (!reachedWallClock && mode === "full" && refreshAdIds.length > 0) {
     if (onProgress) onProgress(`Processando ${refreshAdIds.length} criativos pendentes...`, 35);
-    
+
     try {
       for (let i = 0; i < refreshAdIds.length; i += BATCH_SIZE) {
         const batchIds = refreshAdIds.slice(i, i + BATCH_SIZE);
-        const data = await fetchWithBisection(batchIds, (ids) => 
+        const data = await fetchWithBisection(batchIds, (ids) =>
           `https://graph.facebook.com/v19.0/?ids=${ids}&fields=adcreatives{image_url,thumbnail_url,image_hash,object_story_spec{video_data{video_id,image_url}},asset_feed_spec{images{hash},videos{video_id,thumbnail_url}}}&access_token=${metaToken}`
         );
         if (data) {
@@ -232,14 +301,51 @@ export async function runMetaSync(
             if (data[adId]) creativeDataMap[adId] = data[adId];
           }
         }
-        if (onProgress) onProgress(`Carregando criativos (${Math.min(i + BATCH_SIZE, refreshAdIds.length)}/${refreshAdIds.length})...`, 35 + Math.floor(((i + BATCH_SIZE) / refreshAdIds.length) * 10));
+        if (onProgress) {
+          onProgress(
+            `Carregando criativos (${Math.min(i + BATCH_SIZE, refreshAdIds.length)}/${refreshAdIds.length})...`,
+            35 + Math.floor((i / refreshAdIds.length) * 8)
+          );
+        }
       }
     } catch (err: any) {
-      if (err instanceof WallClockLimitError || (err instanceof MetaApiError && err.isRateLimit)) {
-         reachedWallClock = true;
+      if (isRateOrTimeLimit(err)) reachedWallClock = true;
+    }
+
+    // Targeting apenas dos conjuntos que interessam.
+    //
+    // Este mapa era montado para TODOS os conjuntos e depois nunca lido — puro
+    // desperdício de orçamento de rate limit. Agora alimenta publisherPlatforms,
+    // que é o que a UI usa para mostrar os ícones de canal.
+    const adsetIdsToResolve = Array.from(new Set(
+      refreshAdIds
+        .map(id => rowsByAdId[id]?.[0]?.adset_id || adMetaMap[id]?.adset?.id)
+        .filter(Boolean)
+    ));
+
+    if (!reachedWallClock && adsetIdsToResolve.length > 0) {
+      if (onProgress) onProgress(`Resolvendo posicionamentos de ${adsetIdsToResolve.length} conjuntos...`, 44);
+      try {
+        for (let i = 0; i < adsetIdsToResolve.length; i += BATCH_SIZE) {
+          const batchIds = adsetIdsToResolve.slice(i, i + BATCH_SIZE);
+          const data = await fetchWithBisection(batchIds, (ids) =>
+            `https://graph.facebook.com/v19.0/?ids=${ids}&fields=targeting{publisher_platforms}&access_token=${metaToken}`
+          );
+          if (data) {
+            for (const adsetId of batchIds) {
+              const platforms = data[adsetId]?.targeting?.publisher_platforms;
+              if (Array.isArray(platforms) && platforms.length > 0) {
+                adsetPlatformsMap[adsetId] = platforms.join(",");
+              }
+            }
+          }
+        }
+      } catch (err: any) {
+        if (isRateOrTimeLimit(err)) reachedWallClock = true;
       }
     }
 
+    // Resolve hashes de imagem e ids de vídeo do lote pendente.
     const imageHashes = new Set<string>();
     const videoIds = new Set<string>();
     refreshAdIds.forEach((adId: string) => {
@@ -248,21 +354,20 @@ export async function runMetaSync(
       const videoId = creative.object_story_spec?.video_data?.video_id || creative.asset_feed_spec?.videos?.[0]?.video_id;
       if (videoId) videoIds.add(videoId);
       else if (creative.image_hash) imageHashes.add(creative.image_hash);
-      else if (creative.asset_feed_spec?.images && creative.asset_feed_spec.images.length > 0) imageHashes.add(creative.asset_feed_spec.images[0].hash);
+      else if (creative.asset_feed_spec?.images?.length > 0) imageHashes.add(creative.asset_feed_spec.images[0].hash);
     });
 
     if (!reachedWallClock && imageHashes.size > 0) {
-      if (onProgress) onProgress(`Resolvendo URLs de ${imageHashes.size} imagens...`, 45);
+      if (onProgress) onProgress(`Resolvendo URLs de ${imageHashes.size} imagens...`, 48);
       const hashesArray = Array.from(imageHashes);
-      
       try {
         for (let i = 0; i < hashesArray.length; i += BATCH_SIZE) {
           const batchHashes = hashesArray.slice(i, i + BATCH_SIZE);
           const hashesParam = encodeURIComponent(JSON.stringify(batchHashes));
           const imagesUrl = `https://graph.facebook.com/v19.0/${metaAccountId}/adimages?hashes=${hashesParam}&fields=url,original_image_url&access_token=${metaToken}`;
-          
+
           const imagesData = await throttledFetch(imagesUrl);
-          if (imagesData && imagesData.data) {
+          if (imagesData?.data) {
             imagesData.data.forEach((img: any) => {
               const hashParts = img.id.split(":");
               const hash = hashParts.length > 1 ? hashParts[1] : img.id;
@@ -271,18 +376,17 @@ export async function runMetaSync(
           }
         }
       } catch (err: any) {
-         if (err instanceof WallClockLimitError || (err instanceof MetaApiError && err.isRateLimit)) reachedWallClock = true;
+        if (isRateOrTimeLimit(err)) reachedWallClock = true;
       }
     }
 
     if (!reachedWallClock && videoIds.size > 0) {
-      if (onProgress) onProgress(`Resolvendo capas de ${videoIds.size} vídeos...`, 50);
+      if (onProgress) onProgress(`Renovando links de ${videoIds.size} vídeos...`, 52);
       const videoIdsArray = Array.from(videoIds);
-      
       try {
         for (let i = 0; i < videoIdsArray.length; i += BATCH_SIZE) {
           const batchIds = videoIdsArray.slice(i, i + BATCH_SIZE);
-          const data = await fetchWithBisection(batchIds, (ids) => 
+          const data = await fetchWithBisection(batchIds, (ids) =>
             `https://graph.facebook.com/v19.0/?ids=${ids}&fields=picture,source&access_token=${metaToken}`
           );
           if (data) {
@@ -292,204 +396,235 @@ export async function runMetaSync(
             }
           }
         }
-      } catch(e) {
-         if (e instanceof WallClockLimitError || (e instanceof MetaApiError && e.isRateLimit)) reachedWallClock = true;
+      } catch (err: any) {
+        if (isRateOrTimeLimit(err)) reachedWallClock = true;
       }
     }
   }
 
-  // --- 5. Process Creatives & Database Upsert ---
-  let syncedAds = 0;
-  const creativeOperations: any[] = [];
-  let syncedMetrics = 0;
-  
-  if (onProgress) onProgress("Processando e salvando criativos...", 60);
+  // --- 5. Montagem dos registros ---
+  if (onProgress) onProgress("Processando criativos...", 58);
 
-  const allAdsToProcess = Array.from(new Set([...adIds, ...refreshAdIds]));
+  interface PendingCreative {
+    adId: string;
+    hasInsights: boolean;
+    adName: string | null;
+    adsetName: string | null;
+    campaignName: string | null;
+    status: string | null;
+    createdTime: Date | null;
+    designer: string | null;
+    publisherPlatforms: string | null;
+    videoUrl: string;
+    /** URL na Meta a ser persistida; permanece vazia se nada precisa mudar. */
+    sourceImageUrl: string;
+    imageBaseName: string;
+    /** Preenchida na fase de upload. */
+    persistedImageUrl: string;
+  }
 
-  for (let i = 0; i < allAdsToProcess.length; i++) {
-    const adId = allAdsToProcess[i];
+  const allAdIds = Array.from(new Set([...adIdsWithInsights, ...Object.keys(adMetaMap)]));
+  const pending: PendingCreative[] = [];
+
+  for (const adId of allAdIds) {
     const rows = rowsByAdId[adId];
-    
-    if (i % 100 === 0 && onProgress) {
-      onProgress(`Processando criativos (${i}/${allAdsToProcess.length})...`, 60 + Math.floor((i / allAdsToProcess.length) * 15));
+    const hasInsights = !!rows?.length;
+    const apiMeta = adMetaMap[adId];
+    const firstRow = rows?.[0];
+
+    const adName = firstRow?.ad_name || apiMeta?.name || null;
+    const adsetName = firstRow?.adset_name || apiMeta?.adset?.name || null;
+    const campaignName = firstRow?.campaign_name || apiMeta?.campaign?.name || null;
+
+    /**
+     * `null` significa "não sei" e faz o campo ser omitido da escrita.
+     *
+     * Antes, uma falha na busca de status gravava "UNKNOWN" por cima de um valor
+     * bom, e `createdTime` caía para `new Date()` — foi assim que 1526 criativos
+     * ficaram com data de criação igual à data de um sync.
+     */
+    const status = apiMeta
+      ? normalizeMetaStatus(apiMeta.status, apiMeta.effective_status)
+      : null;
+
+    let createdTime: Date | null = null;
+    if (apiMeta?.created_time) {
+      const parsed = new Date(apiMeta.created_time);
+      if (!isNaN(parsed.getTime())) createdTime = parsed;
     }
 
-    let adName = "Desconhecido";
-    let adsetName = "Desconhecido";
-    let campaignName = "Desconhecido";
-    let status = "UNKNOWN";
-    let createdTime = new Date();
+    const adsetId = firstRow?.adset_id || apiMeta?.adset?.id;
+    const publisherPlatforms = adsetId ? adsetPlatformsMap[adsetId] || null : null;
 
-    if (rows && rows.length > 0) {
-      const firstRow = rows[0];
-      adName = firstRow.ad_name || "Desconhecido";
-      adsetName = firstRow.adset_name || "Desconhecido";
-      campaignName = firstRow.campaign_name || "Desconhecido";
-      
-      const sData = adStatusMap[adId];
-      status = sData?.status || "UNKNOWN";
-      const createdAtStr = sData?.created_time;
-      if (createdAtStr) {
-        createdTime = new Date(createdAtStr);
-        if (isNaN(createdTime.getTime())) createdTime = new Date();
-      }
-    } else {
-      const sData = adStatusMap[adId];
-      if (sData) {
-        status = sData.status || "UNKNOWN";
-      }
-    }
-
-    let designer: string | null = null;
-    const adNameLower = adName.toLowerCase();
-    for (const ac of validAcronyms) {
-      const regex = new RegExp(`(^|[-_ .])${ac}(?:[-._ ]|\\b|$)`, "i");
-      if (regex.test(adNameLower)) {
-        designer = ac.toUpperCase();
-        break;
-      }
-    }
-
-    let imageUrl = "";
-    let thumbnailUrl = "";
     let videoUrl = "";
+    let sourceImageUrl = "";
+    let imageBaseName = adId;
 
     if (mode === "full") {
       const creative = creativeDataMap[adId]?.adcreatives?.data?.[0];
       if (creative) {
         const videoId = creative.object_story_spec?.video_data?.video_id || creative.asset_feed_spec?.videos?.[0]?.video_id;
-        
-        let fbImageUrl = "";
+
         if (videoId) {
           videoUrl = videoSourceMap[videoId] || "";
-          fbImageUrl = videoPictureMap[videoId] || creative.thumbnail_url || creative.object_story_spec?.video_data?.image_url || creative.asset_feed_spec?.videos?.[0]?.thumbnail_url || "";
+          sourceImageUrl =
+            videoPictureMap[videoId] ||
+            creative.thumbnail_url ||
+            creative.object_story_spec?.video_data?.image_url ||
+            creative.asset_feed_spec?.videos?.[0]?.thumbnail_url ||
+            "";
+          imageBaseName = `${adId}-${videoId}`;
         } else {
-          let hash = creative.image_hash;
-          if (!hash && creative.asset_feed_spec?.images && creative.asset_feed_spec.images.length > 0) {
-            hash = creative.asset_feed_spec.images[0].hash;
-          }
-          fbImageUrl = hashToUrlMap[hash] || creative.image_url || "";
-        }
-
-        if (fbImageUrl) {
-          if (fbImageUrl.includes('fbcdn.net') || fbImageUrl.includes('scontent')) {
-            try {
-              const imgRes = await fetch(fbImageUrl);
-              if (imgRes.ok) {
-                const blob = await imgRes.blob();
-                const filename = `${adId}-${videoId || creative.image_hash || 'image'}.jpg`;
-                
-                const uploadUrl = settingsData?.cpanelUploadUrl || process.env.CPANEL_UPLOAD_URL;
-                const uploadSecret = settingsData?.cpanelUploadSecret || process.env.CPANEL_UPLOAD_SECRET;
-
-                if (uploadUrl && uploadSecret) {
-                  const formData = new FormData();
-                  formData.append("file", blob, filename);
-                  formData.append("filename", filename);
-
-                  try {
-                    const uploadRes = await fetch(uploadUrl, {
-                      method: "POST",
-                      headers: {
-                        "Authorization": `Bearer ${uploadSecret}`
-                      },
-                      body: formData
-                    });
-
-                    if (uploadRes.ok) {
-                      const result = await uploadRes.json();
-                      if (result.success && result.url) {
-                        imageUrl = result.url;
-                        thumbnailUrl = result.url;
-                      } else {
-                        imageUrl = fbImageUrl;
-                        thumbnailUrl = fbImageUrl;
-                      }
-                    } else {
-                      imageUrl = fbImageUrl;
-                      thumbnailUrl = fbImageUrl;
-                    }
-                  } catch (e) {
-                    imageUrl = fbImageUrl;
-                    thumbnailUrl = fbImageUrl;
-                  }
-                } else if (process.env.BLOB_READ_WRITE_TOKEN) {
-                  const { put } = await import('@vercel/blob');
-                  const uploadResult = await put(`ad-images/${filename}`, blob, { access: 'public', addRandomSuffix: false });
-                  imageUrl = uploadResult.url;
-                  thumbnailUrl = uploadResult.url;
-                } else {
-                  imageUrl = fbImageUrl;
-                  thumbnailUrl = fbImageUrl;
-                }
-              } else {
-                imageUrl = fbImageUrl;
-                thumbnailUrl = fbImageUrl;
-              }
-            } catch (e) {
-              imageUrl = fbImageUrl;
-              thumbnailUrl = fbImageUrl;
-            }
-          } else {
-            imageUrl = fbImageUrl;
-            thumbnailUrl = fbImageUrl;
-          }
+          const hash = creative.image_hash || creative.asset_feed_spec?.images?.[0]?.hash;
+          sourceImageUrl = hashToUrlMap[hash] || creative.image_url || "";
+          imageBaseName = `${adId}-${hash || "image"}`;
         }
       }
     }
 
-    if (rows && rows.length > 0) {
-      const data: any = {
-        adName,
-        adsetName,
-        campaignName,
-        status,
-        createdTime,
-      };
-      if (designer) data.designer = designer;
-      if (imageUrl) data.imageUrl = imageUrl;
-      if (thumbnailUrl) data.thumbnailUrl = thumbnailUrl;
-      if (videoUrl) {
-        data.videoUrl = videoUrl;
-        data.mediaType = "video";
-      } else {
-        data.mediaType = "image";
+    pending.push({
+      adId,
+      hasInsights,
+      adName,
+      adsetName,
+      campaignName,
+      status,
+      createdTime,
+      designer: resolveDesigner(adName, aliases),
+      publisherPlatforms,
+      videoUrl,
+      sourceImageUrl,
+      imageBaseName,
+      persistedImageUrl: "",
+    });
+  }
+
+  // --- 6. Persistência das mídias estáticas ---
+  //
+  // Fase própria e paralela: antes o download+upload acontecia em série dentro do
+  // laço principal, e a fila de pendências nunca cabia no teto de tempo.
+  if (mode === "full" && isStorageConfigured(storage)) {
+    const uploadTargets = pending.filter(item => {
+      if (!item.sourceImageUrl) return false;
+      // Já é uma URL nossa (pode acontecer em reprocessamentos) — nada a fazer.
+      if (isPermanentMediaUrl(item.sourceImageUrl, storage)) {
+        item.persistedImageUrl = item.sourceImageUrl;
+        return false;
       }
-      
-      creativeOperations.push({ type: "upsert", adId, data });
-    } else if (status !== "UNKNOWN") {
-      const updateData: any = { status };
-      if (designer) updateData.designer = designer;
-      if (imageUrl) updateData.imageUrl = imageUrl;
-      if (thumbnailUrl) updateData.thumbnailUrl = thumbnailUrl;
-      if (videoUrl) {
-        updateData.videoUrl = videoUrl;
-        updateData.mediaType = "video";
+      return true;
+    });
+
+    if (uploadTargets.length > 0) {
+      if (onProgress) onProgress(`Salvando ${uploadTargets.length} criativos estáticos no servidor externo...`, 62);
+
+      let completed = 0;
+      let failed = 0;
+      let budgetExhausted = false;
+
+      await runWithConcurrency(
+        uploadTargets.map(item => async () => {
+          if (budgetExhausted || wallClockRemainingMs() < DB_WRITE_RESERVE_MS) {
+            budgetExhausted = true;
+            return;
+          }
+
+          const persisted = await persistRemoteMedia(item.sourceImageUrl, item.imageBaseName, storage);
+          // `null` = não conseguimos persistir. Deixamos o campo de fora da escrita
+          // para não gravar uma URL da Meta que vai expirar.
+          if (persisted) item.persistedImageUrl = persisted;
+          else failed++;
+
+          completed++;
+          if (onProgress && completed % 10 === 0) {
+            onProgress(
+              `Salvando estáticos (${completed}/${uploadTargets.length})...`,
+              62 + Math.floor((completed / uploadTargets.length) * 10)
+            );
+          }
+        }),
+        MEDIA_UPLOAD_CONCURRENCY
+      );
+
+      if (budgetExhausted) {
+        reachedWallClock = true;
+        console.log(`[Meta Sync] Orçamento de tempo esgotado nos uploads. ${completed}/${uploadTargets.length} processados; o restante continua na próxima execução.`);
       }
-      creativeOperations.push({ type: "updateMany", adId, data: updateData });
+      if (failed > 0) {
+        console.warn(`[Meta Sync] ${failed} mídia(s) não puderam ser persistidas; os valores atuais no banco foram preservados.`);
+      }
     }
   }
 
+  // --- 7. Escrita dos criativos ---
+  let syncedAds = 0;
+  const creativeOperations: { type: "upsert" | "updateMany"; adId: string; data: any }[] = [];
+
+  for (const item of pending) {
+    const data: any = {};
+
+    if (item.adName) data.adName = item.adName;
+    if (item.adsetName) data.adsetName = item.adsetName;
+    if (item.campaignName) data.campaignName = item.campaignName;
+    if (item.status) data.status = item.status;
+    if (item.createdTime) data.createdTime = item.createdTime;
+    if (item.designer) data.designer = item.designer;
+    if (item.publisherPlatforms) data.publisherPlatforms = item.publisherPlatforms;
+
+    if (item.persistedImageUrl) {
+      data.imageUrl = item.persistedImageUrl;
+      data.thumbnailUrl = item.persistedImageUrl;
+    }
+
+    // mediaType só é afirmado quando de fato inspecionamos o criativo neste ciclo,
+    // para não rebaixar um vídeo conhecido a "image" num sync de métricas.
+    if (item.videoUrl) {
+      data.videoUrl = item.videoUrl;
+      data.mediaType = "video";
+    } else if (mode === "full" && creativeDataMap[item.adId]) {
+      data.mediaType = "image";
+    }
+
+    if (existingById.has(item.adId)) {
+      if (Object.keys(data).length > 0) {
+        creativeOperations.push({ type: "updateMany", adId: item.adId, data });
+      }
+      continue;
+    }
+
+    // Registro novo: só criamos quando há informação mínima para um registro honesto.
+    if (!item.hasInsights && !item.adName) continue;
+
+    creativeOperations.push({
+      type: "upsert",
+      adId: item.adId,
+      data: {
+        ...data,
+        platform: "META",
+        adName: item.adName || `Anúncio ${item.adId}`,
+        adsetName: item.adsetName || "Desconhecido",
+        campaignName: item.campaignName || "Desconhecido",
+        status: item.status || "UNKNOWN",
+        mediaType: data.mediaType || (item.videoUrl ? "video" : "image"),
+      },
+    });
+  }
+
   if (creativeOperations.length > 0) {
-    if (onProgress) onProgress("Salvando criativos no banco de dados em lotes...", 70);
+    if (onProgress) onProgress("Salvando criativos no banco de dados...", 74);
     const CREATIVE_CHUNK_SIZE = 10;
     for (let i = 0; i < creativeOperations.length; i += CREATIVE_CHUNK_SIZE) {
-      console.log(`[DB] Salvando lote de criativos ${i}/${creativeOperations.length}...`);
       const chunk = creativeOperations.slice(i, i + CREATIVE_CHUNK_SIZE);
       await withDbRetry(async () => {
         for (const op of chunk) {
           if (op.type === "upsert") {
+            const { platform, ...updatable } = op.data;
             await prisma.adCreative.upsert({
               where: { id: op.adId },
-              update: op.data,
-              create: { id: op.adId, ...op.data }
+              update: updatable,
+              create: { id: op.adId, ...op.data },
             });
           } else {
-            await prisma.adCreative.updateMany({
-              where: { id: op.adId },
-              data: op.data
-            });
+            await prisma.adCreative.updateMany({ where: { id: op.adId }, data: op.data });
           }
         }
       });
@@ -497,24 +632,21 @@ export async function runMetaSync(
     }
   }
 
-  if (onProgress) onProgress("Processando e salvando métricas...", 75);
+  // --- 8. Métricas ---
+  if (onProgress) onProgress("Processando métricas...", 80);
 
   const metricOperations: any[] = [];
 
-  for (let i = 0; i < adIds.length; i++) {
-    const adId = adIds[i];
+  for (const adId of adIdsWithInsights) {
     const rows = rowsByAdId[adId];
-    if (!rows || rows.length === 0) continue;
-
-    if (i % 100 === 0 && onProgress) {
-      onProgress(`Processando métricas (${i}/${adIds.length})...`, 75 + Math.floor((i / adIds.length) * 20));
-    }
+    if (!rows?.length) continue;
 
     for (const row of rows) {
       if (!row.date_start) continue;
+
       const spend = parseFloat(row.spend || "0");
       const cpm = parseFloat(row.cpm || "0");
-      const ctr = parseFloat(row.ctr || "0");
+      const ctr = parseFloat(row.ctr || "0"); // Meta já devolve em pontos percentuais
       const cpc = parseFloat(row.cpc || "0");
       const impressions = parseInt(row.impressions || "0");
       const clicks = parseInt(row.clicks || "0");
@@ -522,13 +654,11 @@ export async function runMetaSync(
       const frequency = row.frequency ? parseFloat(row.frequency) : 0;
 
       let purchaseRoas = 0;
-      if (row.purchase_roas && row.purchase_roas.length > 0) {
-        const roasData = row.purchase_roas.find((r: any) => r.action_type === 'omni_purchase');
+      if (row.purchase_roas?.length > 0) {
+        const roasData = row.purchase_roas.find((r: any) => r.action_type === "omni_purchase");
         if (roasData) purchaseRoas = parseFloat(roasData.value);
       }
 
-      let purchases = 0; let messages = 0; let netOrders = 0; let riskApprovedValue = 0;
-      
       const getFallbackValue = (arr: any[], types: string[]) => {
         for (const t of types) {
           const obj = arr.find((a: any) => a.action_type === t);
@@ -537,76 +667,64 @@ export async function runMetaSync(
         return 0;
       };
 
-      if (row.actions) {
-        purchases = getFallbackValue(row.actions, ['omni_purchase', 'purchase', 'offsite_conversion.fb_pixel_purchase', 'offline_conversion.purchase']);
+      let purchases = 0, messages = 0, netOrders = 0, riskApprovedValue = 0;
+      let likes = 0, comments = 0, shares = 0, videoViews = 0;
+      let videoViews25p = 0, videoViews50p = 0, videoViews75p = 0, videoViews100p = 0;
 
-        const msgObj = row.actions.find((a: any) => a.action_type === 'onsite_conversion.messaging_conversation_started_7d');
+      if (row.actions) {
+        purchases = getFallbackValue(row.actions, ["omni_purchase", "purchase", "offsite_conversion.fb_pixel_purchase", "offline_conversion.purchase"]);
+
+        const msgObj = row.actions.find((a: any) => a.action_type === "onsite_conversion.messaging_conversation_started_7d");
         if (msgObj) messages = parseInt(msgObj.value);
 
-        const netOrdersObj = row.actions.find((a: any) => a.action_type === 'offsite_conversion.custom.2105075753380751');
+        const netOrdersObj = row.actions.find((a: any) => a.action_type === "offsite_conversion.custom.2105075753380751");
         if (netOrdersObj) netOrders = parseInt(netOrdersObj.value);
-      }
-      
-      let likes = 0; let comments = 0; let shares = 0; let videoViews = 0;
-      let videoViews25p = 0; let videoViews50p = 0; let videoViews75p = 0; let videoViews100p = 0;
 
-      if (row.actions) {
-        likes = getFallbackValue(row.actions, ['post_reaction', 'like']);
-        comments = getFallbackValue(row.actions, ['post_comment', 'comment']);
-        shares = getFallbackValue(row.actions, ['post_engagement', 'post', 'share']);
+        likes = getFallbackValue(row.actions, ["post_reaction", "like"]);
+        comments = getFallbackValue(row.actions, ["post_comment", "comment"]);
+        shares = getFallbackValue(row.actions, ["post_engagement", "post", "share"]);
       }
-      
-      if (row.video_play_actions) videoViews = getFallbackValue(row.video_play_actions, ['video_view']);
-      else if (row.actions) videoViews = getFallbackValue(row.actions, ['video_view']);
-      
-      if (row.video_p25_watched_actions) videoViews25p = getFallbackValue(row.video_p25_watched_actions, ['video_p25_watched_actions']);
-      if (row.video_p50_watched_actions) videoViews50p = getFallbackValue(row.video_p50_watched_actions, ['video_p50_watched_actions']);
-      if (row.video_p75_watched_actions) videoViews75p = getFallbackValue(row.video_p75_watched_actions, ['video_p75_watched_actions']);
-      if (row.video_p100_watched_actions) videoViews100p = getFallbackValue(row.video_p100_watched_actions, ['video_p100_watched_actions']);
-      
+
+      if (row.video_play_actions) videoViews = getFallbackValue(row.video_play_actions, ["video_view"]);
+      else if (row.actions) videoViews = getFallbackValue(row.actions, ["video_view"]);
+
+      if (row.video_p25_watched_actions) videoViews25p = getFallbackValue(row.video_p25_watched_actions, ["video_p25_watched_actions"]);
+      if (row.video_p50_watched_actions) videoViews50p = getFallbackValue(row.video_p50_watched_actions, ["video_p50_watched_actions"]);
+      if (row.video_p75_watched_actions) videoViews75p = getFallbackValue(row.video_p75_watched_actions, ["video_p75_watched_actions"]);
+      if (row.video_p100_watched_actions) videoViews100p = getFallbackValue(row.video_p100_watched_actions, ["video_p100_watched_actions"]);
+
       let grossValue = 0;
       if (row.action_values) {
-        const riskApprovedObj = row.action_values.find((a: any) => a.action_type === 'offsite_conversion.custom.2105075753380751');
+        const riskApprovedObj = row.action_values.find((a: any) => a.action_type === "offsite_conversion.custom.2105075753380751");
         if (riskApprovedObj) riskApprovedValue = parseFloat(riskApprovedObj.value);
 
-        grossValue = getFallbackValue(row.action_values, ['omni_purchase', 'purchase', 'offsite_conversion.fb_pixel_purchase', 'offline_conversion.purchase']);
+        grossValue = getFallbackValue(row.action_values, ["omni_purchase", "purchase", "offsite_conversion.fb_pixel_purchase", "offline_conversion.purchase"]);
       }
-
-      const dateStart = new Date(`${row.date_start}T00:00:00Z`);
 
       metricOperations.push({
         adCreativeId: adId,
-        dateStart,
+        dateStart: ymdToUtcDate(row.date_start),
         data: {
           spend, roas: purchaseRoas, cpm, ctr, cpc, impressions, reach, frequency, clicks,
           purchases, netOrders, riskApprovedValue, grossValue, messages, likes, comments,
-          shares, videoViews, videoViews25p, videoViews50p, videoViews75p, videoViews100p
-        }
+          shares, videoViews, videoViews25p, videoViews50p, videoViews75p, videoViews100p,
+        },
       });
     }
   }
 
+  let syncedMetrics = 0;
   if (metricOperations.length > 0) {
-    if (onProgress) onProgress("Salvando métricas no banco de dados em lotes...", 95);
+    if (onProgress) onProgress("Salvando métricas no banco de dados...", 90);
     const METRICS_CHUNK_SIZE = 10;
     for (let i = 0; i < metricOperations.length; i += METRICS_CHUNK_SIZE) {
-      console.log(`[DB] Salvando lote de métricas ${i}/${metricOperations.length}...`);
       const chunk = metricOperations.slice(i, i + METRICS_CHUNK_SIZE);
       await withDbRetry(async () => {
         for (const op of chunk) {
           await prisma.adDailyMetrics.upsert({
-            where: {
-              adCreativeId_date: {
-                adCreativeId: op.adCreativeId,
-                date: op.dateStart
-              }
-            },
+            where: { adCreativeId_date: { adCreativeId: op.adCreativeId, date: op.dateStart } },
             update: op.data,
-            create: {
-              adCreativeId: op.adCreativeId,
-              date: op.dateStart,
-              ...op.data
-            }
+            create: { adCreativeId: op.adCreativeId, date: op.dateStart, ...op.data },
           });
         }
       });
@@ -614,21 +732,19 @@ export async function runMetaSync(
     }
   }
 
-  // Update last sync times
+  // --- 9. Carimbo de execução ---
   if (!reachedWallClock) {
-    const now = new Date();
-    const updateSettings: any = {};
-    if (mode === "full") updateSettings.lastDeepSyncAt = now;
-    else updateSettings.lastFastSyncAt = now;
-    
+    const finishedAt = new Date();
     await withDbRetry(() => prisma.systemSettings.update({
       where: { id: 1 },
-      data: updateSettings
+      data: {
+        lastSyncAt: finishedAt,
+        ...(mode === "full" ? { lastDeepSyncAt: finishedAt } : { lastFastSyncAt: finishedAt }),
+      },
     }));
-
-    if (onProgress) onProgress("Sincronização concluída com sucesso!", 100);
+    if (onProgress) onProgress("Sincronização da Meta concluída!", 100);
   } else {
-    if (onProgress) onProgress("Sincronização abortada por limite de tempo/taxa. Agende novamente para continuar.", 100);
+    if (onProgress) onProgress("Meta: teto de tempo/taxa atingido. O progresso foi salvo; rode novamente para continuar.", 100);
   }
 
   return { syncedAds, syncedMetrics, reachedLimit: reachedWallClock };

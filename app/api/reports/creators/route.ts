@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import prisma from "@/lib/prisma";
+import { isActiveStatus } from "@/lib/ad-status";
 
 export async function GET(request: Request) {
   try {
@@ -157,8 +158,7 @@ export async function GET(request: Request) {
         stats.netOrders += metric.netOrders;
         
         if (creative && metric.adCreativeId) {
-          const isStatusActive = creative.status && ["ACTIVE", "ENABLE", "ENABLED"].includes(creative.status.toUpperCase());
-          if (isStatusActive) {
+          if (isActiveStatus(creative.status)) {
             stats.activeAds.add(metric.adCreativeId);
           }
         }
