@@ -479,12 +479,16 @@ export async function runTikTokSync(
         netOrders: conversions,
         grossValue: purchaseValue,
         /**
-         * A análise de risco é um funil próprio da Allugator, rodando sobre o
-         * pixel da Meta (`risk_approved_cc`). A TikTok não tem equivalente, então
-         * a receita líquida fica em zero em vez de repetir a bruta — que era o
-         * que inflava a receita aprovada do canal.
+         * Receita aprovada do canal = conversão padrão do TikTok.
+         *
+         * A análise de risco (`risk_approved_cc`) é um funil da Allugator que
+         * roda sobre o pixel da Meta e não tem equivalente aqui. Por decisão do
+         * negócio, o canal é avaliado pela sua conversão padrão — o mesmo
+         * `complete_payment` que alimenta a receita bruta. Para o TikTok, então,
+         * bruta e líquida são o mesmo valor: não existe etapa de aprovação
+         * separada a ser descontada.
          */
-        riskApprovedValue: 0,
+        riskApprovedValue: purchaseValue,
         likes: int(m.likes),
         comments: int(m.comments),
         shares: int(m.shares),

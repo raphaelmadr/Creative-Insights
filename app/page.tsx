@@ -48,7 +48,7 @@ function formatPercentBR(value: string): string {
 }
 
 export default function Home() {
-  const [metrics, setMetrics] = useState<{ totalSpend: string; totalRiskApprovedValue: string; totalGrossValue: string; avgCtr: string; avgCpa: string }>({ totalSpend: "0.00", totalRiskApprovedValue: "0.00", totalGrossValue: "0.00", avgCtr: "0.00", avgCpa: "0.00" });
+  const [metrics, setMetrics] = useState<{ totalSpend: string; totalRiskApprovedValue: string; totalGrossValue: string; avgCtr: string; avgCpa: string; totalNetOrders: number }>({ totalSpend: "0.00", totalRiskApprovedValue: "0.00", totalGrossValue: "0.00", avgCtr: "0.00", avgCpa: "0.00", totalNetOrders: 0 });
   const [currentGoal, setCurrentGoal] = useState({ spendGoal: 0, revenueGoal: 0, cpaGoal: 0 });
   const { analyzeCampaigns, isSearching, loadingText } = useNotifications();
 
@@ -339,6 +339,12 @@ export default function Home() {
                 <div className="allu-card-label">◇ CPA MÉDIO</div>
                 <div className="allu-card-value">
                   <AnimatedNumber value={parseFloat(metrics.avgCpa) || 0} prefix="R$ " decimals={2} />
+                </div>
+                <div className="allu-card-subtext" style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', flexWrap: 'wrap' }}>
+                  <span style={{ fontWeight: 700, color: 'var(--foreground)' }}>
+                    {(metrics.totalNetOrders || 0).toLocaleString('pt-BR')}
+                  </span>
+                  <span>{(metrics.totalNetOrders || 0) === 1 ? 'pedido aprovado' : 'pedidos aprovados'}</span>
                 </div>
                 <div className="allu-card-subtext" style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
                   <span>Meta: R$ {currentGoal.cpaGoal.toLocaleString('pt-BR')}</span>

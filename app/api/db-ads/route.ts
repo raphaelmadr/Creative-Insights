@@ -90,6 +90,37 @@ export async function GET(req: Request) {
       _max: { date: true },
     });
 
+    /**
+     * Segundo recorte: apenas o período selecionado.
+     *
+     * Os KPIs do topo comparam contra a META DO MÊS, então precisam do valor do
+     * período — não do acumulado de veiculação, que é o que vai nos cards.
+     */
+    const period = await prisma.adDailyMetrics.groupBy({
+      by: ["adCreativeId"],
+      where: {
+        adCreativeId: { in: ads.map(ad => ad.id) },
+        date: { gte: startDate, lte: endDate },
+      },
+      _sum: {
+        spend: true, impressions: true, clicks: true,
+        riskApprovedValue: true, grossValue: true, purchases: true, netOrders: true,
+      },
+    });
+
+    const periodByAd = new Map<string, CreativeTotals>();
+    for (const row of period) {
+      periodByAd.set(row.adCreativeId, {
+        spend: row._sum.spend ?? 0,
+        impressions: row._sum.impressions ?? 0,
+        clicks: row._sum.clicks ?? 0,
+        riskApprovedValue: row._sum.riskApprovedValue ?? 0,
+        grossValue: row._sum.grossValue ?? 0,
+        purchases: row._sum.purchases ?? 0,
+        netOrders: row._sum.netOrders ?? 0,
+      });
+    }
+
     const totalsByAd = new Map<string, CreativeTotals & { firstDeliveryAt: Date | null; lastDeliveryAt: Date | null }>();
     for (const row of lifetime) {
       totalsByAd.set(row.adCreativeId, {
@@ -148,14 +179,18 @@ export async function GET(req: Request) {
 
       if (spend === 0 && grossValue === 0 && riskApprovedValue === 0) continue;
 
-      totalSpend += spend;
-      totalImpressions += impressions;
-      totalClicks += clicks;
-      totalRiskApprovedValue += riskApprovedValue;
-      totalGrossValue += grossValue;
+      // Valores do período, para os indicadores globais do topo.
+      const inPeriod = periodByAd.get(ad.id) ?? EMPTY_TOTALS;
+
+      // Os totais devolvidos pela API são do PERÍODO — é o que as metas mensais comparam.
+      totalSpend += inPeriod.spend;
+      totalImpressions += inPeriod.impressions;
+      totalClicks += inPeriod.clicks;
+      totalRiskApprovedValue += inPeriod.riskApprovedValue;
+      totalGrossValue += inPeriod.grossValue;
 
       const groupKey = ad.id;
-      const cpa = calculateCpa(totals, ad.platform);
+      const cpa = calculateCpa(totals);
       const ctr = calculateCtr(totals);
 
       const identity = {
@@ -172,6 +207,14 @@ export async function GET(req: Request) {
         status: ad.status,
         firstDeliveryAt: totals.firstDeliveryAt,
         lastDeliveryAt: totals.lastDeliveryAt,
+        // Prefixo `period` = recorte de datas. Sem prefixo = acumulado de veiculação.
+        periodSpend: inPeriod.spend,
+        periodGrossValue: inPeriod.grossValue,
+        periodRiskApprovedValue: inPeriod.riskApprovedValue,
+        periodNetOrders: inPeriod.netOrders,
+        periodPurchases: inPeriod.purchases,
+        periodImpressions: inPeriod.impressions,
+        periodClicks: inPeriod.clicks,
       };
 
       aggregatedAds.set(groupKey, {
@@ -187,7 +230,7 @@ export async function GET(req: Request) {
           ctr: ctr.toFixed(2),
           riskApprovedValue: riskApprovedValue.toFixed(2),
           grossValue: grossValue.toFixed(2),
-          cpa: cpa === null ? null : cpa.toFixed(2),
+          cpa: cpa.toFixed(2),
           netOrders,
           purchases,
           impressions,
@@ -197,7 +240,7 @@ export async function GET(req: Request) {
     }
 
     for (const [groupKey, agg] of aggregatedAds.entries()) {
-      const cpa = calculateCpa(agg, agg.platform);
+      const cpa = calculateCpa(agg);
       const ctr = calculateCtr(agg);
       
       const creativePlatform = (agg.platform || "META").toUpperCase();
@@ -212,12 +255,12 @@ export async function GET(req: Request) {
         const MAX_CPA = catRules.maxCpa || 0;
 
         // As regras usam exatamente os mesmos números exibidos no card.
-        const returnValue = referenceRevenue(agg, agg.platform);
+        const returnValue = referenceRevenue(agg);
 
         const isMatch = 
           (MIN_SPEND === 0 || agg.spend >= MIN_SPEND) &&
           (MIN_RETURN === 0 || returnValue >= MIN_RETURN) &&
-          (MAX_CPA === 0 || (cpa !== null && cpa <= MAX_CPA));
+          (MAX_CPA === 0 || cpa <= MAX_CPA);
 
         if (isMatch) {
           matchedCategoryIndex = i;
@@ -232,7 +275,7 @@ export async function GET(req: Request) {
           ctr: ctr.toFixed(2),
           riskApprovedValue: agg.riskApprovedValue.toFixed(2),
           grossValue: agg.grossValue.toFixed(2),
-          cpa: cpa === null ? null : cpa.toFixed(2)
+          cpa: cpa.toFixed(2)
         };
         categorizedAds[matchedCategoryIndex].ads.push(creativeData);
       } else {

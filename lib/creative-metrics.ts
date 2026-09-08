@@ -19,61 +19,41 @@ export interface CreativeTotals {
 }
 
 /**
- * Canais em que a análise de risco existe.
- *
- * `risk_approved_cc` é um funil da Allugator que roda sobre o pixel da Meta.
- * Onde ele existe, receita líquida zero significa literalmente zero.
- */
-const PLATFORMS_WITH_RISK_APPROVAL = new Set(["META"]);
-
-export function hasRiskApprovalFunnel(platform?: string | null): boolean {
-  return PLATFORMS_WITH_RISK_APPROVAL.has((platform || "META").toUpperCase());
-}
-
-/**
  * Receita de referência do criativo — a base das regras de categoria.
  *
- * A decisão é por CANAL, nunca pelo valor:
- *  - Meta: sempre a receita líquida, inclusive quando é zero.
- *  - Canais sem análise de risco (TikTok): a receita bruta, porque a plataforma
- *    não tem como fornecer a líquida.
+ * Sempre a receita líquida (`riskApprovedValue`), em qualquer canal. Cada canal
+ * é responsável por preencher esse campo com o que representa receita aprovada
+ * lá dentro:
+ *  - Meta: a conversão personalizada `risk_approved_cc`;
+ *  - TikTok: a conversão padrão do canal (`complete_payment`), já que não há
+ *    etapa de análise de risco separada.
  *
- * A versão anterior caía para a bruta sempre que a líquida fosse zero, e com
- * isso promovia a Super Winner criativos da Meta com receita líquida R$ 0 —
- * exatamente o que aparecia como categoria sem receita na tela.
+ * Não existe fallback para a receita bruta. Ele fazia criativos com receita
+ * líquida R$ 0 serem promovidos a Super Winner pelo valor bruto, que era
+ * exatamente a incoerência vista na tela.
  */
 export function referenceRevenue(
-  totals: Pick<CreativeTotals, "grossValue" | "riskApprovedValue">,
-  platform?: string | null
+  totals: Pick<CreativeTotals, "grossValue" | "riskApprovedValue">
 ): number {
-  return hasRiskApprovalFunnel(platform) ? totals.riskApprovedValue : totals.grossValue;
+  return totals.riskApprovedValue;
 }
 
 /**
- * CPA — custo por receita líquida aprovada.
+ * CPA — custo por pedido aprovado.
  *
- * Quanto de investimento foi necessário para cada R$ 1 de receita líquida.
- * Menor é melhor; abaixo de 1,00 significa que a peça se paga.
- *
- * Devolve `null` quando não houve receita, para a interface mostrar "—" em vez
- * de um número inventado.
+ * Investimento dividido pela quantidade de pedidos aprovados. Sem nenhum pedido,
+ * devolve o próprio investimento: o valor gasto sem retorno.
  */
-export function calculateCpa(
-  totals: Pick<CreativeTotals, "spend" | "grossValue" | "riskApprovedValue">,
-  platform?: string | null
-): number | null {
-  const revenue = referenceRevenue(totals, platform);
-  if (revenue <= 0) return null;
-  return totals.spend / revenue;
+export function calculateCpa(totals: Pick<CreativeTotals, "spend" | "netOrders">): number {
+  return totals.netOrders > 0 ? totals.spend / totals.netOrders : totals.spend;
 }
 
 /** ROAS sobre a receita de referência — o inverso do CPA, para leitura direta. */
 export function calculateRoas(
-  totals: Pick<CreativeTotals, "spend" | "grossValue" | "riskApprovedValue">,
-  platform?: string | null
+  totals: Pick<CreativeTotals, "spend" | "grossValue" | "riskApprovedValue">
 ): number | null {
   if (totals.spend <= 0) return null;
-  return referenceRevenue(totals, platform) / totals.spend;
+  return referenceRevenue(totals) / totals.spend;
 }
 
 export function calculateCtr(totals: Pick<CreativeTotals, "impressions" | "clicks">): number {

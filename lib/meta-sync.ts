@@ -336,8 +336,14 @@ export async function runMetaSync(
   const refreshAdIds = mode === "full"
     ? [
         ...adIdsWithInsights.filter(id => needsMediaRefresh(existingById.get(id))),
+        // Sem entrega na janela, só vale buscar mídia dos que estão no ar —
+        // são os únicos que viram registro novo.
         ...Object.keys(adMetaMap)
-          .filter(id => !existingById.has(id) && !rowsByAdId[id])
+          .filter(id =>
+            !existingById.has(id) &&
+            !rowsByAdId[id] &&
+            normalizeMetaStatus(adMetaMap[id]?.status, adMetaMap[id]?.effective_status) === "ACTIVE"
+          )
           .slice(0, NEW_WITHOUT_INSIGHTS_BUDGET),
       ]
     : [];
@@ -665,8 +671,17 @@ export async function runMetaSync(
       continue;
     }
 
-    // Registro novo: só criamos quando há informação mínima para um registro honesto.
-    if (!item.hasInsights && !item.adName) continue;
+    /**
+     * Criamos registro novo apenas para anúncios que entregaram na janela ou que
+     * estão no ar agora.
+     *
+     * A enumeração devolve todo o histórico da conta, incluindo arquivados. Criar
+     * linha para cada um encheu a tabela com 4.5 mil criativos sem uma única
+     * métrica — invisíveis na interface e um peso morto em toda sincronização.
+     * Os que já existem no banco continuam recebendo status atualizado acima.
+     */
+    if (!item.hasInsights && item.status !== "ACTIVE") continue;
+    if (!item.adName && !item.hasInsights) continue;
 
     creativeOperations.push({
       type: "upsert",
@@ -684,12 +699,13 @@ export async function runMetaSync(
   }
 
   if (creativeOperations.length > 0) {
-    if (onProgress) onProgress("Salvando criativos no banco de dados...", 74);
-    const CREATIVE_CHUNK_SIZE = 10;
-    for (let i = 0; i < creativeOperations.length; i += CREATIVE_CHUNK_SIZE) {
-      const chunk = creativeOperations.slice(i, i + CREATIVE_CHUNK_SIZE);
-      await withDbRetry(async () => {
-        for (const op of chunk) {
+    if (onProgress) onProgress(`Salvando ${creativeOperations.length} criativos...`, 74);
+
+    // Paralelismo controlado e progresso a cada 100 — antes esta fase era serial
+    // e completamente silenciosa, o que a fazia parecer travada por minutos.
+    await runWithConcurrency(
+      creativeOperations.map(op => async () => {
+        await withDbRetry(async () => {
           if (op.type === "upsert") {
             const { platform, ...updatable } = op.data;
             await prisma.adCreative.upsert({
@@ -700,10 +716,17 @@ export async function runMetaSync(
           } else {
             await prisma.adCreative.updateMany({ where: { id: op.adId }, data: op.data });
           }
+        });
+        syncedAds++;
+        if (onProgress && syncedAds % 100 === 0) {
+          onProgress(
+            `Salvando criativos (${syncedAds}/${creativeOperations.length})...`,
+            74 + Math.floor((syncedAds / creativeOperations.length) * 5)
+          );
         }
-      });
-      syncedAds += chunk.length;
-    }
+      }),
+      DB_WRITE_CONCURRENCY
+    );
   }
 
   // --- 8. Métricas ---

@@ -118,13 +118,14 @@ export default function FunnelsOverview({ dateFrom, dateTo, statusFilter, channe
           designersMap["UNKNOWN"] = (designersMap["UNKNOWN"] || 0) + 1;
         }
 
-        // Global metrics accumulator (matches CreativeView logic)
-        totalSpendG += s;
-        totalRiskApprovedValueG += r;
-        totalGrossValueG += parseFloat(c.grossValue) || 0;
-        totalImpressionsG += c.impressions || 0;
-        totalClicksG += c.clicks || 0;
-        totalNetOrdersG += n;
+        // Indicadores globais: recorte do PERÍODO, para bater com a meta do mês.
+        // (os cards seguem exibindo o acumulado de veiculação)
+        totalSpendG += parseFloat(c.periodSpend) || 0;
+        totalRiskApprovedValueG += parseFloat(c.periodRiskApprovedValue) || 0;
+        totalGrossValueG += parseFloat(c.periodGrossValue) || 0;
+        totalImpressionsG += c.periodImpressions || 0;
+        totalClicksG += c.periodClicks || 0;
+        totalNetOrdersG += c.periodNetOrders || 0;
       });
 
       const topDesigners = Object.entries(designersMap)
@@ -143,8 +144,7 @@ export default function FunnelsOverview({ dateFrom, dateTo, statusFilter, channe
         adsCount: visibleAds.length,
         spend,
         returnVal,
-        // Mesma definição do card: investimento por R$ 1 de receita líquida.
-        cpa: returnVal > 0 ? (spend / returnVal) : 0,
+        cpa: netOrders > 0 ? (spend / netOrders) : 0,
         roas: spend > 0 ? (returnVal / spend) : 0,
         platforms,
         topDesigners,
@@ -161,6 +161,7 @@ export default function FunnelsOverview({ dateFrom, dateTo, statusFilter, channe
       avgCpa: globalCpa.toFixed(2),
       totalRiskApprovedValue: totalRiskApprovedValueG.toFixed(2),
       totalGrossValue: totalGrossValueG.toFixed(2),
+      totalNetOrders: totalNetOrdersG,
     };
 
     return { funnels: processed, globalMetrics: calculatedGlobalMetrics };

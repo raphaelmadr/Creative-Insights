@@ -311,12 +311,8 @@ export function CreativeCard({ creative, creators, hoveredPreview, setHoveredPre
           />
           <MetricMiniCard
             label="CPA"
-            value={creative.cpa === null || creative.cpa === undefined ? "—" : formatCurrencyCompact(parseFloat(creative.cpa))}
-            title={
-              creative.cpa === null || creative.cpa === undefined
-                ? "Sem receita líquida no período de veiculação"
-                : `${formatCurrencyFull(parseFloat(creative.cpa))} de investimento por R$ 1 de receita líquida`
-            }
+            value={formatCurrencyCompact(parseFloat(creative.cpa))}
+            title={`Custo por pedido aprovado: ${formatCurrencyFull(parseFloat(creative.cpa))}`}
             tone="neutral"
           />
           <MetricMiniCard

@@ -378,13 +378,18 @@ export default function CreativeView({ dateFrom, dateTo, statusFilter, channelFi
       let totalClicks = 0;
       let totalNetOrders = 0;
 
+      /**
+       * Os indicadores globais usam o recorte do PERÍODO (campos `period*`),
+       * porque são comparados contra a meta do mês. Os cards, por sua vez,
+       * mostram o acumulado de toda a veiculação do criativo.
+       */
       const processCreative = (c: any) => {
-        totalSpend += parseFloat(c.spend) || 0;
-        totalRiskApprovedValue += parseFloat(c.riskApprovedValue) || 0;
-        totalGrossValue += parseFloat(c.grossValue) || 0;
-        totalImpressions += c.impressions || 0;
-        totalClicks += c.clicks || 0;
-        totalNetOrders += c.netOrders || 0;
+        totalSpend += parseFloat(c.periodSpend) || 0;
+        totalRiskApprovedValue += parseFloat(c.periodRiskApprovedValue) || 0;
+        totalGrossValue += parseFloat(c.periodGrossValue) || 0;
+        totalImpressions += c.periodImpressions || 0;
+        totalClicks += c.periodClicks || 0;
+        totalNetOrders += c.periodNetOrders || 0;
       };
 
       const filterForMetrics = (creative: any) => {
@@ -413,6 +418,7 @@ export default function CreativeView({ dateFrom, dateTo, statusFilter, channelFi
         avgCpa: globalCpa.toFixed(2),
         totalRiskApprovedValue: totalRiskApprovedValue.toFixed(2),
         totalGrossValue: totalGrossValue.toFixed(2),
+        totalNetOrders: totalNetOrders,
       });
     }
   }, [baseCategories, baseTestes, data, dateFrom, dateTo, onMetricsUpdate]);
