@@ -1,6 +1,13 @@
 import { NextResponse } from "next/server";
 import prisma from "@/lib/prisma";
 import { ACTIVE_AD_STATUSES } from "@/lib/ad-status";
+import {
+  calculateCpa,
+  calculateCtr,
+  referenceRevenue,
+  EMPTY_TOTALS,
+  type CreativeTotals,
+} from "@/lib/creative-metrics";
 
 const DEFAULT_CATEGORIES = [
   {
@@ -46,17 +53,57 @@ export async function GET(req: Request) {
         ? { notIn: ACTIVE_AD_STATUSES }
         : { in: ACTIVE_AD_STATUSES };
 
+    /**
+     * O período seleciona QUAIS criativos entram na lista — os que tiveram
+     * veiculação nele. Os valores exibidos, porém, são o acumulado de todo o
+     * período em que o anúncio esteve no ar, conforme a regra do negócio.
+     */
     const ads = await prisma.adCreative.findMany({
       where: {
         ...(statusFilter !== undefined && { status: statusFilter }),
         metrics: { some: { date: { gte: startDate, lte: endDate } } }
       },
-      include: {
-        metrics: {
-          where: { date: { gte: startDate, lte: endDate } }
-        }
-      }
+      select: {
+        id: true, adName: true, adsetName: true, campaignName: true, designer: true,
+        imageUrl: true, thumbnailUrl: true, videoUrl: true, mediaType: true,
+        publisherPlatforms: true, platform: true, createdTime: true, status: true,
+      },
     });
+
+    /**
+     * Totais de veiculação, sem recorte de data.
+     *
+     * Só entram dias em que o anúncio de fato rodou (teve impressão ou gasto);
+     * linhas zeradas não deslocam a data de estreia.
+     */
+    const lifetime = await prisma.adDailyMetrics.groupBy({
+      by: ["adCreativeId"],
+      where: {
+        adCreativeId: { in: ads.map(ad => ad.id) },
+        OR: [{ impressions: { gt: 0 } }, { spend: { gt: 0 } }],
+      },
+      _sum: {
+        spend: true, impressions: true, clicks: true,
+        riskApprovedValue: true, grossValue: true, purchases: true, netOrders: true,
+      },
+      _min: { date: true },
+      _max: { date: true },
+    });
+
+    const totalsByAd = new Map<string, CreativeTotals & { firstDeliveryAt: Date | null; lastDeliveryAt: Date | null }>();
+    for (const row of lifetime) {
+      totalsByAd.set(row.adCreativeId, {
+        spend: row._sum.spend ?? 0,
+        impressions: row._sum.impressions ?? 0,
+        clicks: row._sum.clicks ?? 0,
+        riskApprovedValue: row._sum.riskApprovedValue ?? 0,
+        grossValue: row._sum.grossValue ?? 0,
+        purchases: row._sum.purchases ?? 0,
+        netOrders: row._sum.netOrders ?? 0,
+        firstDeliveryAt: row._min.date,
+        lastDeliveryAt: row._max.date,
+      });
+    }
 
     let settings = await prisma.systemSettings.findUnique({ where: { id: 1 } });
     
@@ -91,25 +138,13 @@ export async function GET(req: Request) {
     const originalAdsByCreative = new Map<string, any[]>();
 
     for (const ad of ads) {
-      if (ad.metrics.length === 0) continue;
+      const totals = totalsByAd.get(ad.id);
+      // Sem nenhum dia de veiculação registrado não há o que exibir.
+      if (!totals) continue;
 
-      let spend = 0;
-      let impressions = 0;
-      let clicks = 0;
-      let riskApprovedValue = 0;
-      let grossValue = 0;
-      let purchases = 0;
-      let netOrders = 0;
-
-      for (const m of ad.metrics) {
-        spend += m.spend;
-        impressions += m.impressions || 0;
-        clicks += m.clicks || 0;
-        riskApprovedValue += m.riskApprovedValue || 0;
-        grossValue += m.grossValue || 0;
-        purchases += m.purchases || 0;
-        netOrders += m.netOrders || 0;
-      }
+      // Cada métrica é somada de forma independente ao longo de todos os dias
+      // em que o anúncio rodou.
+      const { spend, impressions, clicks, riskApprovedValue, grossValue, purchases, netOrders } = totals;
 
       if (spend === 0 && grossValue === 0 && riskApprovedValue === 0) continue;
 
@@ -120,64 +155,50 @@ export async function GET(req: Request) {
       totalGrossValue += grossValue;
 
       const groupKey = ad.id;
+      const cpa = calculateCpa(totals, ad.platform);
+      const ctr = calculateCtr(totals);
 
-      if (!aggregatedAds.has(groupKey)) {
-        aggregatedAds.set(groupKey, {
-          id: ad.id,
-          ad_name: ad.adName,
-          designer: ad.designer,
-          image_url: ad.imageUrl,
-          thumbnail_url: ad.thumbnailUrl,
-          videoUrl: ad.videoUrl,
-          mediaType: ad.mediaType,
-          publisherPlatforms: ad.publisherPlatforms,
-          platform: ad.platform,
-          createdTime: ad.createdTime,
-          spend, impressions, clicks, riskApprovedValue, grossValue, netOrders, purchases
-        });
-        originalAdsByCreative.set(groupKey, []);
-      } else {
-        const agg = aggregatedAds.get(groupKey);
-        agg.spend += spend;
-        agg.impressions += impressions;
-        agg.clicks += clicks;
-        agg.riskApprovedValue += riskApprovedValue;
-        agg.grossValue += grossValue;
-        agg.netOrders += netOrders;
-        agg.purchases += purchases;
-      }
+      const identity = {
+        id: ad.id,
+        ad_name: ad.adName,
+        designer: ad.designer,
+        image_url: ad.imageUrl,
+        thumbnail_url: ad.thumbnailUrl,
+        videoUrl: ad.videoUrl,
+        mediaType: ad.mediaType,
+        publisherPlatforms: ad.publisherPlatforms,
+        platform: ad.platform,
+        createdTime: ad.createdTime,
+        status: ad.status,
+        firstDeliveryAt: totals.firstDeliveryAt,
+        lastDeliveryAt: totals.lastDeliveryAt,
+      };
 
-      const ctr = impressions > 0 ? (clicks / impressions) * 100 : 0;
-      const cpa = netOrders > 0 ? (spend / netOrders) : spend;
+      aggregatedAds.set(groupKey, {
+        ...identity,
+        spend, impressions, clicks, riskApprovedValue, grossValue, netOrders, purchases,
+      });
 
-      originalAdsByCreative.get(groupKey)!.push({
+      originalAdsByCreative.set(groupKey, [{
         adsetName: ad.adsetName,
         individualData: {
-          id: ad.id,
-          ad_name: ad.adName,
-          designer: ad.designer,
-          image_url: ad.imageUrl,
-          thumbnail_url: ad.thumbnailUrl,
-          videoUrl: ad.videoUrl,
-          mediaType: ad.mediaType,
-          publisherPlatforms: ad.publisherPlatforms,
-          platform: ad.platform,
-          createdTime: ad.createdTime,
+          ...identity,
           spend: spend.toFixed(2),
           ctr: ctr.toFixed(2),
           riskApprovedValue: riskApprovedValue.toFixed(2),
           grossValue: grossValue.toFixed(2),
-          cpa: cpa.toFixed(2),
+          cpa: cpa === null ? null : cpa.toFixed(2),
           netOrders,
+          purchases,
           impressions,
           clicks,
-        }
-      });
+        },
+      }]);
     }
 
     for (const [groupKey, agg] of aggregatedAds.entries()) {
-      const cpa = agg.netOrders > 0 ? (agg.spend / agg.netOrders) : agg.spend;
-      const ctr = agg.impressions > 0 ? (agg.clicks / agg.impressions) * 100 : 0;
+      const cpa = calculateCpa(agg, agg.platform);
+      const ctr = calculateCtr(agg);
       
       const creativePlatform = (agg.platform || "META").toUpperCase();
 
@@ -190,16 +211,13 @@ export async function GET(req: Request) {
         const MIN_RETURN = catRules.minReturn || 0;
         const MAX_CPA = catRules.maxCpa || 0;
 
-        // Retorno de referência: a receita aprovada em risco só existe na Meta
-        // (conversão customizada do pixel). Canais sem esse funil usam a receita
-        // bruta reportada pela própria plataforma, em vez de terem um valor
-        // aprovado forjado na gravação.
-        const returnValue = agg.riskApprovedValue > 0 ? agg.riskApprovedValue : agg.grossValue;
+        // As regras usam exatamente os mesmos números exibidos no card.
+        const returnValue = referenceRevenue(agg, agg.platform);
 
         const isMatch = 
           (MIN_SPEND === 0 || agg.spend >= MIN_SPEND) &&
           (MIN_RETURN === 0 || returnValue >= MIN_RETURN) &&
-          (MAX_CPA === 0 || cpa <= MAX_CPA);
+          (MAX_CPA === 0 || (cpa !== null && cpa <= MAX_CPA));
 
         if (isMatch) {
           matchedCategoryIndex = i;
@@ -214,7 +232,7 @@ export async function GET(req: Request) {
           ctr: ctr.toFixed(2),
           riskApprovedValue: agg.riskApprovedValue.toFixed(2),
           grossValue: agg.grossValue.toFixed(2),
-          cpa: cpa.toFixed(2)
+          cpa: cpa === null ? null : cpa.toFixed(2)
         };
         categorizedAds[matchedCategoryIndex].ads.push(creativeData);
       } else {

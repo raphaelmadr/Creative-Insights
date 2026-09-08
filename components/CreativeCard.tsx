@@ -306,25 +306,29 @@ export function CreativeCard({ creative, creators, hoveredPreview, setHoveredPre
           <MetricMiniCard
             label="Invest."
             value={formatCurrencyCompact(parseFloat(creative.spend))}
-            title={formatCurrencyFull(parseFloat(creative.spend))}
+            title={`Investimento acumulado: ${formatCurrencyFull(parseFloat(creative.spend))}`}
             tone="neutral"
           />
           <MetricMiniCard
             label="CPA"
-            value={formatCurrencyCompact(parseFloat(creative.cpa))}
-            title={formatCurrencyFull(parseFloat(creative.cpa))}
+            value={creative.cpa === null || creative.cpa === undefined ? "—" : formatCurrencyCompact(parseFloat(creative.cpa))}
+            title={
+              creative.cpa === null || creative.cpa === undefined
+                ? "Sem receita líquida no período de veiculação"
+                : `${formatCurrencyFull(parseFloat(creative.cpa))} de investimento por R$ 1 de receita líquida`
+            }
             tone="neutral"
           />
           <MetricMiniCard
             label="Rec. Bruta"
             value={formatCurrencyCompact(parseFloat(creative.grossValue))}
-            title={formatCurrencyFull(parseFloat(creative.grossValue))}
+            title={`Receita bruta acumulada (payment_approved): ${formatCurrencyFull(parseFloat(creative.grossValue))}`}
             tone="good"
           />
           <MetricMiniCard
             label="Rec. Líquida"
             value={formatCurrencyCompact(parseFloat(creative.riskApprovedValue))}
-            title={formatCurrencyFull(parseFloat(creative.riskApprovedValue))}
+            title={`Receita líquida acumulada (risk_approved): ${formatCurrencyFull(parseFloat(creative.riskApprovedValue))}`}
             tone={approvedValueTone(parseFloat(creative.riskApprovedValue))}
           />
         </div>

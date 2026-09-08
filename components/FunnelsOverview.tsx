@@ -143,7 +143,8 @@ export default function FunnelsOverview({ dateFrom, dateTo, statusFilter, channe
         adsCount: visibleAds.length,
         spend,
         returnVal,
-        cpa: netOrders > 0 ? (spend / netOrders) : 0,
+        // Mesma definição do card: investimento por R$ 1 de receita líquida.
+        cpa: returnVal > 0 ? (spend / returnVal) : 0,
         roas: spend > 0 ? (returnVal / spend) : 0,
         platforms,
         topDesigners,

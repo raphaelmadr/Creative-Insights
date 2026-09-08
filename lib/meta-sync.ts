@@ -10,6 +10,11 @@ import {
 import { loadAliasIndex, resolveDesigner } from "./designer-match";
 import { normalizeMetaStatus } from "./ad-status";
 import {
+  PAYMENT_APPROVED_ACTION,
+  RISK_APPROVED_ACTION,
+  GROSS_VALUE_FALLBACK_ACTIONS,
+} from "./meta-conversions";
+import {
   resolveStorageConfig,
   isStorageConfigured,
   isPermanentMediaUrl,
@@ -24,9 +29,15 @@ import {
 } from "./date-utils";
 
 /**
- * Janela em que o Meta ainda reescreve conversões já reportadas.
- * Dias dentro dela são sempre rebuscados; fora dela, um dia que já tem métricas
- * gravadas para este canal é considerado fechado.
+ * Nenhum dia do mês corrente é considerado fechado.
+ *
+ * `risk_approved_cc` (receita líquida) só é registrado quando o pedido passa na
+ * análise de risco, o que acontece dias depois do clique. Medido em 08/09, os
+ * dias 01 a 06 continuavam ganhando receita: o dia 03, por exemplo, tinha
+ * R$ 27.582 gravados contra R$ 44.423 já reportados pela API.
+ *
+ * Como o mês inteiro cabe em no máximo 31 chamadas, rebuscamos tudo. O pulo de
+ * dias já sincronizados vale apenas para meses passados (backfill).
  */
 const REATTRIBUTION_WINDOW_DAYS = 7;
 
@@ -37,6 +48,9 @@ const MEDIA_UPLOAD_CONCURRENCY = 4;
 const DB_WRITE_RESERVE_MS = 25000;
 
 const BATCH_SIZE = 25;
+
+/** Escritas simultâneas no banco. Abaixo do pool padrão do Prisma. */
+const DB_WRITE_CONCURRENCY = 5;
 
 async function withDbRetry<T>(fn: () => Promise<T>, maxRetries = 5, initialDelay = 2000): Promise<T> {
   let attempt = 1;
@@ -64,11 +78,28 @@ function isRateOrTimeLimit(error: unknown): boolean {
 
 interface ExistingAd {
   id: string;
+  adName: string;
+  adsetName: string;
+  campaignName: string;
+  designer: string | null;
+  status: string | null;
+  createdTime: Date | null;
+  publisherPlatforms: string | null;
   imageUrl: string | null;
   thumbnailUrl: string | null;
   videoUrl: string | null;
   mediaType: string;
 }
+
+/**
+ * A listagem `/ads` omite arquivados e removidos por padrão. Sem este filtro,
+ * criativos antigos nunca recebem status — ficam presos em "UNKNOWN" para sempre.
+ */
+const ALL_EFFECTIVE_STATUSES = [
+  "ACTIVE", "PAUSED", "DELETED", "PENDING_REVIEW", "DISAPPROVED", "PREAPPROVED",
+  "PENDING_BILLING_INFO", "CAMPAIGN_PAUSED", "ARCHIVED", "ADSET_PAUSED",
+  "IN_PROCESS", "WITH_ISSUES",
+];
 
 export async function runMetaSync(
   mode: "full" | "metrics" = "full",
@@ -104,8 +135,12 @@ export async function runMetaSync(
   const aliases = await loadAliasIndex();
   const { sinceYmd, untilYmd, todayYmd } = resolveSyncWindow(targetMonth, targetYear);
 
-  // Dias dentro da janela de reatribuição precisam ser rebuscados mesmo já tendo dados.
-  const reattributionCutoffYmd = addDaysYmd(todayYmd, -REATTRIBUTION_WINDOW_DAYS);
+  // O mês corrente é sempre rebuscado por inteiro; meses passados respeitam a
+  // janela de reatribuição e podem pular dias já gravados.
+  const isCurrentMonth = sinceYmd.slice(0, 7) === todayYmd.slice(0, 7);
+  const reattributionCutoffYmd = isCurrentMonth
+    ? sinceYmd
+    : addDaysYmd(todayYmd, -REATTRIBUTION_WINDOW_DAYS);
 
   const insightRows: any[] = [];
   let reachedWallClock = false;
@@ -142,7 +177,7 @@ export async function runMetaSync(
   let skippedDays = 0;
 
   for (const dayYmd of days) {
-    const isWithinReattribution = dayYmd > reattributionCutoffYmd;
+    const isWithinReattribution = isCurrentMonth || dayYmd > reattributionCutoffYmd;
 
     if (!isWithinReattribution && daysWithData.has(dayYmd)) {
       skippedDays++;
@@ -187,7 +222,11 @@ export async function runMetaSync(
   // --- 2. Estado atual no banco ---
   const existingAds: ExistingAd[] = await withDbRetry(() => prisma.adCreative.findMany({
     where: { platform: "META" },
-    select: { id: true, imageUrl: true, thumbnailUrl: true, videoUrl: true, mediaType: true },
+    select: {
+      id: true, adName: true, adsetName: true, campaignName: true, designer: true,
+      status: true, createdTime: true, publisherPlatforms: true,
+      imageUrl: true, thumbnailUrl: true, videoUrl: true, mediaType: true,
+    },
   }));
   const existingById = new Map(existingAds.map(ad => [ad.id, ad]));
 
@@ -214,9 +253,6 @@ export async function runMetaSync(
     return false;
   };
 
-  const refreshAdIds = mode === "full"
-    ? adIdsWithInsights.filter(id => needsMediaRefresh(existingById.get(id)))
-    : [];
 
   // Mapas de dados
   const creativeDataMap: Record<string, any> = {};
@@ -236,7 +272,10 @@ export async function runMetaSync(
     if (onProgress) onProgress("Enumerando anúncios da conta (ativos e inativos)...", 28);
 
     try {
-      let adsUrl: string | null = `https://graph.facebook.com/v19.0/${metaAccountId}/ads?fields=id,name,status,effective_status,created_time,adset{id,name},campaign{id,name}&limit=500&access_token=${metaToken}`;
+      const statusFilter = encodeURIComponent(JSON.stringify([
+        { field: "ad.effective_status", operator: "IN", value: ALL_EFFECTIVE_STATUSES },
+      ]));
+      let adsUrl: string | null = `https://graph.facebook.com/v19.0/${metaAccountId}/ads?fields=id,name,status,effective_status,created_time,adset{id,name},campaign{id,name}&filtering=${statusFilter}&limit=500&access_token=${metaToken}`;
       let pages = 0;
 
       while (adsUrl && pages < 60) {
@@ -287,6 +326,22 @@ export async function runMetaSync(
   }
 
   // --- 4. Criativos e mídias ---
+  //
+  // A fila é montada só agora porque também inclui criativos descobertos pela
+  // enumeração, que ainda não existem no banco e por isso não têm mídia alguma.
+  // Anúncios com entrega no mês vêm primeiro; os demais entram com um teto por
+  // execução, para a fila convergir em alguns ciclos em vez de estourar o tempo.
+  const NEW_WITHOUT_INSIGHTS_BUDGET = 500;
+
+  const refreshAdIds = mode === "full"
+    ? [
+        ...adIdsWithInsights.filter(id => needsMediaRefresh(existingById.get(id))),
+        ...Object.keys(adMetaMap)
+          .filter(id => !existingById.has(id) && !rowsByAdId[id])
+          .slice(0, NEW_WITHOUT_INSIGHTS_BUDGET),
+      ]
+    : [];
+
   if (!reachedWallClock && mode === "full" && refreshAdIds.length > 0) {
     if (onProgress) onProgress(`Processando ${refreshAdIds.length} criativos pendentes...`, 35);
 
@@ -584,9 +639,28 @@ export async function runMetaSync(
       data.mediaType = "image";
     }
 
-    if (existingById.has(item.adId)) {
-      if (Object.keys(data).length > 0) {
-        creativeOperations.push({ type: "updateMany", adId: item.adId, data });
+    const existing = existingById.get(item.adId);
+
+    if (existing) {
+      /**
+       * Só grava o que de fato mudou.
+       *
+       * Sem isto, toda execução dispara um UPDATE por criativo da conta (3.4k),
+       * consumindo o teto de tempo em escritas que não alteram nada — era esse o
+       * gargalo que impedia a enumeração de status de terminar num único ciclo.
+       */
+      const changed: any = {};
+      for (const [key, value] of Object.entries(data)) {
+        const current = (existing as any)[key];
+        const isSame =
+          value instanceof Date && current instanceof Date
+            ? value.getTime() === current.getTime()
+            : current === value;
+        if (!isSame) changed[key] = value;
+      }
+
+      if (Object.keys(changed).length > 0) {
+        creativeOperations.push({ type: "updateMany", adId: item.adId, data: changed });
       }
       continue;
     }
@@ -672,12 +746,18 @@ export async function runMetaSync(
       let videoViews25p = 0, videoViews50p = 0, videoViews75p = 0, videoViews100p = 0;
 
       if (row.actions) {
-        purchases = getFallbackValue(row.actions, ["omni_purchase", "purchase", "offsite_conversion.fb_pixel_purchase", "offline_conversion.purchase"]);
+        // Pedidos = pagamentos aprovados (payment_approved_cc). O evento
+        // `purchase` do pixel conta o checkout, não o pedido aprovado.
+        purchases = getFallbackValue(row.actions, [
+          PAYMENT_APPROVED_ACTION,
+          ...GROSS_VALUE_FALLBACK_ACTIONS,
+        ]);
 
         const msgObj = row.actions.find((a: any) => a.action_type === "onsite_conversion.messaging_conversation_started_7d");
         if (msgObj) messages = parseInt(msgObj.value);
 
-        const netOrdersObj = row.actions.find((a: any) => a.action_type === "offsite_conversion.custom.2105075753380751");
+        // Pedidos líquidos = aprovados na análise de risco (risk_approved_cc).
+        const netOrdersObj = row.actions.find((a: any) => a.action_type === RISK_APPROVED_ACTION);
         if (netOrdersObj) netOrders = parseInt(netOrdersObj.value);
 
         likes = getFallbackValue(row.actions, ["post_reaction", "like"]);
@@ -695,10 +775,21 @@ export async function runMetaSync(
 
       let grossValue = 0;
       if (row.action_values) {
-        const riskApprovedObj = row.action_values.find((a: any) => a.action_type === "offsite_conversion.custom.2105075753380751");
+        // Receita LÍQUIDA — aprovado na análise de risco. É a métrica central
+        // do negócio e a que alimenta metas e categorização de winners.
+        const riskApprovedObj = row.action_values.find((a: any) => a.action_type === RISK_APPROVED_ACTION);
         if (riskApprovedObj) riskApprovedValue = parseFloat(riskApprovedObj.value);
 
-        grossValue = getFallbackValue(row.action_values, ["omni_purchase", "purchase", "offsite_conversion.fb_pixel_purchase", "offline_conversion.purchase"]);
+        /**
+         * Receita BRUTA — pagamento aprovado.
+         *
+         * Antes vinha de `omni_purchase`, que é o valor do checkout: no período
+         * de 01-08/09 isso reportava R$ 680 mil no lugar de R$ 3,36 milhões.
+         */
+        grossValue = getFallbackValue(row.action_values, [
+          PAYMENT_APPROVED_ACTION,
+          ...GROSS_VALUE_FALLBACK_ACTIONS,
+        ]);
       }
 
       metricOperations.push({
@@ -715,21 +806,27 @@ export async function runMetaSync(
 
   let syncedMetrics = 0;
   if (metricOperations.length > 0) {
-    if (onProgress) onProgress("Salvando métricas no banco de dados...", 90);
-    const METRICS_CHUNK_SIZE = 10;
-    for (let i = 0; i < metricOperations.length; i += METRICS_CHUNK_SIZE) {
-      const chunk = metricOperations.slice(i, i + METRICS_CHUNK_SIZE);
-      await withDbRetry(async () => {
-        for (const op of chunk) {
-          await prisma.adDailyMetrics.upsert({
-            where: { adCreativeId_date: { adCreativeId: op.adCreativeId, date: op.dateStart } },
-            update: op.data,
-            create: { adCreativeId: op.adCreativeId, date: op.dateStart, ...op.data },
-          });
+    if (onProgress) onProgress(`Salvando ${metricOperations.length} métricas...`, 90);
+
+    // Upserts em paralelo controlado. Um a um contra o MySQL remoto, alguns
+    // milhares de linhas levavam minutos e não cabiam no teto do serverless.
+    await runWithConcurrency(
+      metricOperations.map(op => async () => {
+        await withDbRetry(() => prisma.adDailyMetrics.upsert({
+          where: { adCreativeId_date: { adCreativeId: op.adCreativeId, date: op.dateStart } },
+          update: op.data,
+          create: { adCreativeId: op.adCreativeId, date: op.dateStart, ...op.data },
+        }));
+        syncedMetrics++;
+        if (onProgress && syncedMetrics % 200 === 0) {
+          onProgress(
+            `Salvando métricas (${syncedMetrics}/${metricOperations.length})...`,
+            90 + Math.floor((syncedMetrics / metricOperations.length) * 9)
+          );
         }
-      });
-      syncedMetrics += chunk.length;
-    }
+      }),
+      DB_WRITE_CONCURRENCY
+    );
   }
 
   // --- 9. Carimbo de execução ---

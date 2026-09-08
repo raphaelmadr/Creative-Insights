@@ -16,6 +16,7 @@ const API_BASE = "https://business-api.tiktok.com/open_api/v1.3";
 const WALL_CLOCK_LIMIT_MS = process.env.IS_LOCAL_CLI === "true" ? 36_000_000 : 180_000;
 const DB_WRITE_RESERVE_MS = 25_000;
 const MEDIA_UPLOAD_CONCURRENCY = 4;
+const DB_WRITE_CONCURRENCY = 5;
 const REPORT_PAGE_SIZE = 1000;
 const AD_INFO_PAGE_SIZE = 100;
 
@@ -105,10 +106,17 @@ export async function runTikTokSync(
   // --- 1. Relatório diário por anúncio ---
   if (onProgress) onProgress(`Buscando relatórios de ${sinceYmd} até ${untilYmd}...`, 8);
 
+  /**
+   * `complete_payment` é o evento de receita desta conta; `purchase` /
+   * `total_purchase_value` voltam zerados. Apesar do nome, o valor total dos
+   * pagamentos vem em `total_complete_payment_rate` — conferido contra
+   * `value_per_complete_payment × complete_payment`, que bate exatamente.
+   */
   const metricsList = [
     "spend", "cpc", "cpm", "ctr", "conversion", "cost_per_conversion", "clicks",
-    "impressions", "reach", "frequency", "total_purchase_value", "likes", "comments",
-    "shares", "video_play_actions", "video_views_p25", "video_views_p50",
+    "impressions", "reach", "frequency", "likes", "comments", "shares",
+    "complete_payment", "total_complete_payment_rate", "total_purchase_value",
+    "video_play_actions", "video_views_p25", "video_views_p50",
     "video_views_p75", "video_views_p100",
   ];
 
@@ -277,42 +285,70 @@ export async function runTikTokSync(
       return !existing || !isPermanentMediaUrl(existing.imageUrl, storage);
     });
 
-    let processed = 0;
+    /**
+     * As duas rotas de mídia aceitam listas de ids. A versão anterior fazia uma
+     * chamada por criativo (283 chamadas sequenciais); em lotes são ~6.
+     */
+    const MEDIA_ID_BATCH = 50;
+    const videoInfoMap: Record<string, any> = {};
+    const imageInfoMap: Record<string, any> = {};
+
+    const videoIds = Array.from(new Set(mediaTargets.map(i => i.videoId).filter(Boolean))) as string[];
+    const imageIds = Array.from(new Set(
+      mediaTargets.filter(i => !i.videoId).map(i => i.imageId).filter(Boolean)
+    )) as string[];
+
+    const fetchInfoBatches = async (
+      ids: string[],
+      path: string,
+      param: string,
+      key: string,
+      target: Record<string, any>,
+      label: string
+    ) => {
+      for (let i = 0; i < ids.length; i += MEDIA_ID_BATCH) {
+        if (remainingMs() < DB_WRITE_RESERVE_MS) { reachedWallClock = true; return; }
+
+        const batch = ids.slice(i, i + MEDIA_ID_BATCH);
+        try {
+          const res = await fetchTikTok(
+            `${API_BASE}${path}?advertiser_id=${advertiserId}&${param}=${encodeURIComponent(JSON.stringify(batch))}`,
+            accessToken
+          );
+          for (const entry of res?.list || []) {
+            if (entry?.[key]) target[entry[key]] = entry;
+          }
+        } catch (error: any) {
+          console.error(`[TikTok Sync] Falha no lote de ${label}: ${error.message}`);
+          if (error instanceof TikTokApiError && error.isRateLimit) { reachedWallClock = true; return; }
+        }
+
+        if (onProgress) {
+          onProgress(
+            `Renovando ${label} (${Math.min(i + MEDIA_ID_BATCH, ids.length)}/${ids.length})...`,
+            45 + Math.floor((i / Math.max(ids.length, 1)) * 15)
+          );
+        }
+      }
+    };
+
+    await fetchInfoBatches(videoIds, "/file/video/ad/info/", "video_ids", "video_id", videoInfoMap, "vídeos");
+    await fetchInfoBatches(imageIds, "/file/image/ad/info/", "image_ids", "image_id", imageInfoMap, "imagens");
 
     for (const item of mediaTargets) {
-      if (remainingMs() < DB_WRITE_RESERVE_MS) { reachedWallClock = true; break; }
-
-      try {
-        if (item.videoId) {
-          const videoRes = await fetchTikTok(
-            `${API_BASE}/file/video/ad/info/?advertiser_id=${advertiserId}&video_ids=${encodeURIComponent(JSON.stringify([item.videoId]))}`,
-            accessToken
-          );
-          const video = videoRes?.list?.[0];
-          if (video) {
-            /**
-             * O campo é `preview_url` — não existe `video_url` nesta API.
-             * Ler o nome errado é o motivo de nenhum dos 283 criativos do TikTok
-             * ter link de vídeo gravado.
-             */
-            item.videoUrl = video.preview_url || "";
-            item.sourceCoverUrl = video.video_cover_url || video.cover_url || "";
-          }
-        } else if (item.imageId) {
-          const imageRes = await fetchTikTok(
-            `${API_BASE}/file/image/ad/info/?advertiser_id=${advertiserId}&image_ids=${encodeURIComponent(JSON.stringify([item.imageId]))}`,
-            accessToken
-          );
-          item.sourceCoverUrl = imageRes?.list?.[0]?.image_url || "";
+      if (item.videoId) {
+        const video = videoInfoMap[item.videoId];
+        if (video) {
+          /**
+           * O campo é `preview_url` — não existe `video_url` nesta API.
+           * Ler o nome errado é o motivo de nenhum dos 283 criativos do TikTok
+           * ter link de vídeo gravado.
+           */
+          item.videoUrl = video.preview_url || "";
+          item.sourceCoverUrl = video.video_cover_url || video.cover_url || "";
         }
-      } catch (error: any) {
-        console.error(`[TikTok Sync] Falha ao buscar mídia do anúncio ${item.adId}: ${error.message}`);
-        if (error instanceof TikTokApiError && error.isRateLimit) { reachedWallClock = true; break; }
-      }
-
-      processed++;
-      if (onProgress && processed % 20 === 0) {
-        onProgress(`Renovando mídias (${processed}/${mediaTargets.length})...`, 45 + Math.floor((processed / mediaTargets.length) * 15));
+      } else if (item.imageId) {
+        item.sourceCoverUrl = imageInfoMap[item.imageId]?.image_url || "";
       }
     }
 
@@ -416,8 +452,12 @@ export async function runTikTokSync(
 
     const spend = num(m.spend);
     const impressions = int(m.impressions);
-    const purchaseValue = num(m.total_purchase_value);
-    const conversions = int(m.conversion);
+
+    // Receita: pagamentos concluídos, com o evento de compra como reserva
+    // para contas que usem o outro funil.
+    const purchaseValue = num(m.total_complete_payment_rate) || num(m.total_purchase_value);
+    const payments = int(m.complete_payment);
+    const conversions = payments || int(m.conversion);
 
     metricOperations.push({
       adCreativeId: adId,
@@ -438,8 +478,12 @@ export async function runTikTokSync(
         purchases: conversions,
         netOrders: conversions,
         grossValue: purchaseValue,
-        // A TikTok não tem equivalente à conversão customizada de aprovação de
-        // risco da Meta. Gravar o valor bruto aqui inflava a receita aprovada.
+        /**
+         * A análise de risco é um funil próprio da Allugator, rodando sobre o
+         * pixel da Meta (`risk_approved_cc`). A TikTok não tem equivalente, então
+         * a receita líquida fica em zero em vez de repetir a bruta — que era o
+         * que inflava a receita aprovada do canal.
+         */
         riskApprovedValue: 0,
         likes: int(m.likes),
         comments: int(m.comments),
@@ -455,21 +499,33 @@ export async function runTikTokSync(
 
   let syncedMetrics = 0;
   const knownAdIds = new Set(pending.map(p => p.adId));
-  for (let i = 0; i < metricOperations.length; i += CHUNK) {
-    const chunk = metricOperations.slice(i, i + CHUNK);
-    await withDbRetry(async () => {
-      for (const op of chunk) {
-        // Sem o criativo o upsert de métrica viola a FK e derruba o lote inteiro.
-        if (!knownAdIds.has(op.adCreativeId) && !existingById.has(op.adCreativeId)) continue;
-        await prisma.adDailyMetrics.upsert({
-          where: { adCreativeId_date: { adCreativeId: op.adCreativeId, date: op.dateStart } },
-          update: op.data,
-          create: { adCreativeId: op.adCreativeId, date: op.dateStart, ...op.data },
-        });
-      }
-    });
-    syncedMetrics += chunk.length;
+
+  // Sem o criativo o upsert viola a FK, então filtramos antes de escrever.
+  const writableMetrics = metricOperations.filter(
+    op => knownAdIds.has(op.adCreativeId) || existingById.has(op.adCreativeId)
+  );
+  const orphanCount = metricOperations.length - writableMetrics.length;
+  if (orphanCount > 0) {
+    console.warn(`[TikTok Sync] ${orphanCount} linha(s) de métrica ignoradas: o anúncio não existe mais na conta.`);
   }
+
+  await runWithConcurrency(
+    writableMetrics.map(op => async () => {
+      await withDbRetry(() => prisma.adDailyMetrics.upsert({
+        where: { adCreativeId_date: { adCreativeId: op.adCreativeId, date: op.dateStart } },
+        update: op.data,
+        create: { adCreativeId: op.adCreativeId, date: op.dateStart, ...op.data },
+      }));
+      syncedMetrics++;
+      if (onProgress && syncedMetrics % 200 === 0) {
+        onProgress(
+          `Salvando métricas (${syncedMetrics}/${writableMetrics.length})...`,
+          86 + Math.floor((syncedMetrics / writableMetrics.length) * 13)
+        );
+      }
+    }),
+    DB_WRITE_CONCURRENCY
+  );
 
   if (!reachedWallClock) {
     if (onProgress) onProgress("Sincronização do TikTok concluída!", 100);
