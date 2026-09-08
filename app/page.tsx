@@ -48,7 +48,7 @@ function formatPercentBR(value: string): string {
 }
 
 export default function Home() {
-  const [metrics, setMetrics] = useState<{ totalSpend: string; totalRiskApprovedValue: string; totalGrossValue: string; avgCtr: string; avgCpa: string; totalNetOrders: number }>({ totalSpend: "0.00", totalRiskApprovedValue: "0.00", totalGrossValue: "0.00", avgCtr: "0.00", avgCpa: "0.00", totalNetOrders: 0 });
+  const [metrics, setMetrics] = useState<{ totalSpend: string; totalRiskApprovedValue: string; totalGrossValue: string; avgCtr: string; avgCpa: string; totalNetOrders: number; conversions?: { cpa: { key: string; label: string; id: string | null }; grossRevenue: { key: string; label: string; id: string | null } } }>({ totalSpend: "0.00", totalRiskApprovedValue: "0.00", totalGrossValue: "0.00", avgCtr: "0.00", avgCpa: "0.00", totalNetOrders: 0 });
   const [currentGoal, setCurrentGoal] = useState({ spendGoal: 0, revenueGoal: 0, cpaGoal: 0 });
   const { analyzeCampaigns, isSearching, loadingText } = useNotifications();
 
@@ -336,7 +336,17 @@ export default function Home() {
                 {renderProgressBar(revenuePace)}
               </motion.div>
               <motion.div className="allu-card" variants={{ hidden: { opacity: 0, y: 20 }, show: { opacity: 1, y: 0, transition: { type: "spring", stiffness: 300, damping: 24 } } }}>
-                <div className="allu-card-label">◇ CPA MÉDIO</div>
+                <div className="allu-card-label">
+                  ◇ CPA MÉDIO
+                  {metrics.conversions?.cpa?.key && (
+                    <span
+                      style={{ marginLeft: '0.4rem', fontWeight: 500, opacity: 0.65, textTransform: 'none', letterSpacing: 0 }}
+                      title={`Evento de conversão: ${metrics.conversions.cpa.key}${metrics.conversions.cpa.id ? ` (${metrics.conversions.cpa.id})` : ''}`}
+                    >
+                      · {metrics.conversions.cpa.key}
+                    </span>
+                  )}
+                </div>
                 <div className="allu-card-value">
                   <AnimatedNumber value={parseFloat(metrics.avgCpa) || 0} prefix="R$ " decimals={2} />
                 </div>
@@ -344,7 +354,10 @@ export default function Home() {
                   <span style={{ fontWeight: 700, color: 'var(--foreground)' }}>
                     {(metrics.totalNetOrders || 0).toLocaleString('pt-BR')}
                   </span>
-                  <span>{(metrics.totalNetOrders || 0) === 1 ? 'pedido aprovado' : 'pedidos aprovados'}</span>
+                  <span>
+                    {(metrics.totalNetOrders || 0) === 1 ? 'pedido' : 'pedidos'}
+                    {metrics.conversions?.cpa?.label ? ` ${metrics.conversions.cpa.label}` : ' aprovados'}
+                  </span>
                 </div>
                 <div className="allu-card-subtext" style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
                   <span>Meta: R$ {currentGoal.cpaGoal.toLocaleString('pt-BR')}</span>

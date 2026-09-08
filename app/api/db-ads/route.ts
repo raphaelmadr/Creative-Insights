@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import prisma from "@/lib/prisma";
 import { ACTIVE_AD_STATUSES } from "@/lib/ad-status";
+import { activeConversionDescriptor } from "@/lib/meta-conversions";
 import {
   calculateCpa,
   calculateCtr,
@@ -302,6 +303,9 @@ export async function GET(req: Request) {
       data: {
         categorizedAds,
         testes,
+        // Declara qual evento de conversão está por trás do CPA e da receita,
+        // para a interface nunca reportar "o CPA" sem qualificar a origem.
+        conversions: activeConversionDescriptor(),
         metrics: {
           totalSpend: totalSpend.toFixed(2),
           avgCtr: globalCtr.toFixed(2),

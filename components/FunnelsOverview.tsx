@@ -156,6 +156,7 @@ export default function FunnelsOverview({ dateFrom, dateTo, statusFilter, channe
     const globalCpa = totalNetOrdersG > 0 ? (totalSpendG / totalNetOrdersG) : totalSpendG;
     
     const calculatedGlobalMetrics = {
+      conversions: data.conversions,
       totalSpend: totalSpendG.toFixed(2),
       avgCtr: globalCtr.toFixed(2),
       avgCpa: globalCpa.toFixed(2),

@@ -282,7 +282,7 @@ export default function CreativeView({ dateFrom, dateTo, statusFilter, channelFi
   const statusParam = statusFilter || "ACTIVE";
   const url = `/api/db-ads?from=${dateFrom}&to=${dateTo}&status=${statusParam}`;
   const { data: fetchRes, loading, isRevalidating, mutate } = useCacheFetch<any>(url);
-  const data: {categorizedAds: any[], testes: Record<string, any[]>, settings?: any} | null = fetchRes?.success ? fetchRes.data : null;
+  const data: {categorizedAds: any[], testes: Record<string, any[]>, settings?: any, conversions?: any} | null = fetchRes?.success ? fetchRes.data : null;
 
   useEffect(() => {
     if (syncCounter > 0) mutate();
@@ -413,6 +413,7 @@ export default function CreativeView({ dateFrom, dateTo, statusFilter, channelFi
       const globalCpa = totalNetOrders > 0 ? (totalSpend / totalNetOrders) : totalSpend;
 
       onMetricsUpdate({
+        conversions: data.conversions,
         totalSpend: totalSpend.toFixed(2),
         avgCtr: globalCtr.toFixed(2),
         avgCpa: globalCpa.toFixed(2),
