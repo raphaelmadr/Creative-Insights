@@ -25,28 +25,25 @@ async function runExhaustive(month: number, year: number, monthName: string) {
 async function main() {
   console.log("Iniciando sincronização EXAUSTIVA (Julho completo -> Agosto completo)...");
 
-  // Apenas deletamos as métricas pendentes para forçar a raspagem total
-  // (Nota: o sync-sequential deletou antes de ser interrompido, mas garantimos aqui)
-  const deleted = await prisma.adDailyMetrics.deleteMany({
-    where: {
-      date: {
-        gte: new Date("2026-07-01T00:00:00Z"),
-        lt: new Date("2026-09-01T00:00:00Z")
-      }
+  while (true) {
+    try {
+      await runExhaustive(7, 2026, "Julho");
+      
+      console.log("\n====================================");
+      console.log("Julho finalizado! Pausa de 30 segundos antes de Agosto...");
+      console.log("====================================\n");
+      await new Promise(r => setTimeout(r, 30000));
+
+      await runExhaustive(8, 2026, "Agosto");
+
+      console.log("\n🎉 SINCRONIZAÇÃO TOTAL CONCLUÍDA!");
+      break; // Sai do loop se terminar com sucesso
+    } catch (err: any) {
+      console.error("\n❌ ERRO CRÍTICO no processo de sincronização:", err.message || err);
+      console.log("Tentando reiniciar todo o processo em 30 segundos para recuperar a conexão com o banco...");
+      await new Promise(r => setTimeout(r, 30000));
     }
-  });
-  console.log(`Deletados ${deleted.count} registros de métricas pendentes.`);
-
-  await runExhaustive(7, 2026, "Julho");
-  
-  console.log("\n====================================");
-  console.log("Julho finalizado! Pausa de 30 segundos antes de Agosto...");
-  console.log("====================================\n");
-  await new Promise(r => setTimeout(r, 30000));
-
-  await runExhaustive(8, 2026, "Agosto");
-
-  console.log("\n🎉 SINCRONIZAÇÃO TOTAL CONCLUÍDA!");
+  }
 }
 
-main().catch(console.error).finally(() => prisma.$disconnect());
+main().finally(() => prisma.$disconnect());

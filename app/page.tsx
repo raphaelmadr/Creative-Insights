@@ -278,31 +278,6 @@ export default function Home() {
                 <span style={{ opacity: 0.8 }}>Lançados no período</span>
               </div>
 
-
-              <button 
-                onClick={() => analyzeCampaigns(dateFrom, dateTo)} 
-                disabled={isSearching}
-                title="Analisar todas as campanhas com IA"
-                style={{
-                  background: "var(--primary)",
-                  color: "#fff",
-                  border: "none",
-                  borderRadius: "8px",
-                  width: "36px",
-                  height: "36px",
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  flexShrink: 0,
-                  cursor: isSearching ? "not-allowed" : "pointer",
-                  opacity: isSearching ? 0.7 : 1,
-                  transition: "background 0.2s"
-                }}
-                onMouseOver={(e) => e.currentTarget.style.background = "var(--primary-hover)"}
-                onMouseOut={(e) => e.currentTarget.style.background = "var(--primary)"}
-              >
-                {isSearching ? <Loader2 className="spin" size={18} style={{ animation: "spin 2s linear infinite" }} /> : <Sparkles size={18} />}
-              </button>
             </div>
           </div>
 

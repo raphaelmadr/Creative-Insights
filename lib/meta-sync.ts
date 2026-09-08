@@ -2,18 +2,20 @@ import prisma from "./prisma";
 import { throttledFetch, fetchWithBisection, MetaApiError, WallClockLimitError, resetWallClock } from "./throttled-fetch";
 
 async function withDbRetry<T>(fn: () => Promise<T>, maxRetries = 5, initialDelay = 2000): Promise<T> {
-  let attempt = 0;
-  while (attempt < maxRetries) {
+  let attempt = 1;
+  while (true) {
     try {
-      return await fn();
+      return await Promise.race([
+        fn(),
+        new Promise<T>((_, reject) => setTimeout(() => reject(new Error("Prisma query timeout (15s)")), 15000))
+      ]);
     } catch (error: any) {
-      attempt++;
       if (attempt >= maxRetries) throw error;
       console.warn(`[withDbRetry] Falha no banco (tentativa ${attempt}/${maxRetries}). Esperando ${initialDelay * attempt}ms... Erro: ${error.message}`);
       await new Promise(r => setTimeout(r, initialDelay * attempt));
+      attempt++;
     }
   }
-  throw new Error("unreachable");
 }
 
 export async function runMetaSync(
@@ -298,6 +300,7 @@ export async function runMetaSync(
 
   // --- 5. Process Creatives & Database Upsert ---
   let syncedAds = 0;
+  const creativeOperations: any[] = [];
   let syncedMetrics = 0;
   
   if (onProgress) onProgress("Processando e salvando criativos...", 60);
@@ -436,41 +439,27 @@ export async function runMetaSync(
       }
     }
 
-    let adCreative = await withDbRetry(() => prisma.adCreative.findUnique({ where: { id: adId } }));
-    if (!adCreative) {
-      if (rows && rows.length > 0) {
-        const createData: any = {
-          id: adId,
-          adName,
-          adsetName,
-          campaignName,
-          status,
-          createdTime,
-        };
-        if (designer) createData.designer = designer;
-        if (imageUrl) createData.imageUrl = imageUrl;
-        if (thumbnailUrl) createData.thumbnailUrl = thumbnailUrl;
-        if (videoUrl) {
-          createData.videoUrl = videoUrl;
-          createData.mediaType = "video";
-        } else {
-          createData.mediaType = "image";
-        }
-        
-        await withDbRetry(() => prisma.adCreative.create({ data: createData }));
-        syncedAds++;
-      }
-    } else {
-      const updateData: any = {};
-      if (rows && rows.length > 0) {
-        updateData.adName = adName;
-        updateData.adsetName = adsetName;
-        updateData.campaignName = campaignName;
-        updateData.status = status;
-      } else if (status !== "UNKNOWN") {
-        updateData.status = status;
+    if (rows && rows.length > 0) {
+      const data: any = {
+        adName,
+        adsetName,
+        campaignName,
+        status,
+        createdTime,
+      };
+      if (designer) data.designer = designer;
+      if (imageUrl) data.imageUrl = imageUrl;
+      if (thumbnailUrl) data.thumbnailUrl = thumbnailUrl;
+      if (videoUrl) {
+        data.videoUrl = videoUrl;
+        data.mediaType = "video";
+      } else {
+        data.mediaType = "image";
       }
       
+      creativeOperations.push({ type: "upsert", adId, data });
+    } else if (status !== "UNKNOWN") {
+      const updateData: any = { status };
       if (designer) updateData.designer = designer;
       if (imageUrl) updateData.imageUrl = imageUrl;
       if (thumbnailUrl) updateData.thumbnailUrl = thumbnailUrl;
@@ -478,18 +467,39 @@ export async function runMetaSync(
         updateData.videoUrl = videoUrl;
         updateData.mediaType = "video";
       }
-      
-      if (Object.keys(updateData).length > 0) {
-        await withDbRetry(() => prisma.adCreative.update({
-          where: { id: adId },
-          data: updateData
-        }));
-        syncedAds++;
-      }
+      creativeOperations.push({ type: "updateMany", adId, data: updateData });
+    }
+  }
+
+  if (creativeOperations.length > 0) {
+    if (onProgress) onProgress("Salvando criativos no banco de dados em lotes...", 70);
+    const CREATIVE_CHUNK_SIZE = 10;
+    for (let i = 0; i < creativeOperations.length; i += CREATIVE_CHUNK_SIZE) {
+      console.log(`[DB] Salvando lote de criativos ${i}/${creativeOperations.length}...`);
+      const chunk = creativeOperations.slice(i, i + CREATIVE_CHUNK_SIZE);
+      await withDbRetry(async () => {
+        for (const op of chunk) {
+          if (op.type === "upsert") {
+            await prisma.adCreative.upsert({
+              where: { id: op.adId },
+              update: op.data,
+              create: { id: op.adId, ...op.data }
+            });
+          } else {
+            await prisma.adCreative.updateMany({
+              where: { id: op.adId },
+              data: op.data
+            });
+          }
+        }
+      });
+      syncedAds += chunk.length;
     }
   }
 
   if (onProgress) onProgress("Processando e salvando métricas...", 75);
+
+  const metricOperations: any[] = [];
 
   for (let i = 0; i < adIds.length; i++) {
     const adId = adIds[i];
@@ -499,8 +509,6 @@ export async function runMetaSync(
     if (i % 100 === 0 && onProgress) {
       onProgress(`Processando métricas (${i}/${adIds.length})...`, 75 + Math.floor((i / adIds.length) * 20));
     }
-
-
 
     for (const row of rows) {
       if (!row.date_start) continue;
@@ -566,65 +574,43 @@ export async function runMetaSync(
 
       const dateStart = new Date(`${row.date_start}T00:00:00Z`);
 
-      await withDbRetry(() => prisma.adDailyMetrics.upsert({
-        where: {
-          adCreativeId_date: {
-            adCreativeId: adId,
-            date: dateStart
-          }
-        },
-        update: {
-          spend,
-          roas: purchaseRoas,
-          cpm,
-          ctr,
-          cpc,
-          impressions,
-          reach,
-          frequency,
-          clicks,
-          purchases,
-          netOrders,
-          riskApprovedValue,
-          grossValue,
-          messages,
-          likes,
-          comments,
-          shares,
-          videoViews,
-          videoViews25p,
-          videoViews50p,
-          videoViews75p,
-          videoViews100p
-        },
-        create: {
-          adCreativeId: adId,
-          date: dateStart,
-          spend,
-          roas: purchaseRoas,
-          cpm,
-          ctr,
-          cpc,
-          impressions,
-          reach,
-          frequency,
-          clicks,
-          purchases,
-          netOrders,
-          riskApprovedValue,
-          grossValue,
-          messages,
-          likes,
-          comments,
-          shares,
-          videoViews,
-          videoViews25p,
-          videoViews50p,
-          videoViews75p,
-          videoViews100p
+      metricOperations.push({
+        adCreativeId: adId,
+        dateStart,
+        data: {
+          spend, roas: purchaseRoas, cpm, ctr, cpc, impressions, reach, frequency, clicks,
+          purchases, netOrders, riskApprovedValue, grossValue, messages, likes, comments,
+          shares, videoViews, videoViews25p, videoViews50p, videoViews75p, videoViews100p
         }
-      }));
-      syncedMetrics++;
+      });
+    }
+  }
+
+  if (metricOperations.length > 0) {
+    if (onProgress) onProgress("Salvando métricas no banco de dados em lotes...", 95);
+    const METRICS_CHUNK_SIZE = 10;
+    for (let i = 0; i < metricOperations.length; i += METRICS_CHUNK_SIZE) {
+      console.log(`[DB] Salvando lote de métricas ${i}/${metricOperations.length}...`);
+      const chunk = metricOperations.slice(i, i + METRICS_CHUNK_SIZE);
+      await withDbRetry(async () => {
+        for (const op of chunk) {
+          await prisma.adDailyMetrics.upsert({
+            where: {
+              adCreativeId_date: {
+                adCreativeId: op.adCreativeId,
+                date: op.dateStart
+              }
+            },
+            update: op.data,
+            create: {
+              adCreativeId: op.adCreativeId,
+              date: op.dateStart,
+              ...op.data
+            }
+          });
+        }
+      });
+      syncedMetrics += chunk.length;
     }
   }
 

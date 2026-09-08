@@ -1,7 +1,6 @@
 let globalPauseUntil = 0;
 let START_TIME = Date.now();
-const WALL_CLOCK_LIMIT = 180000; // 180s (60% of 300s maxDuration)
-
+const WALL_CLOCK_LIMIT = process.env.IS_LOCAL_CLI === "true" ? 36000000 : 180000; // 10 hours for local CLI, 180s for Serverless
 export function resetWallClock() {
   START_TIME = Date.now();
 }

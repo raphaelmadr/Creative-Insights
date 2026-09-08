@@ -86,13 +86,18 @@ export default function FunnelsOverview({ dateFrom, dateTo, statusFilter, channe
     let totalNetOrdersG = 0;
 
     const processed = data.categorizedAds.map((cat: any) => {
-      const validAds = cat.ads.filter((c: any) => filterByDesigner(c) && filterByChannel(c) && filterByDate(c));
+      // Base ads for metrics (filtered by designer and channel only)
+      const baseFilteredAds = cat.ads.filter((c: any) => filterByDesigner(c) && filterByChannel(c));
+      
+      // Visible ads for the grid (also filtered by date)
+      const visibleAds = baseFilteredAds.filter((c: any) => filterByDate(c));
       
       let spend = 0, returnVal = 0, netOrders = 0;
       let platforms = { META: 0, TIKTOK: 0, GOOGLE: 0 };
       let designersMap: Record<string, number> = {};
 
-      validAds.forEach((c: any) => {
+      // Calculate metrics based on ALL active ads in the period, NOT just the newly launched ones
+      baseFilteredAds.forEach((c: any) => {
         const s = parseFloat(c.spend) || 0;
         const r = parseFloat(c.riskApprovedValue) || 0;
         const n = parseFloat(c.netOrders) || 0;
@@ -135,14 +140,14 @@ export default function FunnelsOverview({ dateFrom, dateTo, statusFilter, channe
 
       return {
         ...cat,
-        adsCount: validAds.length,
+        adsCount: visibleAds.length,
         spend,
         returnVal,
         cpa: netOrders > 0 ? (spend / netOrders) : 0,
         roas: spend > 0 ? (returnVal / spend) : 0,
         platforms,
         topDesigners,
-        validAds
+        validAds: visibleAds
       };
     });
 
@@ -222,7 +227,7 @@ export default function FunnelsOverview({ dateFrom, dateTo, statusFilter, channe
                   <span style={{ fontSize: "0.85rem", fontWeight: 700, color: "var(--foreground)" }}>{formatCurrencyFull(funnel.spend)}</span>
                 </div>
                 <div style={{ background: "var(--background-main)", border: "1px solid var(--card-border)", padding: "0.25rem 0.6rem", borderRadius: "6px", display: "flex", flexDirection: "column", gap: "0.1rem" }}>
-                  <span style={{ fontSize: "0.6rem", color: "var(--muted)", textTransform: "uppercase", fontWeight: 600 }}>Retorno</span>
+                  <span style={{ fontSize: "0.6rem", color: "var(--muted)", textTransform: "uppercase", fontWeight: 600 }}>Aprovado no Risco</span>
                   <span style={{ fontSize: "0.85rem", fontWeight: 700, color: "var(--success)" }}>{formatCurrencyFull(funnel.returnVal)}</span>
                 </div>
                 <div style={{ background: "var(--background-main)", border: "1px solid var(--card-border)", padding: "0.25rem 0.6rem", borderRadius: "6px", display: "flex", flexDirection: "column", gap: "0.1rem" }}>

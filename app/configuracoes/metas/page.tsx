@@ -233,34 +233,34 @@ export default function MetasPage() {
         {/* Metas Mensais */}
         <div style={{ padding: "1.5rem", borderRadius: "12px", border: "1px solid var(--card-border)", background: "rgba(0,0,0,0.02)" }}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "1.5rem", flexWrap: "wrap", gap: "1rem" }}>
-            <h3 style={{ fontSize: "1.1rem", fontWeight: 600, margin: 0 }}>Metas de KPIs Mensais</h3>
+            <h3 style={{ fontSize: "1rem", fontWeight: 600, margin: 0 }}>Metas de KPIs Mensais</h3>
             <div style={{ display: "flex", gap: "1rem" }}>
-              <select value={selectedGoalMonth} onChange={e => setSelectedGoalMonth(Number(e.target.value))} style={{ padding: "0.5rem", borderRadius: "6px", border: "1px solid var(--card-border)", background: "var(--background-main)", color: "var(--foreground)", fontWeight: 600 }}>
+              <select value={selectedGoalMonth} onChange={e => setSelectedGoalMonth(Number(e.target.value))} style={{ padding: "0.5rem", borderRadius: "6px", border: "1px solid var(--card-border)", background: "var(--background-main)", color: "var(--foreground)", fontWeight: 600, fontSize: "0.85rem" }}>
                 <option value={1}>Janeiro</option><option value={2}>Fevereiro</option><option value={3}>Março</option>
                 <option value={4}>Abril</option><option value={5}>Maio</option><option value={6}>Junho</option>
                 <option value={7}>Julho</option><option value={8}>Agosto</option><option value={9}>Setembro</option>
                 <option value={10}>Outubro</option><option value={11}>Novembro</option><option value={12}>Dezembro</option>
               </select>
-              <input type="number" value={selectedGoalYear} onChange={e => setSelectedGoalYear(Number(e.target.value))} style={{ padding: "0.5rem", borderRadius: "6px", border: "1px solid var(--card-border)", background: "var(--background-main)", color: "var(--foreground)", fontWeight: 600, width: "80px" }} />
+              <input type="number" value={selectedGoalYear} onChange={e => setSelectedGoalYear(Number(e.target.value))} style={{ padding: "0.5rem", borderRadius: "6px", border: "1px solid var(--card-border)", background: "var(--background-main)", color: "var(--foreground)", fontWeight: 600, width: "80px", fontSize: "0.85rem" }} />
             </div>
           </div>
 
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: "1.5rem" }}>
-            <label style={{ display: "flex", flexDirection: "column", gap: "0.5rem", fontSize: "0.9rem" }}>
+            <label style={{ display: "flex", flexDirection: "column", gap: "0.5rem", fontSize: "0.85rem" }}>
               <span style={{ fontWeight: 600 }}>Investimento (R$)</span>
-              <input type="text" value={formatCurrencyInput(monthlyGoal.spendGoal)} onChange={e => setMonthlyGoal({...monthlyGoal, spendGoal: parseCurrencyInput(e.target.value)})} style={{ padding: "0.8rem", borderRadius: "8px", border: "1px solid var(--card-border)", background: "var(--background-main)", color: "var(--foreground)" }} />
+              <input type="text" value={formatCurrencyInput(monthlyGoal.spendGoal)} onChange={e => setMonthlyGoal({...monthlyGoal, spendGoal: parseCurrencyInput(e.target.value)})} style={{ padding: "0.6rem 0.8rem", borderRadius: "8px", border: "1px solid var(--card-border)", background: "var(--background-main)", color: "var(--foreground)", fontSize: "0.85rem" }} />
             </label>
-            <label style={{ display: "flex", flexDirection: "column", gap: "0.5rem", fontSize: "0.9rem" }}>
+            <label style={{ display: "flex", flexDirection: "column", gap: "0.5rem", fontSize: "0.85rem" }}>
               <span style={{ fontWeight: 600 }}>Receita Líquida (R$)</span>
-              <input type="text" value={formatCurrencyInput(monthlyGoal.revenueGoal)} onChange={e => setMonthlyGoal({...monthlyGoal, revenueGoal: parseCurrencyInput(e.target.value)})} style={{ padding: "0.8rem", borderRadius: "8px", border: "1px solid var(--card-border)", background: "var(--background-main)", color: "var(--foreground)" }} />
+              <input type="text" value={formatCurrencyInput(monthlyGoal.revenueGoal)} onChange={e => setMonthlyGoal({...monthlyGoal, revenueGoal: parseCurrencyInput(e.target.value)})} style={{ padding: "0.6rem 0.8rem", borderRadius: "8px", border: "1px solid var(--card-border)", background: "var(--background-main)", color: "var(--foreground)", fontSize: "0.85rem" }} />
             </label>
-            <label style={{ display: "flex", flexDirection: "column", gap: "0.5rem", fontSize: "0.9rem" }}>
+            <label style={{ display: "flex", flexDirection: "column", gap: "0.5rem", fontSize: "0.85rem" }}>
               <span style={{ fontWeight: 600 }}>CPA Máximo (R$)</span>
-              <input type="text" value={formatCurrencyInput(monthlyGoal.cpaGoal)} onChange={e => setMonthlyGoal({...monthlyGoal, cpaGoal: parseCurrencyInput(e.target.value)})} style={{ padding: "0.8rem", borderRadius: "8px", border: "1px solid var(--card-border)", background: "var(--background-main)", color: "var(--foreground)" }} />
+              <input type="text" value={formatCurrencyInput(monthlyGoal.cpaGoal)} onChange={e => setMonthlyGoal({...monthlyGoal, cpaGoal: parseCurrencyInput(e.target.value)})} style={{ padding: "0.6rem 0.8rem", borderRadius: "8px", border: "1px solid var(--card-border)", background: "var(--background-main)", color: "var(--foreground)", fontSize: "0.85rem" }} />
             </label>
           </div>
           <div style={{ display: "flex", justifyContent: "flex-end", marginTop: "1rem" }}>
-            <button type="button" onClick={handleSaveMonthlyGoal} disabled={savingGoal} style={{ background: "var(--primary)", color: "#fff", border: "none", padding: "0.6rem 1.5rem", borderRadius: "6px", fontWeight: 600, cursor: "pointer", display: "flex", alignItems: "center", gap: "0.5rem" }}>
+            <button type="button" onClick={handleSaveMonthlyGoal} disabled={savingGoal} style={{ fontSize: "0.85rem", background: "var(--primary)", color: "#fff", border: "none", padding: "0.6rem 1.5rem", borderRadius: "6px", fontWeight: 600, cursor: "pointer", display: "flex", alignItems: "center", gap: "0.5rem" }}>
               {savingGoal ? <Loader2 size={16} className="spin" /> : <Save size={16} />}
               Salvar Metas do Mês
             </button>
@@ -271,14 +271,14 @@ export default function MetasPage() {
         <div style={{ display: "flex", flexDirection: "column", gap: "1.5rem" }}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
             <div>
-              <h3 style={{ fontSize: "1.1rem", fontWeight: 600, margin: 0 }}>Categorias Dinâmicas</h3>
-              <p style={{ fontSize: "0.85rem", opacity: 0.6, margin: "0.25rem 0 0" }}>A ordem define a prioridade da validação (de cima para baixo). O que não bater meta vira "Área de Testes".</p>
+              <h3 style={{ fontSize: "1rem", fontWeight: 600, margin: 0 }}>Categorias Dinâmicas</h3>
+              <p style={{ fontSize: "0.75rem", opacity: 0.6, margin: "0.25rem 0 0" }}>A ordem define a prioridade da validação (de cima para baixo). O que não bater meta vira "Área de Testes".</p>
             </div>
             <div style={{ display: "flex", gap: "1rem" }}>
-              <button type="button" onClick={addCategory} style={{ background: "transparent", color: "var(--foreground)", border: "1px solid var(--card-border)", padding: "0.6rem 1rem", borderRadius: "6px", fontWeight: 600, cursor: "pointer", display: "flex", alignItems: "center", gap: "0.5rem" }}>
+              <button type="button" onClick={addCategory} style={{ fontSize: "0.85rem", background: "transparent", color: "var(--foreground)", border: "1px solid var(--card-border)", padding: "0.6rem 1rem", borderRadius: "6px", fontWeight: 600, cursor: "pointer", display: "flex", alignItems: "center", gap: "0.5rem" }}>
                 <Plus size={16} /> Adicionar Categoria
               </button>
-              <button type="button" onClick={handleSaveSettings} disabled={savingSettings} style={{ background: "var(--primary)", color: "#fff", border: "none", padding: "0.6rem 1.5rem", borderRadius: "6px", fontWeight: 600, cursor: "pointer", display: "flex", alignItems: "center", gap: "0.5rem" }}>
+              <button type="button" onClick={handleSaveSettings} disabled={savingSettings} style={{ fontSize: "0.85rem", background: "var(--primary)", color: "#fff", border: "none", padding: "0.6rem 1.5rem", borderRadius: "6px", fontWeight: 600, cursor: "pointer", display: "flex", alignItems: "center", gap: "0.5rem" }}>
                 {savingSettings ? <Loader2 size={16} className="spin" /> : <Save size={16} />}
                 Salvar Critérios
               </button>
@@ -309,7 +309,7 @@ export default function MetasPage() {
                       type="text" 
                       value={cat.emoji || ""} 
                       onChange={e => updateCategoryBase(cat.id, 'emoji', e.target.value)}
-                      style={{ fontSize: "1.2rem", padding: "0.4rem", borderRadius: "6px", border: "1px solid var(--card-border)", background: "var(--background-main)", width: "45px", textAlign: "center" }}
+                      style={{ fontSize: "1rem", padding: "0.3rem", borderRadius: "6px", border: "1px solid var(--card-border)", background: "var(--background-main)", width: "40px", textAlign: "center" }}
                       maxLength={2}
                       placeholder="🚀"
                     />
@@ -317,7 +317,7 @@ export default function MetasPage() {
                       type="text" 
                       value={cat.name} 
                       onChange={e => updateCategoryBase(cat.id, 'name', e.target.value)} 
-                      style={{ fontSize: "1.1rem", fontWeight: 700, color: "var(--foreground)", border: "none", background: "transparent", borderBottom: `1px dashed var(--card-border)`, padding: "0.25rem 0", width: "200px" }}
+                      style={{ fontSize: "0.95rem", fontWeight: 700, color: "var(--foreground)", border: "none", background: "transparent", borderBottom: `1px dashed var(--card-border)`, padding: "0.25rem 0", width: "200px" }}
                     />
                   </div>
                   <button type="button" onClick={() => removeCategory(cat.id)} style={{ color: "var(--danger)", opacity: 0.7, padding: "0.5rem", background: "none", border: "none", cursor: "pointer" }} title="Remover Categoria">
@@ -337,11 +337,11 @@ export default function MetasPage() {
                           type="button"
                           onClick={() => setActiveTabs(prev => ({ ...prev, [cat.id]: platform }))}
                           style={{
-                            padding: "0.5rem 1rem",
+                            padding: "0.4rem 1rem",
                             border: "none",
                             background: "transparent",
                             cursor: "pointer",
-                            fontSize: "0.9rem",
+                            fontSize: "0.8rem",
                             fontWeight: 600,
                             color: activePlatform === platform ? "var(--primary)" : "var(--foreground)",
                             opacity: activePlatform === platform ? 1 : 0.6,
@@ -359,20 +359,20 @@ export default function MetasPage() {
                     {/* Inputs da Tab Ativa */}
                     <div style={{ background: "var(--background-main)", padding: "1.5rem", borderRadius: "8px", border: "1px solid var(--card-border)", display: "flex", flexDirection: "column", gap: "1rem" }}>
                       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: "1.5rem" }}>
-                        <label style={{ display: "flex", flexDirection: "column", gap: "0.5rem", fontSize: "0.85rem" }}>
+                        <label style={{ display: "flex", flexDirection: "column", gap: "0.5rem", fontSize: "0.75rem" }}>
                           <span style={{ fontWeight: 600 }}>Gasto Mínimo (R$)</span>
-                          <input type="text" value={formatCurrencyInput(cat.rules[activePlatform].minSpend)} onChange={e => updateCategoryRule(cat.id, activePlatform, 'minSpend', parseCurrencyInput(e.target.value))} style={{ padding: "0.8rem", borderRadius: "8px", border: "1px solid var(--card-border)", background: "var(--card-bg)", color: "var(--foreground)" }} />
+                          <input type="text" value={formatCurrencyInput(cat.rules[activePlatform].minSpend)} onChange={e => updateCategoryRule(cat.id, activePlatform, 'minSpend', parseCurrencyInput(e.target.value))} style={{ padding: "0.6rem", borderRadius: "8px", border: "1px solid var(--card-border)", background: "var(--card-bg)", color: "var(--foreground)", fontSize: "0.85rem" }} />
                         </label>
-                        <label style={{ display: "flex", flexDirection: "column", gap: "0.5rem", fontSize: "0.85rem" }}>
+                        <label style={{ display: "flex", flexDirection: "column", gap: "0.5rem", fontSize: "0.75rem" }}>
                           <span style={{ fontWeight: 600 }}>Retorno Mínimo (R$)</span>
-                          <input type="text" value={formatCurrencyInput(cat.rules[activePlatform].minReturn)} onChange={e => updateCategoryRule(cat.id, activePlatform, 'minReturn', parseCurrencyInput(e.target.value))} style={{ padding: "0.8rem", borderRadius: "8px", border: "1px solid var(--card-border)", background: "var(--card-bg)", color: "var(--foreground)" }} />
+                          <input type="text" value={formatCurrencyInput(cat.rules[activePlatform].minReturn)} onChange={e => updateCategoryRule(cat.id, activePlatform, 'minReturn', parseCurrencyInput(e.target.value))} style={{ padding: "0.6rem", borderRadius: "8px", border: "1px solid var(--card-border)", background: "var(--card-bg)", color: "var(--foreground)", fontSize: "0.85rem" }} />
                         </label>
-                        <label style={{ display: "flex", flexDirection: "column", gap: "0.5rem", fontSize: "0.85rem" }}>
+                        <label style={{ display: "flex", flexDirection: "column", gap: "0.5rem", fontSize: "0.75rem" }}>
                           <span style={{ fontWeight: 600 }}>CPA Máximo (R$)</span>
-                          <input type="text" value={formatCurrencyInput(cat.rules[activePlatform].maxCpa)} onChange={e => updateCategoryRule(cat.id, activePlatform, 'maxCpa', parseCurrencyInput(e.target.value))} style={{ padding: "0.8rem", borderRadius: "8px", border: "1px solid var(--card-border)", background: "var(--card-bg)", color: "var(--foreground)" }} />
+                          <input type="text" value={formatCurrencyInput(cat.rules[activePlatform].maxCpa)} onChange={e => updateCategoryRule(cat.id, activePlatform, 'maxCpa', parseCurrencyInput(e.target.value))} style={{ padding: "0.6rem", borderRadius: "8px", border: "1px solid var(--card-border)", background: "var(--card-bg)", color: "var(--foreground)", fontSize: "0.85rem" }} />
                         </label>
                       </div>
-                      <p style={{ fontSize: "0.8rem", color: "var(--muted)", margin: 0 }}>* Um valor preenchido como "0,00" anulará o critério. A validação exigirá apenas as métricas que tiverem um valor definido.</p>
+                      <p style={{ fontSize: "0.75rem", color: "var(--muted)", margin: 0 }}>* Um valor preenchido como "0,00" anulará o critério. A validação exigirá apenas as métricas que tiverem um valor definido.</p>
                     </div>
 
                   </div>

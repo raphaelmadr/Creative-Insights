@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 
 export function useCacheFetch<T>(url: string | null) {
   const [data, setData] = useState<T | null>(null);
@@ -9,7 +9,7 @@ export function useCacheFetch<T>(url: string | null) {
   const [isRevalidating, setIsRevalidating] = useState(false);
   const [tick, setTick] = useState(0); // Used to force refetch
 
-  const mutate = () => setTick(t => t + 1);
+  const mutate = useCallback(() => setTick(t => t + 1), []);
 
   useEffect(() => {
     if (!url) return;
