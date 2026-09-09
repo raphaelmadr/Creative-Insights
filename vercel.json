@@ -5,7 +5,7 @@
       "schedule": "0 0 * * *"
     },
     {
-      "path": "/api/cron/sync-meta",
+      "path": "/api/cron/sync-all",
       "schedule": "0 1 * * *"
     }
   ]
