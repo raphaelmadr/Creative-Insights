@@ -41,6 +41,22 @@ function formatCurrencyBR(value: string): string {
   return `R$ ${n.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 }
 
+/**
+ * Rótulo do filtro de safra.
+ *
+ * "Lançados no período" não dizia nada a quem não tinha o intervalo em mente.
+ * Como o painel abre no mês corrente — do dia 1º até hoje —, o que o filtro faz
+ * na prática é mostrar só o que estreou desde o começo do mês, e é isso que o
+ * rótulo passa a dizer. Em um intervalo que não começa no dia 1º, o texto volta
+ * a falar de período, porque aí não é de mês que se trata.
+ */
+function launchFilterLabel(dateFrom: string, dateTo: string): string {
+  const [fromYear, fromMonth, fromDay] = dateFrom.split("-");
+  const [toYear, toMonth] = dateTo.split("-");
+  const wholeMonthSoFar = fromDay === "01" && fromMonth === toMonth && fromYear === toYear;
+  return wholeMonthSoFar ? "Lançados desde o começo do mês" : "Lançados dentro do período";
+}
+
 function formatPercentBR(value: string): string {
   const n = parseFloat(value);
   if (Number.isNaN(n)) return "0,00%";
@@ -97,18 +113,25 @@ export default function Home() {
       });
   }, [dateTo]);
 
-  // Pace Calculations
+  // Progresso vs. metas (usado nas barras)
   const spendPace = currentGoal.spendGoal > 0 ? (parseFloat(metrics.totalSpend) / currentGoal.spendGoal) * 100 : 0;
   const revenuePace = currentGoal.revenueGoal > 0 ? (parseFloat(metrics.totalRiskApprovedValue) / currentGoal.revenueGoal) * 100 : 0;
   const cpaPace = currentGoal.cpaGoal > 0 ? (parseFloat(metrics.avgCpa) / currentGoal.cpaGoal) * 100 : 0;
 
-  const renderPace = (pace: number, inverse: boolean = false) => {
-    if (pace === 0) return null;
-    let color = "var(--primary)";
-    if (!inverse && pace >= 100) color = "var(--success)";
-    else if (inverse && pace > 100) color = "#ef4444";
+  const formatGoalBR = (value: number) =>
+    `R$ ${value.toLocaleString("pt-BR", { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`;
 
-    return <span style={{ marginLeft: "6px", color: color, fontWeight: 500 }}>| Pace: {pace.toFixed(1)}%</span>;
+  const renderAttainment = (current: number, goal: number, inverse: boolean = false) => {
+    if (goal <= 0) return <>Meta: {formatGoalBR(0)}</>;
+    let color = "var(--primary)";
+    if (!inverse && current >= goal) color = "var(--success)";
+    else if (inverse && current > goal) color = "#ef4444";
+
+    return (
+      <>
+        Atingimento: <span style={{ color: color, fontWeight: 600 }}>{formatGoalBR(current)}</span> x {formatGoalBR(goal)}
+      </>
+    );
   };
 
   const renderProgressBar = (pace: number, inverse: boolean = false) => {
@@ -258,6 +281,9 @@ export default function Home() {
               {/* Filtro de Safra (Hide Old Ads) */}
               <div 
                 onClick={() => setHideOldAds(!hideOldAds)}
+                title={hideOldAds
+                  ? "Ligado: só os anúncios que estrearam dentro do período selecionado. Desligue para ver também os lançados antes dele que seguiram veiculando."
+                  : "Desligado: mostra todos os anúncios com veiculação no período, inclusive os lançados antes dele. Ligue para ver só as estreias do período."}
                 style={{ 
                   display: "flex", alignItems: "center", gap: "0.6rem", background: "var(--card-bg)", padding: "0.4rem 0.75rem", 
                   borderRadius: "8px", border: "1px solid var(--card-border)", boxShadow: "var(--card-shadow)", whiteSpace: "nowrap", cursor: "pointer", userSelect: "none",
@@ -274,7 +300,7 @@ export default function Home() {
                     transition: "left 0.2s cubic-bezier(0.4, 0.0, 0.2, 1)", boxShadow: "0 1px 3px rgba(0,0,0,0.3)"
                   }} />
                 </div>
-                <span style={{ opacity: 0.8 }}>Lançados no período</span>
+                <span style={{ opacity: 0.8 }}>{launchFilterLabel(dateFrom, dateTo)}</span>
               </div>
 
             </div>
@@ -316,22 +342,35 @@ export default function Home() {
                 <div className="allu-card-value">
                   <AnimatedNumber value={parseFloat(metrics.totalSpend) || 0} prefix="R$ " decimals={2} />
                 </div>
-                <div className="allu-card-subtext">Meta: R$ {currentGoal.spendGoal.toLocaleString('pt-BR')} {renderPace(spendPace)}</div>
+                <div className="allu-card-subtext">{renderAttainment(parseFloat(metrics.totalSpend) || 0, currentGoal.spendGoal)}</div>
                 {renderProgressBar(spendPace)}
               </motion.div>
               <motion.div className="allu-card" variants={{ hidden: { opacity: 0, y: 20 }, show: { opacity: 1, y: 0, transition: { type: "spring", stiffness: 300, damping: 24 } } }}>
-                <div className="allu-card-label">◇ VALOR BRUTO</div>
+                <div className="allu-card-label">
+                  ◇ VALOR BRUTO
+                  {metrics.conversions?.grossRevenue?.key && (
+                    <span
+                      style={{ marginLeft: '0.4rem', fontWeight: 500, opacity: 0.65, textTransform: 'none', letterSpacing: 0 }}
+                      title={`Evento de conversão: ${metrics.conversions.grossRevenue.key}${metrics.conversions.grossRevenue.id ? ` (${metrics.conversions.grossRevenue.id})` : ''}`}
+                    >
+                      · {metrics.conversions.grossRevenue.key}
+                    </span>
+                  )}
+                </div>
                 <div className="allu-card-value">
                   <AnimatedNumber value={parseFloat(metrics.totalGrossValue) || 0} prefix="R$ " decimals={2} />
                 </div>
-                <div className="allu-card-subtext">gerado no período</div>
+                <div className="allu-card-subtext">
+                  gerado no período
+                  {metrics.conversions?.grossRevenue?.label ? ` · ${metrics.conversions.grossRevenue.label}` : ''}
+                </div>
               </motion.div>
               <motion.div className="allu-card allu-card-highlight" variants={{ hidden: { opacity: 0, y: 20 }, show: { opacity: 1, y: 0, transition: { type: "spring", stiffness: 300, damping: 24 } } }}>
                 <div className="allu-card-label">▶ VALOR APROVADO</div>
                 <div className="allu-card-value">
                   <AnimatedNumber value={parseFloat(metrics.totalRiskApprovedValue) || 0} prefix="R$ " decimals={2} />
                 </div>
-                <div className="allu-card-subtext">Meta: R$ {currentGoal.revenueGoal.toLocaleString('pt-BR')} {renderPace(revenuePace)}</div>
+                <div className="allu-card-subtext">{renderAttainment(parseFloat(metrics.totalRiskApprovedValue) || 0, currentGoal.revenueGoal)}</div>
                 {renderProgressBar(revenuePace)}
               </motion.div>
               <motion.div className="allu-card" variants={{ hidden: { opacity: 0, y: 20 }, show: { opacity: 1, y: 0, transition: { type: "spring", stiffness: 300, damping: 24 } } }}>

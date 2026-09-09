@@ -312,31 +312,8 @@ export default function EquipePage() {
                 const progress = Math.min(realProgressPercent, 100);
                 const isSaved = stat.isSaved;
                 
-                let pacePercent = 0;
-                let projectedRevenue = 0;
-                let projectedPieces = 0;
-                let volumePacePercent = 0;
+                const volumeGoal = stat.monthlyVolumeGoal || 30;
 
-                if (isCurrentMonth) {
-                  const daysPassed = today.getDate();
-                  const daysInMonth = new Date(today.getFullYear(), today.getMonth() + 1, 0).getDate();
-                  
-                  if (stat.riskApprovedValue > 0) {
-                    projectedRevenue = (stat.riskApprovedValue / daysPassed) * daysInMonth;
-                    if (stat.monthlyGoal > 0) {
-                      pacePercent = (projectedRevenue / stat.monthlyGoal) * 100;
-                    }
-                  }
-                  
-                  if (stat.totalPieces > 0) {
-                    projectedPieces = Math.round((stat.totalPieces / daysPassed) * daysInMonth);
-                    const vGoal = stat.monthlyVolumeGoal || 30;
-                    if (vGoal > 0) {
-                      volumePacePercent = (projectedPieces / vGoal) * 100;
-                    }
-                  }
-                }
-                
                 // Cores de Parcerias
                 const cardBg = isUnknown ? "rgba(253, 224, 71, 0.05)" : "var(--card-bg)";
                 const cardBorder = isUnknown ? "rgba(253, 224, 71, 0.4)" : "var(--card-border)";
@@ -434,9 +411,9 @@ export default function EquipePage() {
                               <span style={{ fontWeight: 600 }}>
                                 {realProgressPercent.toFixed(1)}% atingido
                               </span>
-                              {isCurrentMonth && pacePercent > 0 && (
-                                <span style={{ opacity: 0.8, fontWeight: 600, display: "flex", alignItems: "center", gap: "0.3rem" }} title={`Projeção: ${formatCurrencyBR(projectedRevenue)}`}>
-                                  <Activity size={12} /> Pace: {pacePercent.toFixed(1)}%
+                              {stat.monthlyGoal > 0 && (
+                                <span style={{ opacity: 0.8, fontWeight: 600, display: "flex", alignItems: "center", gap: "0.3rem" }} title="Receita líquida atingida x meta do mês">
+                                  <Target size={12} /> {formatCurrencyBR(stat.riskApprovedValue)} x {formatCurrencyBR(stat.monthlyGoal)}
                                 </span>
                               )}
                             </div>
@@ -474,11 +451,9 @@ export default function EquipePage() {
                               <span style={{ fontWeight: 600, color: ((stat.totalPieces || 0) >= (stat.monthlyVolumeGoal || 30)) ? "var(--success)" : primaryColor }}>
                                 {(((stat.totalPieces || 0) / (stat.monthlyVolumeGoal || 30)) * 100).toFixed(1)}% atingido
                               </span>
-                              {isCurrentMonth && volumePacePercent > 0 && (
-                                <span style={{ opacity: 0.7, fontWeight: 600, display: "flex", alignItems: "center", gap: "0.3rem" }} title={`Projeção para o fim do mês: ${projectedPieces} peças`}>
-                                  <Activity size={12} /> Pace: {volumePacePercent.toFixed(1)}%
-                                </span>
-                              )}
+                              <span style={{ opacity: 0.7, fontWeight: 600, display: "flex", alignItems: "center", gap: "0.3rem" }} title="Peças entregues x meta de volume do mês">
+                                <Target size={12} /> {(stat.totalPieces || 0).toLocaleString('pt-BR')} x {volumeGoal.toLocaleString('pt-BR')} peças
+                              </span>
                             </div>
                           </>
                         )}

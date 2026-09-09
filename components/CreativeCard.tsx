@@ -1,12 +1,13 @@
 "use client";
 
 import React from "react";
+import { createPortal } from "react-dom";
 import { motion } from "framer-motion";
 import { Avatar } from "./Avatar";
 import SafeImage from "./SafeImage";
 import styles from "./CreativeGrid.module.css";
-import { Image as ImageIcon, Copy, Check, Sparkles, Loader2, ChevronDown } from "lucide-react";
-import { useState } from "react";
+import { Image as ImageIcon, Copy, Check, Sparkles, Loader2, ChevronDown, X } from "lucide-react";
+import { useEffect, useState } from "react";
 
 function CopyButton({ text }: { text: string }) {
   const [copied, setCopied] = useState(false);
@@ -33,12 +34,143 @@ function CopyButton({ text }: { text: string }) {
   );
 }
 
-function CreativeHypothesis({ creative }: { creative: any }) {
+/** Copiar o nome do anúncio com rótulo — dentro do popup há espaço para dizer o que faz. */
+function CopyNameButton({ text }: { text: string }) {
+  const [copied, setCopied] = useState(false);
+  return (
+    <button
+      onClick={(e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        navigator.clipboard.writeText(text);
+        setCopied(true);
+        setTimeout(() => setCopied(false), 2000);
+      }}
+      title="Copiar nome do anúncio"
+      style={{
+        flexShrink: 0, display: "inline-flex", alignItems: "center", gap: "0.4rem",
+        background: copied ? "rgba(16, 185, 129, 0.9)" : "rgba(255,255,255,0.1)",
+        border: "1px solid rgba(255,255,255,0.2)", borderRadius: "100px",
+        padding: "0.35rem 0.7rem", color: "#fff", fontSize: "0.72rem", fontWeight: 600,
+        lineHeight: 1, whiteSpace: "nowrap", cursor: "pointer", transition: "background 0.2s ease"
+      }}
+    >
+      {copied ? <Check size={13} /> : <Copy size={13} />}
+      {copied ? "Copiado" : "Copiar nome"}
+    </button>
+  );
+}
+
+/**
+ * Visualização do criativo em tamanho cheio.
+ *
+ * A arte de origem tem muito mais resolução do que o quadrado do cartão mostra,
+ * e detalhe de peça — corpo de texto, selo, legibilidade do CTA — é o que se vem
+ * conferir. O popup usa `image_url` (a arte inteira) e só cai na capa quando não
+ * há arte. Fecha no fundo, no X ou no Esc.
+ */
+function CreativePreviewModal({ creative, onClose }: { creative: any; onClose: () => void }) {
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+    };
+    document.addEventListener("keydown", onKey);
+
+    // Sem isto a página de trás rola sob o popup enquanto se olha a peça.
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+
+    return () => {
+      document.removeEventListener("keydown", onKey);
+      document.body.style.overflow = previousOverflow;
+    };
+  }, [onClose]);
+
+  const url = creative.image_url || creative.thumbnail_url || "";
+
+  return createPortal(
+    <div
+      onClick={onClose}
+      role="dialog"
+      aria-modal="true"
+      aria-label={`Criativo ${creative.ad_name}`}
+      style={{
+        position: "fixed", inset: 0, zIndex: 9999,
+        background: "rgba(0,0,0,0.82)", backdropFilter: "blur(6px)", WebkitBackdropFilter: "blur(6px)",
+        display: "flex", alignItems: "center", justifyContent: "center", padding: "2rem"
+      }}
+    >
+      {/*
+        O contêiner abraça a imagem: `display: inline-flex` mais o próprio
+        `max-height` da arte. Enquanto ele era um bloco com a legenda embaixo,
+        sobrava moldura vazia dos lados de peças verticais — a "borda
+        transparente" era o contêiner aparecendo além da imagem. O `overflow`
+        oculto no canto arredondado é o que recorta a arte e as caixas sobre ela.
+      */}
+      <motion.div
+        initial={{ opacity: 0, scale: 0.96 }}
+        animate={{ opacity: 1, scale: 1 }}
+        transition={{ type: "spring", stiffness: 260, damping: 24 }}
+        onClick={(e) => e.stopPropagation()}
+        style={{
+          position: "relative", display: "inline-flex", borderRadius: "16px", overflow: "hidden",
+          boxShadow: "0 24px 60px rgba(0,0,0,0.6)", maxWidth: "min(92vw, 900px)", maxHeight: "88vh"
+        }}
+      >
+        <SafeImage
+          src={url}
+          alt={creative.ad_name}
+          style={{ display: "block", maxWidth: "min(92vw, 900px)", maxHeight: "88vh", objectFit: "contain" }}
+        />
+
+        {/* Fechar, no canto de cima — mesma pílula translúcida do resto do cartão. */}
+        <button
+          onClick={onClose}
+          title="Fechar (Esc)"
+          aria-label="Fechar"
+          style={{
+            position: "absolute", top: "10px", right: "10px",
+            display: "inline-flex", alignItems: "center", justifyContent: "center",
+            width: "30px", height: "30px", borderRadius: "100px",
+            background: "rgba(0,0,0,0.6)", backdropFilter: "blur(4px)", WebkitBackdropFilter: "blur(4px)",
+            border: "1px solid rgba(255,255,255,0.18)", color: "rgba(255,255,255,0.9)", cursor: "pointer"
+          }}
+        >
+          <X size={15} />
+        </button>
+
+        {/* O nome e o copiar moram dentro da arte, numa caixa sobre o rodapé dela. */}
+        <div
+          style={{
+            position: "absolute", left: "10px", right: "10px", bottom: "10px",
+            display: "flex", alignItems: "center", gap: "0.6rem",
+            background: "rgba(0,0,0,0.62)", backdropFilter: "blur(6px)", WebkitBackdropFilter: "blur(6px)",
+            border: "1px solid rgba(255,255,255,0.16)", borderRadius: "12px", padding: "0.55rem 0.6rem 0.55rem 0.75rem"
+          }}
+        >
+          <span style={{ flex: 1, minWidth: 0, color: "rgba(255,255,255,0.92)", fontSize: "0.74rem", fontWeight: 600, lineHeight: 1.35, wordBreak: "break-all", maxHeight: "2.7em", overflow: "hidden" }}>
+            {creative.ad_name}
+          </span>
+          <CopyNameButton text={creative.ad_name} />
+        </div>
+      </motion.div>
+    </div>,
+    document.body
+  );
+}
+
+/**
+ * Estado da análise de IA de um criativo.
+ *
+ * Vive no cartão, e não dentro do bloco de resultado: o gatilho passou a ficar
+ * sobre a imagem e o texto sai embaixo, nas informações — dois pontos distantes
+ * da árvore para um estado só.
+ */
+function useHypothesis(creative: any) {
   const [hypothesis, setHypothesis] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
-  const [isExpanded, setIsExpanded] = useState(false);
 
-  const handleAnalyze = () => {
+  const analyze = () => {
     setLoading(true);
     fetch("/api/hypothesis", {
       method: "POST",
@@ -47,8 +179,7 @@ function CreativeHypothesis({ creative }: { creative: any }) {
     })
       .then(res => res.json())
       .then(data => {
-        if (data.success) setHypothesis(data.hypothesis);
-        else setHypothesis("Não foi possível gerar hipótese para este anúncio.");
+        setHypothesis(data.success ? data.hypothesis : "Não foi possível gerar hipótese para este anúncio.");
         setLoading(false);
       })
       .catch(() => {
@@ -57,27 +188,53 @@ function CreativeHypothesis({ creative }: { creative: any }) {
       });
   };
 
-  if (!hypothesis && !loading) {
-    return (
-      <button 
-        onClick={handleAnalyze}
-        style={{ 
-          position: "absolute", top: "10px", right: "10px", zIndex: 10,
-          background: "rgba(0,0,0,0.4)", backdropFilter: "blur(4px)", WebkitBackdropFilter: "blur(4px)",
-          color: "rgba(255,255,255,0.7)", border: "1px solid rgba(255,255,255,0.1)", borderRadius: "8px", 
-          cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", 
-          padding: "6px", transition: "all 0.2s" 
-        }}
-        title="Analisar criativo com IA"
-        onMouseOver={e => { e.currentTarget.style.background = "rgba(16, 185, 129, 0.4)"; e.currentTarget.style.color = "white"; }}
-        onMouseOut={e => { e.currentTarget.style.background = "rgba(0,0,0,0.4)"; e.currentTarget.style.color = "rgba(255,255,255,0.7)"; }}
-      >
-        <Sparkles size={16} />
-      </button>
-    );
-  }
+  return { hypothesis, loading, analyze };
+}
 
-  const MAX_LENGTH = 150;
+/**
+ * Gatilho da análise, sobre a imagem.
+ *
+ * Mesma família visual do selo do criador no canto oposto — pílula escura com
+ * desfoque, que pousa sobre qualquer criativo sem competir com ele — e o verde
+ * da IA no hover, quando deixa de ser enfeite e vira ação. Antes era um quadrado
+ * solto no canto do cartão, alinhado ao selo só por coincidência.
+ */
+function AnalyzeButton({ onClick }: { onClick: () => void }) {
+  return (
+    <button
+      onClick={(e) => { e.preventDefault(); e.stopPropagation(); onClick(); }}
+      title="Analisar criativo com IA"
+      style={{
+        position: "absolute", top: "8px", right: "8px", zIndex: 10,
+        display: "inline-flex", alignItems: "center", gap: "0.35rem",
+        background: "rgba(0,0,0,0.6)", backdropFilter: "blur(4px)", WebkitBackdropFilter: "blur(4px)",
+        border: "1px solid rgba(255,255,255,0.18)", borderRadius: "100px",
+        padding: "4px 9px 4px 8px", color: "rgba(255,255,255,0.92)",
+        fontSize: "0.68rem", fontWeight: 600, lineHeight: 1, whiteSpace: "nowrap",
+        cursor: "pointer", boxShadow: "0 2px 8px rgba(0,0,0,0.25)", transition: "background 0.2s ease, border-color 0.2s ease, color 0.2s ease"
+      }}
+      onMouseOver={e => {
+        e.currentTarget.style.background = "rgba(16, 185, 129, 0.9)";
+        e.currentTarget.style.borderColor = "rgba(255,255,255,0.35)";
+        e.currentTarget.style.color = "#fff";
+      }}
+      onMouseOut={e => {
+        e.currentTarget.style.background = "rgba(0,0,0,0.6)";
+        e.currentTarget.style.borderColor = "rgba(255,255,255,0.18)";
+        e.currentTarget.style.color = "rgba(255,255,255,0.92)";
+      }}
+    >
+      <Sparkles size={12} />
+      Analisar
+    </button>
+  );
+}
+
+function HypothesisPanel({ hypothesis, loading }: { hypothesis: string | null; loading: boolean }) {
+  const [isExpanded, setIsExpanded] = useState(false);
+
+  // A resposta agora vem em três etapas; 150 caracteres cortavam no meio da transcrição.
+  const MAX_LENGTH = 320;
   const isLong = hypothesis && hypothesis.length > MAX_LENGTH;
   const displayText = (hypothesis && !isExpanded && isLong) ? hypothesis.substring(0, MAX_LENGTH) + "..." : hypothesis;
 
@@ -85,12 +242,12 @@ function CreativeHypothesis({ creative }: { creative: any }) {
     <div style={{ marginTop: "1rem", padding: "1rem", background: "rgba(16, 185, 129, 0.1)", borderRadius: "0.5rem", borderLeft: "3px solid #10b981" }}>
       <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", marginBottom: "0.5rem", color: "#10b981", fontWeight: 600, fontSize: "0.8rem" }}>
         <Sparkles size={14} /> 
-        AI Director Analysis
+        Leitura do criativo pela IA
       </div>
       {loading ? (
         <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", opacity: 0.7, fontSize: "0.85rem" }}>
           <Loader2 size={14} className="spin" style={{ animation: "spin 2s linear infinite" }} />
-          Analisando criativo...
+          Lendo a peça e analisando...
         </div>
       ) : (
         <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-start", gap: "0.5rem" }}>
@@ -138,8 +295,8 @@ function MetricMiniCard({ label, value, tone, title }: { label: string; value: s
         minWidth: 0,
         display: "flex",
         flexDirection: "column",
-        gap: "0.15rem",
-        padding: "0.4rem 0.5rem",
+        gap: "0.05rem",
+        padding: "0.28rem 0.45rem",
         borderRadius: "8px",
         background: c.bg,
         border: `1px solid ${c.border}`,
@@ -147,10 +304,10 @@ function MetricMiniCard({ label, value, tone, title }: { label: string; value: s
         WebkitBackdropFilter: "blur(8px)",
       }}
     >
-      <span style={{ fontSize: "0.6rem", opacity: 0.6, textTransform: "uppercase", letterSpacing: "0.5px", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+      <span style={{ fontSize: "0.56rem", lineHeight: 1.2, opacity: 0.6, textTransform: "uppercase", letterSpacing: "0.5px", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
         {label}
       </span>
-      <strong style={{ fontSize: "0.8rem", color: c.text, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{value}</strong>
+      <strong style={{ fontSize: "0.78rem", lineHeight: 1.25, color: c.text, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{value}</strong>
     </div>
   );
 }
@@ -211,13 +368,19 @@ const AudienceIcon = ({ size = 12 }) => (
 interface CreativeCardProps {
   creative: any;
   creators: any[];
-  hoveredPreview: any;
-  setHoveredPreview: (val: any) => void;
   tier?: "super" | "winner";
 }
 
-export function CreativeCard({ creative, creators, hoveredPreview, setHoveredPreview, tier }: CreativeCardProps) {
-  const isHovered = hoveredPreview?.cardId === creative.id;
+export function CreativeCard({ creative, creators, tier }: CreativeCardProps) {
+  const ai = useHypothesis(creative);
+
+  /*
+   * Antes o clique na arte chamava um `setHoveredPreview` que ninguém renderiza
+   * — a peça nunca abria. O estado do popup mora aqui, no cartão, e vale em
+   * qualquer tela que use o componente.
+   */
+  const [zoomed, setZoomed] = useState(false);
+  const previewUrl = creative.image_url || creative.thumbnail_url;
   
   const creatorAcronym = (creative.designer || "").trim().toUpperCase();
   const matchingCreator = creators.find(c => {
@@ -229,20 +392,14 @@ export function CreativeCard({ creative, creators, hoveredPreview, setHoveredPre
     <motion.div
       variants={{ hidden: { opacity: 0, y: 20 }, show: { opacity: 1, y: 0, transition: { type: "spring", stiffness: 200, damping: 20 } } }}
       className={`glass-panel ${styles.card}`}
-      style={{
-        position: "relative",
-        zIndex: isHovered ? 1000 : 1,
-        transition: "all 0.3s ease",
-        boxShadow: isHovered ? "0 0 0 2px var(--primary), 0 20px 40px rgba(0,0,0,0.5)" : "none"
-      }}
+      style={{ position: "relative", transition: "all 0.3s ease" }}
     >
       <div 
         className={styles.imageWrapper} 
-        style={{ position: "relative", cursor: creative.videoUrl ? "default" : "zoom-in", overflow: "hidden" }}
-        onClick={(e) => {
-          if (creative.videoUrl) return; 
-          const url = creative.image_url || creative.thumbnail_url;
-          if (url) setHoveredPreview({ url, isVideo: false, adName: creative.ad_name, cardId: creative.id });
+        style={{ position: "relative", cursor: !creative.videoUrl && previewUrl ? "zoom-in" : "default", overflow: "hidden" }}
+        onClick={() => {
+          if (creative.videoUrl) return;
+          if (previewUrl) setZoomed(true);
         }}
       >
       {creative.videoUrl ? (
@@ -287,6 +444,9 @@ export function CreativeCard({ creative, creators, hoveredPreview, setHoveredPre
           <span style={{ fontSize: "0.7rem", fontWeight: 600 }}>{matchingCreator.name.split(" ")[0]}</span>
         </div>
       )}
+
+      {/* Canto oposto ao selo do criador, na mesma altura. */}
+      {!ai.hypothesis && !ai.loading && <AnalyzeButton onClick={ai.analyze} />}
     </div>
     
     <div className={styles.info}>
@@ -330,7 +490,7 @@ export function CreativeCard({ creative, creators, hoveredPreview, setHoveredPre
         </div>
       </div>
       
-      <CreativeHypothesis creative={creative} />
+      {(ai.loading || ai.hypothesis) && <HypothesisPanel hypothesis={ai.hypothesis} loading={ai.loading} />}
 
       <div style={{ marginTop: "0.75rem", display: "flex", justifyContent: "space-between", alignItems: "center", borderTop: "1px solid var(--card-border)", paddingTop: "0.5rem" }}>
         {creative.createdTime ? (
@@ -353,6 +513,8 @@ export function CreativeCard({ creative, creators, hoveredPreview, setHoveredPre
         ) : null}
       </div>
     </div>
+
+    {zoomed && <CreativePreviewModal creative={creative} onClose={() => setZoomed(false)} />}
   </motion.div>
   );
 }

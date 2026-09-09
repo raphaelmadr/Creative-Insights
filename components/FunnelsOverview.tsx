@@ -7,7 +7,7 @@ import { Avatar } from "@/components/Avatar";
 import { Skeleton } from "@/components/Skeleton";
 import { CreativeCard } from "@/components/CreativeCard";
 import styles from "./CreativeGrid.module.css";
-import { ChevronDown, ChevronRight, Info } from "lucide-react";
+import { ChevronDown, ChevronRight, HelpCircle, Info } from "lucide-react";
 
 const FbIcon = ({ size = 12 }) => (
   <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -38,23 +38,45 @@ function thresholdMoney(value: number): string {
 }
 
 /**
- * Decompõe o critério de uma plataforma em pares rótulo/valor.
+ * Os critérios de uma plataforma em frases, na ordem em que se lê a categoria.
  *
- * Um card por condição, em vez de uma frase longa: o tipo do critério vira o
- * rótulo e sobra só o limiar no valor, o que mantém tudo em uma linha. Sem
- * sigla — a tradução é fiel a `lib/creative-metrics.ts`, onde a receita de
- * referência é o valor de pedidos aprovados e o CPA é o custo por pedido
+ * Frase inteira em vez de rótulo e valor: o painel responde a uma pergunta, e
+ * "no mínimo R$ 2.000 de vendas aprovadas" se lê de uma vez. O nome do evento
+ * acompanha a receita porque a conta tem eventos concorrentes que dão números
+ * muito diferentes para o mesmo período — sem ele, o limiar não diz de qual
+ * venda se trata. A tradução é fiel a `lib/creative-metrics.ts`: a receita de
+ * referência é o valor dos pedidos aprovados e o CPA é o custo por pedido
  * aprovado.
  *
- * A regra real é conjuntiva: as condições listadas valem ao mesmo tempo, e um
- * valor `0` significa "não usar este critério".
+ * A regra é conjuntiva: as condições valem ao mesmo tempo, e um valor `0`
+ * significa "não usar este critério" — por isso só entram na lista os que
+ * foram realmente definidos.
  */
-function platformCriteria(rule: any): { label: string; value: string }[] {
+interface Criterion {
+  /** Texto antes do limiar. */
+  prefix: string;
+  /** O limiar cadastrado — renderizado em destaque. */
+  value: string;
+  /** Texto depois do limiar. */
+  suffix: string;
+}
+
+function channelCriteria(rule: any, approvedEventKey: string | null): Criterion[] {
   if (!rule) return [];
-  const out: { label: string; value: string }[] = [];
-  if ((rule.minSpend || 0) > 0) out.push({ label: "investimento", value: `acima de ${thresholdMoney(rule.minSpend)}` });
-  if ((rule.minReturn || 0) > 0) out.push({ label: "vendas aprovadas", value: `acima de ${thresholdMoney(rule.minReturn)}` });
-  if ((rule.maxCpa || 0) > 0) out.push({ label: "custo por venda", value: `até ${thresholdMoney(rule.maxCpa)}` });
+  const out: Criterion[] = [];
+  if ((rule.minReturn || 0) > 0) {
+    out.push({
+      prefix: "no mínimo",
+      value: thresholdMoney(rule.minReturn),
+      suffix: `de vendas aprovadas${approvedEventKey ? ` (${approvedEventKey})` : ""}`,
+    });
+  }
+  if ((rule.minSpend || 0) > 0) {
+    out.push({ prefix: "", value: thresholdMoney(rule.minSpend), suffix: "de investimento mínimo alcançado" });
+  }
+  if ((rule.maxCpa || 0) > 0) {
+    out.push({ prefix: "custo por venda aprovada de até", value: thresholdMoney(rule.maxCpa), suffix: "" });
+  }
   return out;
 }
 
@@ -77,42 +99,51 @@ const PLATFORM_ICONS: Record<string, React.ComponentType<{ size?: number }>> = {
 };
 
 /**
- * Estilo compartilhado pelos dois tipos de card do cabeçalho — o critério da
- * categoria e a contagem por canal. É a mesma constante nos dois para que
- * fiquem exatamente do mesmo tamanho, em vez de casarem por coincidência.
+ * Canais presentes na categoria, com a contagem e as condições de cada um.
+ *
+ * Só canais que aparecem nos dados: os critérios de Google ficavam visíveis por
+ * causa de valores herdados no cadastro de Metas, para uma rede que não é
+ * sincronizada.
  */
-const HEADER_CARD_STYLE: React.CSSProperties = {
-  display: "flex",
-  flexDirection: "column",
-  gap: "0.25rem",
-  background: "var(--background-main)",
-  border: "1px solid var(--card-border)",
-  borderRadius: "8px",
-  padding: "0.4rem 0.6rem",
-  minWidth: "148px",
-  minHeight: "2.8rem",
-  boxSizing: "border-box",
-  justifyContent: "center",
-};
+function categoryChannels(funnel: any, approvedEventKey: string | null): { platform: { key: string; label: string; color: string }; count: number; criteria: Criterion[] }[] {
+  return PLATFORM_LABELS.filter(p => (funnel.platforms?.[p.key] || 0) > 0).map(p => ({
+    platform: p,
+    count: funnel.platforms[p.key] as number,
+    criteria: channelCriteria(funnel.rules?.[p.key], approvedEventKey),
+  }));
+}
 
-const CARD_LABEL_STYLE: React.CSSProperties = {
-  display: "flex",
+/** Contagem de anúncios do canal: complemento, em badge encostado na direita. */
+const COUNT_BADGE_STYLE: React.CSSProperties = {
+  flexShrink: 0,
+  display: "inline-flex",
   alignItems: "center",
-  gap: "0.35rem",
-  fontSize: "0.58rem",
+  background: "var(--card-bg)",
+  border: "1px solid var(--card-border)",
+  borderRadius: "100px",
+  padding: "0.12rem 0.55rem",
+  fontSize: "0.68rem",
   fontWeight: 700,
-  textTransform: "uppercase",
-  letterSpacing: "0.02em",
   color: "var(--muted)",
   whiteSpace: "nowrap",
 };
 
-const CARD_VALUE_STYLE: React.CSSProperties = {
-  fontSize: "0.74rem",
-  fontWeight: 600,
-  color: "var(--foreground)",
-  lineHeight: 1.3,
-  whiteSpace: "nowrap",
+/** O limiar cadastrado é o que se vem consultar aqui — por isso sai do corpo do texto. */
+const THRESHOLD_STYLE: React.CSSProperties = {
+  fontWeight: 700,
+  color: "var(--primary)",
+};
+
+/** Botão de ícone da barra do cabeçalho: só o traço, sem moldura. */
+const TOOLBAR_BUTTON_STYLE: React.CSSProperties = {
+  flexShrink: 0,
+  background: "transparent",
+  border: "none",
+  padding: "0.25rem",
+  color: "var(--muted)",
+  cursor: "pointer",
+  display: "flex",
+  alignItems: "center",
 };
 
 
@@ -173,6 +204,18 @@ export default function FunnelsOverview({ dateFrom, dateTo, statusFilter, channe
   const isCollapsed = (funnel: any) => collapsed[funnelKey(funnel)] ?? true;
   const toggleFunnel = (funnel: any) =>
     setCollapsed(prev => ({ ...prev, [funnelKey(funnel)]: !(prev[funnelKey(funnel)] ?? true) }));
+
+  /**
+   * Qual categoria está com a explicação aberta.
+   *
+   * O critério de entrada e a contagem por canal ocupavam uma fileira de cards
+   * em cada cabeçalho — a informação é de consulta, não de leitura contínua, e
+   * agora mora atrás do "?" da barra.
+   */
+  const [whyOpen, setWhyOpen] = useState<Record<string, boolean>>({});
+  const isWhyOpen = (funnel: any) => whyOpen[funnelKey(funnel)] ?? false;
+  const toggleWhy = (funnel: any) =>
+    setWhyOpen(prev => ({ ...prev, [funnelKey(funnel)]: !(prev[funnelKey(funnel)] ?? false) }));
 
   const { funnels, globalMetrics } = useMemo(() => {
     if (!data || !data.categorizedAds) return { funnels: [], globalMetrics: null };
@@ -292,6 +335,12 @@ export default function FunnelsOverview({ dateFrom, dateTo, statusFilter, channe
 
   const allCollapsed = funnels.length > 0 && funnels.every((f: any) => isCollapsed(f));
 
+  /*
+   * O evento que define "venda aprovada" nos critérios — o mesmo que a API usa
+   * para categorizar. Vem dos dados, e não fixo no código, porque é trocável.
+   */
+  const approvedEventKey: string | null = data?.conversions?.cpa?.key ?? null;
+
   const toggleAll = () => {
     const next: Record<string, boolean> = {};
     for (const f of funnels) next[funnelKey(f)] = !allCollapsed;
@@ -312,9 +361,8 @@ export default function FunnelsOverview({ dateFrom, dateTo, statusFilter, channe
               <strong>primeira categoria em que se encaixa</strong>, de cima para baixo. Por isso um{" "}
               <strong>{funnels[0]?.name}</strong> vale mais que os de baixo: ele atingiu uma exigência maior.
               Quem não atinge nenhuma aparece em Testes, na página de Anúncios.
-              As exigências são definidas em Configurações › Metas — mudá-las reorganiza tudo na hora.
               {hideOldAds
-                ? " A contagem abaixo mostra só os anúncios que estrearam dentro do período; desligue \u201cLançados no período\u201d para ver todos os que tiveram veiculação."
+                ? " A contagem abaixo mostra só os anúncios que estrearam dentro do período; desligue o filtro de lançamento para ver todos os que tiveram veiculação."
                 : " A contagem abaixo mostra todos os anúncios com veiculação no período, inclusive os lançados antes dele."}
             </span>
           </div>
@@ -331,12 +379,12 @@ export default function FunnelsOverview({ dateFrom, dateTo, statusFilter, channe
         <div key={funnel.id || funnel.name} style={{ background: "var(--card-bg)", border: "1px solid var(--card-border)", borderRadius: "12px", padding: "1rem", display: "flex", flexDirection: "column", gap: "1rem" }}>
           
           {/*
-            Uma linha só: identidade da categoria, o que faz um anúncio estar
-            nela, a contagem por canal e a seta de recolher. `nowrap` garante a
-            linha única; em tela estreita a fileira rola na horizontal em vez de
-            quebrar, o que preserva a leitura de esquerda para a direita.
+            Uma linha só: identidade da categoria e a barra de ações. O critério
+            de entrada e a contagem por canal saíram da linha — eram uma fileira
+            de cards por cabeçalho, e viraram o painel do "?", que abre abaixo
+            desta linha.
           */}
-          <div style={{ display: "flex", flexWrap: "nowrap", alignItems: "stretch", gap: "0.5rem", overflowX: "auto" }}>
+          <div style={{ display: "flex", flexWrap: "nowrap", alignItems: "center", gap: "0.5rem" }}>
 
             <div style={{ display: "flex", alignItems: "center", gap: "0.55rem", flexShrink: 0 }}>
               <div style={{ fontSize: "1.15rem", width: "34px", height: "34px", borderRadius: "8px", background: "var(--background-main)", border: "1px solid var(--card-border)", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
@@ -345,10 +393,9 @@ export default function FunnelsOverview({ dateFrom, dateTo, statusFilter, channe
               <div style={{ display: "flex", flexDirection: "column", gap: "0.05rem" }}>
                 <h3 style={{ margin: 0, fontSize: "0.95rem", fontWeight: 700, color: "var(--foreground)", whiteSpace: "nowrap" }}>{funnel.name}</h3>
                 {/*
-                  O que este número conta depende do filtro "Lançados no
-                  período": com ele ligado são só as peças que estrearam dentro
-                  do intervalo, o que fazia o total parecer baixo demais sem
-                  explicar por quê.
+                  O que este número conta depende do filtro de lançamento: com
+                  ele ligado são só as peças que estrearam dentro do intervalo,
+                  o que fazia o total parecer baixo demais sem explicar por quê.
                 */}
                 <span style={{ fontSize: "0.65rem", color: "var(--muted)", fontWeight: 500, whiteSpace: "nowrap" }}>
                   {funnel.adsCount} {funnel.adsCount === 1 ? "anúncio" : "anúncios"}{" "}
@@ -358,88 +405,98 @@ export default function FunnelsOverview({ dateFrom, dateTo, statusFilter, channe
             </div>
 
             {/*
-              Todos os cards informativos num contêiner só, empurrado para a
-              direita: o "por que" e a quantidade formam um bloco contíguo, em
-              vez de ficarem separados por um vão no meio da linha.
+              Barra de ações da categoria: o "por que" atrás de um "?" e a seta
+              de recolher. Antes esta ponta da linha carregava um card por
+              condição de cada canal mais um por contagem — até nove blocos numa
+              categoria, que só caíam numa linha porque a fileira rolava.
             */}
-            <div style={{ display: "flex", flexWrap: "nowrap", alignItems: "stretch", gap: "0.5rem", marginLeft: "auto", flexShrink: 0 }}>
-            {(() => {
-              /*
-               * Só canais que aparecem nos dados: os critérios de Google ficavam
-               * visíveis por causa de valores herdados no cadastro de Metas, para
-               * uma rede que não é sincronizada — três cards de ruído por
-               * categoria, e o que sobrava não caberia em uma linha.
-               */
-              const cards = PLATFORM_LABELS.filter(p => (funnel.platforms?.[p.key] || 0) > 0)
-                .flatMap(p =>
-                  platformCriteria(funnel.rules?.[p.key]).map((c, i) => ({ platform: p, criterion: c, key: `${p.key}-${i}` }))
-                );
+            <div style={{ display: "flex", alignItems: "center", gap: "0.15rem", marginLeft: "auto", flexShrink: 0 }}>
+              <button
+                onClick={() => toggleWhy(funnel)}
+                title="Por que os anúncios estão aqui?"
+                aria-label="Por que os anúncios estão aqui?"
+                aria-expanded={isWhyOpen(funnel)}
+                style={{ ...TOOLBAR_BUTTON_STYLE, color: isWhyOpen(funnel) ? "var(--primary)" : "var(--muted)" }}
+              >
+                <HelpCircle size={16} />
+              </button>
 
-              if (cards.length === 0) {
-                return (
-                  <div style={{ ...HEADER_CARD_STYLE, minWidth: "215px" }}>
-                    <span style={CARD_LABEL_STYLE}>Como entra aqui</span>
-                    <span style={{ ...CARD_VALUE_STYLE, fontWeight: 500, color: "var(--muted)" }}>
-                      Sem exigência definida
-                    </span>
-                  </div>
-                );
-              }
-
-              return cards.map(({ platform, criterion, key }) => {
-                const Icon = PLATFORM_ICONS[platform.key];
-                return (
-                  <div key={`rule-${key}`} style={HEADER_CARD_STYLE}>
-                    <span style={CARD_LABEL_STYLE}>
-                      <span style={{ color: platform.color, display: "flex" }}><Icon size={10} /></span>
-                      {criterion.label}
-                    </span>
-                    <span style={CARD_VALUE_STYLE}>{criterion.value}</span>
-                  </div>
-                );
-              });
-            })()}
-
-            {/* Contagem por canal, no mesmo card dos critérios. */}
-            {PLATFORM_LABELS.filter(p => (funnel.platforms?.[p.key] || 0) > 0).map(p => {
-              const Icon = PLATFORM_ICONS[p.key];
-              const count = funnel.platforms[p.key];
-              return (
-                <div key={`count-${p.key}`} style={HEADER_CARD_STYLE}>
-                  <span style={CARD_LABEL_STYLE}>
-                    <span style={{ color: p.color, display: "flex" }}><Icon size={10} /></span>
-                    {p.label}
-                  </span>
-                  <span style={CARD_VALUE_STYLE}>
-                    {count} {count === 1 ? "anúncio" : "anúncios"}
-                  </span>
-                </div>
-              );
-            })}
+              <button
+                onClick={() => toggleFunnel(funnel)}
+                title={isCollapsed(funnel) ? "Expandir" : "Recolher"}
+                aria-label={isCollapsed(funnel) ? "Expandir categoria" : "Recolher categoria"}
+                style={TOOLBAR_BUTTON_STYLE}
+              >
+                {isCollapsed(funnel) ? <ChevronRight size={18} /> : <ChevronDown size={18} />}
+              </button>
             </div>
-
-            {/* Recolher/expandir: só a seta. */}
-            <button
-              onClick={() => toggleFunnel(funnel)}
-              title={isCollapsed(funnel) ? "Expandir" : "Recolher"}
-              aria-label={isCollapsed(funnel) ? "Expandir categoria" : "Recolher categoria"}
-              style={{ flexShrink: 0, alignSelf: "center", background: "transparent", border: "none", padding: "0.25rem", color: "var(--muted)", cursor: "pointer", display: "flex", alignItems: "center" }}
-            >
-              {isCollapsed(funnel) ? <ChevronRight size={18} /> : <ChevronDown size={18} />}
-            </button>
           </div>
+
+          {/*
+            A resposta do "?": por canal, quantos anúncios estão aqui e as
+            condições que os trouxeram. Abre no fluxo do cartão, e não num
+            balão — a linha do cabeçalho é estreita e um balão ficaria cortado.
+          */}
+          {isWhyOpen(funnel) && (() => {
+            const channels = categoryChannels(funnel, approvedEventKey);
+            return (
+              <div style={{ display: "flex", flexDirection: "column", gap: "0.5rem", background: "var(--background-main)", border: "1px solid var(--card-border)", borderRadius: "8px", padding: "0.85rem 0.95rem" }}>
+                <span style={{ fontSize: "0.85rem", fontWeight: 700, color: "var(--foreground)" }}>
+                  Por que os anúncios estão aqui?
+                </span>
+
+                <span style={{ fontSize: "0.78rem", color: "var(--muted)", lineHeight: 1.55 }}>
+                  Anúncios estão nesta categoria porque seguem critérios pré-definidos de investimento,
+                  receita líquida e CPA, que são definidos mensalmente nas reuniões de planejamento do mês.
+                </span>
+
+                {channels.length === 0 ? (
+                  <span style={{ fontSize: "0.78rem", color: "var(--muted)" }}>
+                    Nenhum canal com anúncios nesta categoria no período.
+                  </span>
+                ) : (
+                  <div style={{ display: "flex", flexDirection: "column", gap: "0.5rem", marginTop: "0.15rem", paddingTop: "0.6rem", borderTop: "1px solid var(--card-border)" }}>
+                    {channels.map(({ platform, count, criteria }) => {
+                      const Icon = PLATFORM_ICONS[platform.key];
+                      return (
+                        <div key={platform.key} style={{ display: "flex", alignItems: "baseline", gap: "0.75rem", fontSize: "0.78rem", lineHeight: 1.55 }}>
+                          <span style={{ display: "flex", alignItems: "center", gap: "0.3rem", fontWeight: 700, color: "var(--foreground)", whiteSpace: "nowrap" }}>
+                            <span style={{ color: platform.color, display: "flex" }}><Icon size={11} /></span>
+                            {platform.label}
+                          </span>
+
+                          {/* Os números cadastrados em destaque; o texto ao redor só os situa. */}
+                          <span style={{ flex: 1, minWidth: 0, color: "var(--muted)" }}>
+                            {criteria.length === 0
+                              ? "nenhum critério definido para este canal"
+                              : criteria.map((c, i) => (
+                                  <span key={`${platform.key}-${i}`}>
+                                    {i > 0 && <span style={{ color: "var(--card-border)" }}>{" · "}</span>}
+                                    {c.prefix ? `${c.prefix} ` : ""}
+                                    <span style={THRESHOLD_STYLE}>{c.value}</span>
+                                    {c.suffix ? ` ${c.suffix}` : ""}
+                                  </span>
+                                ))}
+                          </span>
+
+                          {/* Complemento, e não a resposta: fora do caminho da frase dos critérios. */}
+                          <span style={COUNT_BADGE_STYLE}>
+                            {count} {count === 1 ? "anúncio" : "anúncios"}
+                          </span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            );
+          })()}
 
           {/* Cards Grid */}
           {!isCollapsed(funnel) && funnel.validAds && funnel.validAds.length > 0 && (
             <div className={styles.grid} style={{ marginTop: "0.5rem" }}>
               {funnel.validAds.map((c: any) => (
-                <CreativeCard 
-                  key={c.id} 
-                  creative={c} 
-                  creators={creators} 
-                  hoveredPreview={null} 
-                  setHoveredPreview={() => {}} 
-                />
+                <CreativeCard key={c.id} creative={c} creators={creators} />
               ))}
             </div>
           )}

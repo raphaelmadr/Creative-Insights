@@ -2,22 +2,10 @@ import { NextResponse } from "next/server";
 import prisma from "@/lib/prisma";
 import { generateWithFallback, isAiConfigured } from "@/lib/ai";
 import { transcribeCreative, transcriptToPromptBlock } from "@/lib/creative-vision";
+import { DEFAULT_HYPOTHESIS_PROMPT } from "@/lib/ai-prompts";
 
 export const maxDuration = 120;
 export const dynamic = "force-dynamic";
-
-const DEFAULT_HYPOTHESIS_PROMPT = `Você é um Diretor de Criação de Growth Marketing focado totalmente na conversão e performance de criativos (estáticos e vídeos).
-Sua missão é gerar uma análise rápida, direta e voltada para a equipe criativa sobre UM ÚNICO anúncio.
-
-Baseie-se na transcrição visual da peça — os textos, cores e elementos que ela realmente contém — cruzada com os números. Dê uma hipótese clara do porquê o criativo está performando bem ou mal e sugira:
-1. Melhorias práticas no criativo atual, citando os elementos concretos que você leu na peça (a headline específica, o CTA específico, o contraste, a cor de fundo).
-2. Hipóteses para novas variações focadas em aumentar a conversão.
-
-NÃO dê dicas de tráfego, gestão de campanha, orçamento ou públicos. Fale APENAS com o olhar de um profissional criativo buscando assertividade em conversão.
-NÃO invente elementos que não estão na transcrição.
-
-Retorne APENAS a hipótese em um texto direto (sem usar markdown, sem começar com "A hipótese é"). Seja objetivo e prático.
-Se o anúncio for muito novo (gasto quase zero), diga: "Aguardando mais veiculação para gerar hipótese."`;
 
 export async function POST(req: Request) {
   try {
@@ -41,21 +29,25 @@ export async function POST(req: Request) {
 
     const settings = await prisma.systemSettings.findUnique({ where: { id: 1 } });
 
-    // A transcrição é o insumo principal. Sem ela, a análise voltaria a
-    // adivinhar a peça pelo nome do arquivo — que é uma convenção do time, não
-    // uma descrição do criativo.
-    let transcriptBlock = transcriptToPromptBlock(null, creativeName ?? undefined);
-    let transcribed = false;
+    /*
+     * A leitura da peça é pré-requisito, não insumo opcional: a análise é sobre
+     * o criativo — composição, textos, CTA —, e sem a transcrição o modelo
+     * voltaria a adivinhar tudo pelo nome do arquivo, que é uma convenção de
+     * nomenclatura do time e não uma descrição da peça. Sem conseguir ler a
+     * arte, devolvemos o motivo em vez de uma análise inventada.
+     */
+    const vision = id ? await transcribeCreative(id) : null;
 
-    if (id) {
-      const result = await transcribeCreative(id);
-      if (result.ok && result.transcript) {
-        transcriptBlock = transcriptToPromptBlock(result.transcript);
-        transcribed = true;
-      } else if (result.error) {
-        transcriptBlock = `${transcriptToPromptBlock(null, creativeName ?? undefined)}\nMotivo: ${result.error}`;
-      }
+    if (!vision?.ok || !vision.transcript) {
+      const reason = vision?.error || "esta peça não tem imagem ou capa para a IA ler.";
+      return NextResponse.json({
+        success: true,
+        transcribed: false,
+        hypothesis: `Não consegui ler o criativo, então não há como analisar a peça: ${reason}`,
+      });
     }
+
+    const transcriptBlock = transcriptToPromptBlock(vision.transcript);
 
     const base = settings?.hypothesisPrompt || DEFAULT_HYPOTHESIS_PROMPT;
 
@@ -71,15 +63,26 @@ export async function POST(req: Request) {
       .replaceAll("${riskApprovedValue}", String(riskApprovedValue ?? 0))
       .replaceAll("${ctr}", String(ctr ?? 0));
 
-    // O bloco é anexado em vez de interpolado: um prompt salvo antes desta
-    // mudança não tem placeholder para a transcrição, e mesmo assim precisa
-    // recebê-la.
+    /*
+     * A ordem dos blocos é a ordem da análise: a peça primeiro, os números por
+     * último e rotulados como contexto. O bloco de instrução vai anexado — um
+     * prompt salvo no painel antes desta mudança não pede a descrição da peça,
+     * e mesmo assim precisa produzi-la.
+     */
     const prompt = `${filled}
 
-[TRANSCRIÇÃO VISUAL DA PEÇA — o que a imagem de fato contém]
+[A PEÇA — leitura visual do criativo, feita a partir da própria arte]
 ${transcriptBlock}
 
-[NÚMEROS DO PERÍODO]
+[COMO RESPONDER]
+Três etapas, nesta ordem, com os títulos em linhas próprias:
+"Transcrição" — o que a peça é e o que está escrito nela: formato, composição, headline e CTA literais, oferta, demais textos e cores.
+"Análise" — como a peça está construída: clareza da promessa, hierarquia visual, contraste e legibilidade, força do CTA, coerência com a oferta.
+"Melhorias" — de 3 a 5 mudanças concretas na própria peça, numeradas, citando o elemento que muda e o motivo, e ao final uma ideia de variação nova.
+Os números abaixo são contexto — não os analise e não fale de mídia, verba, público ou campanha.
+Estas instruções prevalecem sobre qualquer pedido anterior de resposta curta ou de análise de números.
+
+[CONTEXTO — números do período, não são o assunto]
 Investimento: R$ ${spend ?? 0}
 Valor aprovado no risco: R$ ${riskApprovedValue ?? 0}
 CTR: ${ctr ?? 0}%
@@ -89,7 +92,7 @@ Nome do arquivo: ${creativeName ?? "(sem nome)"}`;
 
     const text = await generateWithFallback(prompt);
 
-    return NextResponse.json({ success: true, hypothesis: text, transcribed });
+    return NextResponse.json({ success: true, hypothesis: text, transcribed: true });
   } catch (error: any) {
     console.error("Hypothesis API Error:", error);
     return NextResponse.json({ error: error.message }, { status: 500 });
