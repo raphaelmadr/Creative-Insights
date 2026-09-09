@@ -184,6 +184,7 @@ model SystemSettings {
   cronSyncEnabled   Boolean  @default(true)
   cronSyncMode      String   @default("metrics") // "metrics" ou "full"
   cronSyncInterval  Int      @default(120)       // Intervalo em minutos
+  cronSecret        String?  @db.Text            // Gerado no painel; autoriza o disparador externo
 
   lastSyncAt        DateTime?
   lastFastSyncAt    DateTime?

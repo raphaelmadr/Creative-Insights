@@ -1,9 +1,9 @@
 "use client";
 
 import React, { useState, useEffect } from "react";
-import { Save, Loader2, Copy, Check, PlayCircle, AlertTriangle } from "lucide-react";
+import { Save, Loader2, Copy, Check, PlayCircle, AlertTriangle, RefreshCw, Eye, EyeOff, ShieldCheck, ShieldAlert } from "lucide-react";
 
-/** Cadência recomendada para o disparador externo: bate sempre, o painel filtra. */
+/** Cadência do disparador externo: bate sempre, o painel filtra. */
 const RECOMMENDED_CRON_EXPRESSION = "*/15 * * * *";
 
 const formatDateTime = (value?: string | null) => {
@@ -11,11 +11,28 @@ const formatDateTime = (value?: string | null) => {
   return new Date(value).toLocaleString("pt-BR", { dateStyle: "short", timeStyle: "short" });
 };
 
+interface CronTriggerState {
+  hasSecret: boolean;
+  hasDbSecret: boolean;
+  hasEnvSecret: boolean;
+  baseUrl: string | null;
+  baseUrlSource: string | null;
+  reachableExternally: boolean;
+  triggerUrl: string | null;
+  triggerCommand: string | null;
+}
+
+/** O Cron Jobs padrão do cPanel executa um comando; alguns disparadores só aceitam um link. */
+type TriggerFormat = "command" | "url";
+
 export default function SistemaPage() {
   const [fetching, setFetching] = useState(true);
   const [savingSettings, setSavingSettings] = useState(false);
   const [testing, setTesting] = useState(false);
+  const [rotating, setRotating] = useState(false);
   const [copied, setCopied] = useState<string | null>(null);
+  const [revealUrl, setRevealUrl] = useState(false);
+  const [format, setFormat] = useState<TriggerFormat>("command");
 
   const [settings, setSettings] = useState({
     cronSyncEnabled: true,
@@ -28,43 +45,42 @@ export default function SistemaPage() {
   // Informação só de leitura: estado da automação e fontes com credenciais.
   const [status, setStatus] = useState<{
     lastCronSyncAt?: string | null;
-    lastSyncAt?: string | null;
     sources: { label: string; configured: boolean }[];
   }>({ sources: [] });
 
-  const [endpointUrl, setEndpointUrl] = useState("");
+  const [trigger, setTrigger] = useState<CronTriggerState | null>(null);
 
-  const loadSettings = React.useCallback(() => {
-    return fetch("/api/settings")
-      .then(r => r.json())
-      .then((settingsRes) => {
-        if (settingsRes.success && settingsRes.data) {
-          const data = settingsRes.data;
-          setSettings({
-            cronSyncEnabled: data.cronSyncEnabled ?? true,
-            cronSyncMode: data.cronSyncMode ?? "metrics",
-            cronSyncInterval: data.cronSyncInterval ?? 120,
-            cpanelUploadUrl: data.cpanelUploadUrl ?? "",
-            cpanelUploadSecret: data.cpanelUploadSecret ?? "",
-          });
-          setStatus({
-            lastCronSyncAt: data.lastCronSyncAt,
-            lastSyncAt: data.lastSyncAt,
-            sources: [
-              { label: "Meta", configured: !!(data.metaAdAccountId && data.metaAccessToken) },
-              { label: "TikTok", configured: !!(data.tiktokAdvertiserId && data.tiktokAccessToken) },
-              { label: "Entregas (Slack)", configured: !!(data.slackBotToken && data.slackChannelId) },
-            ],
-          });
-        }
-      });
+  const loadAll = React.useCallback(() => {
+    return Promise.all([
+      fetch("/api/settings").then(r => r.json()),
+      fetch("/api/settings/cron-secret").then(r => r.json()),
+    ]).then(([settingsRes, cronRes]) => {
+      if (settingsRes.success && settingsRes.data) {
+        const data = settingsRes.data;
+        setSettings({
+          cronSyncEnabled: data.cronSyncEnabled ?? true,
+          cronSyncMode: data.cronSyncMode ?? "metrics",
+          cronSyncInterval: data.cronSyncInterval ?? 120,
+          cpanelUploadUrl: data.cpanelUploadUrl ?? "",
+          cpanelUploadSecret: data.cpanelUploadSecret ?? "",
+        });
+        setStatus({
+          lastCronSyncAt: data.lastCronSyncAt,
+          sources: [
+            { label: "Meta", configured: !!(data.metaAdAccountId && data.metaAccessToken) },
+            { label: "TikTok", configured: !!(data.tiktokAdvertiserId && data.tiktokAccessToken) },
+            { label: "Entregas (Slack)", configured: !!(data.slackBotToken && data.slackChannelId) },
+          ],
+        });
+      }
+      if (cronRes.success) setTrigger(cronRes);
+    });
   }, []);
 
   useEffect(() => {
-    setEndpointUrl(`${window.location.origin}/api/cron/sync-all`);
     setFetching(true);
-    loadSettings().finally(() => setFetching(false));
-  }, [loadSettings]);
+    loadAll().finally(() => setFetching(false));
+  }, [loadAll]);
 
   const handleSaveSettings = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
@@ -75,11 +91,7 @@ export default function SistemaPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(settings)
       });
-      if (res.ok) {
-        alert("Configurações do sistema salvas com sucesso!");
-      } else {
-        alert("Erro ao salvar configurações do sistema.");
-      }
+      alert(res.ok ? "Configurações do sistema salvas com sucesso!" : "Erro ao salvar configurações do sistema.");
     } catch (err) {
       alert("Erro ao salvar configurações do sistema.");
     }
@@ -96,6 +108,28 @@ export default function SistemaPage() {
     }
   };
 
+  const handleRotateSecret = async () => {
+    if (rotating) return;
+    if (trigger?.hasDbSecret && !window.confirm(
+      "Gerar um segredo novo invalida o atual. O disparador do cPanel vai receber 401 até você colar o valor novo lá. Continuar?"
+    )) return;
+
+    setRotating(true);
+    try {
+      const res = await fetch("/api/settings/cron-secret", { method: "POST" });
+      const data = await res.json();
+      if (data.success) {
+        setTrigger(data);
+        setRevealUrl(true);
+      } else {
+        alert("Erro ao gerar o segredo: " + (data.error || "desconhecido"));
+      }
+    } catch (e) {
+      alert("Erro ao gerar o segredo do cron.");
+    }
+    setRotating(false);
+  };
+
   const handleTestNow = async () => {
     if (testing) return;
     setTesting(true);
@@ -107,7 +141,7 @@ export default function SistemaPage() {
           ? `Execução concluída.\n\n${data.message || ""}`
           : `A execução reportou falha.\n\n${data.message || data.error || "Erro desconhecido"}`
       );
-      await loadSettings();
+      await loadAll();
     } catch (e) {
       alert("Erro ao disparar a sincronização de teste.");
     }
@@ -127,6 +161,8 @@ export default function SistemaPage() {
     : null;
 
   const noSourceConfigured = status.sources.every(s => !s.configured);
+  const triggerValue = (format === "command" ? trigger?.triggerCommand : trigger?.triggerUrl) ?? "";
+  const urlUsable = !!triggerValue && !!trigger?.reachableExternally && !!trigger?.hasSecret;
 
   const inputStyle: React.CSSProperties = {
     padding: "0.8rem",
@@ -136,6 +172,30 @@ export default function SistemaPage() {
     color: "var(--foreground)",
     outline: "none",
   };
+
+  const iconButtonStyle: React.CSSProperties = {
+    background: "transparent",
+    border: "1px solid var(--card-border)",
+    borderRadius: "8px",
+    padding: "0 0.9rem",
+    cursor: "pointer",
+    color: "var(--foreground)",
+    display: "flex",
+    alignItems: "center",
+  };
+
+  const noticeStyle = (tone: "warn" | "info"): React.CSSProperties => ({
+    display: "flex",
+    gap: "0.6rem",
+    alignItems: "flex-start",
+    fontSize: "0.82rem",
+    lineHeight: 1.5,
+    color: tone === "warn" ? "#b45309" : "var(--muted)",
+    background: tone === "warn" ? "rgba(245,158,11,0.1)" : "rgba(0,0,0,0.02)",
+    border: `1px solid ${tone === "warn" ? "rgba(245,158,11,0.3)" : "var(--card-border)"}`,
+    borderRadius: "8px",
+    padding: "0.8rem",
+  });
 
   return (
     <div className="glass-panel" style={{ padding: "2rem", borderRadius: "16px" }}>
@@ -196,7 +256,7 @@ export default function SistemaPage() {
             </div>
 
             {noSourceConfigured && (
-              <div style={{ display: "flex", gap: "0.6rem", alignItems: "flex-start", fontSize: "0.85rem", color: "#b45309", background: "rgba(245,158,11,0.1)", border: "1px solid rgba(245,158,11,0.3)", borderRadius: "8px", padding: "0.8rem" }}>
+              <div style={noticeStyle("warn")}>
                 <AlertTriangle size={16} style={{ flexShrink: 0, marginTop: "0.1rem" }} />
                 <span>Nenhuma fonte tem credenciais cadastradas — a automação não tem o que sincronizar. Preencha as chaves em Configurações › API.</span>
               </div>
@@ -206,9 +266,20 @@ export default function SistemaPage() {
 
         <hr style={{ border: "none", borderTop: "1px solid var(--card-border)" }} />
 
-        <div style={{ display: "flex", flexDirection: "column", gap: "1.5rem" }}>
+        <div style={{ display: "flex", flexDirection: "column", gap: "1.2rem" }}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: "1rem", flexWrap: "wrap" }}>
-            <h3 style={{ fontSize: "1.1rem", fontWeight: 600, color: "var(--foreground)", margin: 0 }}>Disparador Externo (Cron Job do cPanel)</h3>
+            <h3 style={{ display: "flex", alignItems: "center", gap: "0.6rem", fontSize: "1.1rem", fontWeight: 600, color: "var(--foreground)", margin: 0 }}>
+              Disparador Externo (Cron Job do cPanel)
+              {urlUsable ? (
+                <span style={{ display: "inline-flex", alignItems: "center", gap: "0.3rem", fontSize: "0.72rem", fontWeight: 600, color: "#16a34a", background: "rgba(34,197,94,0.12)", border: "1px solid rgba(34,197,94,0.3)", borderRadius: "999px", padding: "0.15rem 0.55rem" }}>
+                  <ShieldCheck size={12} /> Autenticada
+                </span>
+              ) : (
+                <span style={{ display: "inline-flex", alignItems: "center", gap: "0.3rem", fontSize: "0.72rem", fontWeight: 600, color: "#b45309", background: "rgba(245,158,11,0.12)", border: "1px solid rgba(245,158,11,0.3)", borderRadius: "999px", padding: "0.15rem 0.55rem" }}>
+                  <ShieldAlert size={12} /> Pendente
+                </span>
+              )}
+            </h3>
             <button type="button" onClick={handleTestNow} disabled={testing} style={{ background: "transparent", color: "var(--primary)", border: "1px solid var(--primary)", padding: "0.6rem 1.2rem", borderRadius: "6px", fontWeight: 600, cursor: testing ? "wait" : "pointer", display: "flex", alignItems: "center", gap: "0.5rem" }}>
               {testing ? <Loader2 size={16} className="spin" /> : <PlayCircle size={16} />}
               {testing ? "Sincronizando..." : "Testar agora"}
@@ -216,34 +287,107 @@ export default function SistemaPage() {
           </div>
 
           <p style={{ fontSize: "0.85rem", color: "var(--muted)", margin: 0, lineHeight: 1.6 }}>
-            O disparador só acorda a aplicação — quem decide se sincroniza, com que frequência e em que
-            profundidade são as configurações acima. Por isso configure o cron do cPanel para bater
-            sempre no intervalo mais curto (<code>{RECOMMENDED_CRON_EXPRESSION}</code>, a cada 15 min):
-            mudar o intervalo aqui no painel passa a valer na hora, sem mexer no servidor.
+            Cole o valor abaixo no Cron Job do cPanel com a frequência <code>{RECOMMENDED_CRON_EXPRESSION}</code> (a cada 15 min).
+            Já vem autenticado e apontando para o domínio de produção. O disparador apenas acorda a aplicação —
+            quem decide se sincroniza, com que frequência e em que profundidade são as configurações acima, então
+            mudar o intervalo aqui passa a valer na hora, sem mexer no servidor.
           </p>
 
-          <label style={{ display: "flex", flexDirection: "column", gap: "0.5rem", fontSize: "0.9rem" }}>
-            <span style={{ fontWeight: 600 }}>URL para o disparador</span>
+          <div style={{ display: "flex", flexDirection: "column", gap: "0.5rem", fontSize: "0.9rem" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: "1rem", flexWrap: "wrap" }}>
+              <span style={{ fontWeight: 600 }}>{format === "command" ? "Comando para o cPanel" : "URL para o disparador"}</span>
+              <div style={{ display: "inline-flex", border: "1px solid var(--card-border)", borderRadius: "8px", overflow: "hidden" }}>
+                {([
+                  ["command", "Comando (cPanel)"],
+                  ["url", "URL simples"],
+                ] as [TriggerFormat, string][]).map(([value, label]) => (
+                  <button
+                    key={value}
+                    type="button"
+                    onClick={() => setFormat(value)}
+                    style={{
+                      background: format === value ? "var(--primary)" : "transparent",
+                      color: format === value ? "#fff" : "var(--muted)",
+                      border: "none",
+                      padding: "0.45rem 0.9rem",
+                      fontSize: "0.78rem",
+                      fontWeight: 600,
+                      cursor: "pointer",
+                    }}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+            </div>
             <div style={{ display: "flex", gap: "0.5rem" }}>
-              <input readOnly value={endpointUrl} onFocus={e => e.currentTarget.select()} style={{ ...inputStyle, flex: 1, fontFamily: "monospace", fontSize: "0.82rem" }} />
-              <button type="button" onClick={() => handleCopy(endpointUrl, "url")} title="Copiar URL" style={{ background: "transparent", border: "1px solid var(--card-border)", borderRadius: "8px", padding: "0 0.9rem", cursor: "pointer", color: "var(--foreground)", display: "flex", alignItems: "center" }}>
-                {copied === "url" ? <Check size={16} color="#16a34a" /> : <Copy size={16} />}
+              <input
+                readOnly
+                type={revealUrl ? "text" : "password"}
+                value={triggerValue}
+                placeholder="Clique em Gerar para começar"
+                onFocus={e => e.currentTarget.select()}
+                style={{ ...inputStyle, flex: 1, fontFamily: "monospace", fontSize: "0.82rem" }}
+              />
+              <button type="button" onClick={() => setRevealUrl(v => !v)} title={revealUrl ? "Ocultar" : "Revelar"} style={iconButtonStyle}>
+                {revealUrl ? <EyeOff size={16} /> : <Eye size={16} />}
+              </button>
+              <button type="button" onClick={() => handleCopy(triggerValue, "trigger")} disabled={!triggerValue} title="Copiar" style={{ ...iconButtonStyle, opacity: triggerValue ? 1 : 0.4 }}>
+                {copied === "trigger" ? <Check size={16} color="#16a34a" /> : <Copy size={16} />}
+              </button>
+              <button type="button" onClick={handleRotateSecret} disabled={rotating} style={{ background: "transparent", color: "var(--primary)", border: "1px solid var(--primary)", borderRadius: "8px", padding: "0 1rem", fontWeight: 600, cursor: rotating ? "wait" : "pointer", display: "flex", alignItems: "center", gap: "0.4rem", whiteSpace: "nowrap" }}>
+                {rotating ? <Loader2 size={14} className="spin" /> : <RefreshCw size={14} />}
+                {trigger?.hasDbSecret ? "Gerar novo" : "Gerar"}
               </button>
             </div>
-          </label>
-
-          <label style={{ display: "flex", flexDirection: "column", gap: "0.5rem", fontSize: "0.9rem" }}>
-            <span style={{ fontWeight: 600 }}>Comando sugerido no cPanel</span>
-            <div style={{ display: "flex", gap: "0.5rem" }}>
-              <input readOnly value={`curl -fsS -H "Authorization: Bearer $CRON_SECRET" "${endpointUrl}"`} onFocus={e => e.currentTarget.select()} style={{ ...inputStyle, flex: 1, fontFamily: "monospace", fontSize: "0.82rem" }} />
-              <button type="button" onClick={() => handleCopy(`curl -fsS -H "Authorization: Bearer $CRON_SECRET" "${endpointUrl}"`, "cmd")} title="Copiar comando" style={{ background: "transparent", border: "1px solid var(--card-border)", borderRadius: "8px", padding: "0 0.9rem", cursor: "pointer", color: "var(--foreground)", display: "flex", alignItems: "center" }}>
-                {copied === "cmd" ? <Check size={16} color="#16a34a" /> : <Copy size={16} />}
-              </button>
-            </div>
-            <span style={{ fontSize: "0.8rem", color: "var(--muted)", opacity: 0.8 }}>
-              Se o disparador só aceitar uma URL crua, use <code>{endpointUrl}?secret=SEU_CRON_SECRET</code>.
+            <span style={{ fontSize: "0.8rem", color: "var(--muted)", opacity: 0.8, lineHeight: 1.5 }}>
+              {format === "command"
+                ? "O Cron Jobs padrão do cPanel executa um comando de shell — é este o formato para o campo \"Command\". O segredo vai no cabeçalho, fora da URL, e o comando descarta a resposta em caso de sucesso para o cPanel não te enviar um e-mail a cada 15 minutos."
+                : "Use este formato apenas se o seu disparador aceitar somente um link, sem comando. O segredo viaja na própria URL e por isso aparece nos logs de acesso do servidor."}
             </span>
-          </label>
+            <span style={{ fontSize: "0.8rem", color: "var(--muted)", opacity: 0.8 }}>
+              O segredo é gravado no mesmo instante em que você gera, então o valor exibido já é aceito pelo servidor — pode colar direto.
+            </span>
+          </div>
+
+          {!trigger?.hasSecret && (
+            <div style={noticeStyle("warn")}>
+              <ShieldAlert size={16} style={{ flexShrink: 0, marginTop: "0.1rem" }} />
+              <span>Sem segredo, qualquer um que descobrir o endereço consegue disparar a sincronização. Clique em <strong>Gerar</strong>.</span>
+            </div>
+          )}
+
+          {trigger && !trigger.reachableExternally && (
+            <div style={noticeStyle("warn")}>
+              <AlertTriangle size={16} style={{ flexShrink: 0, marginTop: "0.1rem" }} />
+              <span>
+                Não foi possível determinar o domínio público desta instalação
+                {trigger.baseUrl ? <> — só existe o endereço local <code>{trigger.baseUrl}</code>, que o servidor do cPanel não alcança</> : null}.
+                Abra esta página <strong>no domínio de produção da Vercel</strong> para copiar a URL correta, ou defina a variável
+                de ambiente <code>CRON_PUBLIC_URL</code> com o domínio público.
+              </span>
+            </div>
+          )}
+
+          {trigger?.hasSecret && !trigger.hasDbSecret && (
+            <div style={noticeStyle("info")}>
+              <ShieldCheck size={16} style={{ flexShrink: 0, marginTop: "0.1rem" }} />
+              <span>
+                A URL acima usa o <code>CRON_SECRET</code> definido no ambiente do servidor. Clique em <strong>Gerar</strong> para
+                passar a administrar o segredo por aqui — o de ambiente continua sendo aceito, então a troca não derruba o disparador.
+              </span>
+            </div>
+          )}
+
+          {urlUsable && format === "url" && (
+            <div style={noticeStyle("warn")}>
+              <AlertTriangle size={16} style={{ flexShrink: 0, marginTop: "0.1rem" }} />
+              <span>
+                Neste formato o segredo fica registrado nos logs de acesso da Vercel. Prefira <strong>Comando (cPanel)</strong>
+                quando o disparador aceitar um comando de shell. Gere um novo a qualquer momento se suspeitar de exposição.
+              </span>
+            </div>
+          )}
         </div>
 
         <hr style={{ border: "none", borderTop: "1px solid var(--card-border)" }} />
