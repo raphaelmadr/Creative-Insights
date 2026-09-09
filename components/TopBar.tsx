@@ -143,10 +143,8 @@ export default function TopBar() {
 
           <nav className={styles.desktopNav} style={{ display: "flex", gap: "1.5rem", alignItems: "center", marginLeft: "2rem" }}>
             <Link href="/" className={`${styles.navLink} ${pathname === "/" ? styles.active : ""}`}>Início</Link>
-            <Link href="/anuncios" className={`${styles.navLink} ${pathname.startsWith("/anuncios") ? styles.active : ""}`}>Anúncios</Link>
             <Link href="/insights" className={`${styles.navLink} ${pathname.startsWith("/insights") ? styles.active : ""}`}>Insights</Link>
-            <Link href="/similaridade" className={`${styles.navLink} ${pathname.startsWith("/similaridade") ? styles.active : ""}`}>Auditoria de Entity IDs</Link>
-            <Link href="/analises" className={`${styles.navLink} ${pathname.startsWith("/analises") ? styles.active : ""}`}>Análises</Link>
+            <Link href="/similaridade" className={`${styles.navLink} ${pathname.startsWith("/similaridade") ? styles.active : ""}`}>Análise de Similaridade</Link>
             <Link href="/equipe" className={`${styles.navLink} ${pathname.startsWith("/equipe") ? styles.active : ""}`}>Equipe</Link>
           </nav>
         </div>
@@ -163,10 +161,8 @@ export default function TopBar() {
               </div>
             <nav style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
               <Link href="/" className={`${styles.navLink} ${pathname === "/" ? styles.active : ""}`}>Início</Link>
-              <Link href="/anuncios" className={`${styles.navLink} ${pathname.startsWith("/anuncios") ? styles.active : ""}`}>Anúncios</Link>
               <Link href="/insights" className={`${styles.navLink} ${pathname.startsWith("/insights") ? styles.active : ""}`}>Insights</Link>
-              <Link href="/similaridade" className={styles.navLink} onClick={() => setIsMobileMenuOpen(false)}>Auditoria de Entity IDs</Link>
-              <Link href="/analises" className={styles.navLink} onClick={() => setIsMobileMenuOpen(false)}>Análises</Link>
+              <Link href="/similaridade" className={styles.navLink} onClick={() => setIsMobileMenuOpen(false)}>Análise de Similaridade</Link>
               <Link href="/equipe" className={styles.navLink} onClick={() => setIsMobileMenuOpen(false)}>Equipe</Link>
             </nav>
             

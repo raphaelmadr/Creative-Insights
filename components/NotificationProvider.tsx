@@ -1,7 +1,6 @@
 "use client";
 
 import React, { createContext, useContext, useEffect, useState, ReactNode } from "react";
-import { useRouter } from "next/navigation";
 import { X } from "lucide-react";
 import { ToastStack, ToastItem } from "./ToastStack";
 
@@ -27,7 +26,6 @@ interface NotificationContextType {
   hasMore: boolean;
   isFetchingMore: boolean;
   loadMoreUpdates: () => Promise<void>;
-  analyzeCampaigns: (dateFrom?: string, dateTo?: string) => Promise<void>;
   isSyncingMeta: boolean;
   /** Fim da última sincronização — manual ou automática, completa ou parcial. */
   lastSyncAt: string | null;
@@ -52,7 +50,6 @@ const NotificationContext = createContext<NotificationContextType>({
   hasMore: false,
   isFetchingMore: false,
   loadMoreUpdates: async () => {},
-  analyzeCampaigns: async (dateFrom?: string, dateTo?: string) => {},
   isSyncingMeta: false,
   lastSyncAt: null,
   nextAutoSyncAt: null,
@@ -67,7 +64,6 @@ const NotificationContext = createContext<NotificationContextType>({
 export const useNotifications = () => useContext(NotificationContext);
 
 export default function NotificationProvider({ children }: { children: ReactNode }) {
-  const router = useRouter();
   const [updates, setUpdates] = useState<UpdateItem[]>([]);
   const [unreadCount, setUnreadCount] = useState(0);
   const [lastReadDate, setLastReadDate] = useState<Date | null>(null);
@@ -212,63 +208,6 @@ export default function NotificationProvider({ children }: { children: ReactNode
       }
     } catch (err) {
       console.error("Failed to search for updates:", err);
-      setIsSearching(false);
-    }
-  };
-
-  const analyzeCampaigns = async (dateFrom?: string, dateTo?: string) => {
-    if (isSearching) return;
-    setIsSearching(true);
-    setLoadingText("Iniciando análise de campanhas...");
-    
-    try {
-      let url = "/api/insights/meta";
-      if (dateFrom && dateTo) {
-        url += `?from=${dateFrom}&to=${dateTo}`;
-      }
-      const response = await fetch(url);
-      if (!response.body) throw new Error("No response body");
-
-      const reader = response.body.getReader();
-      const decoder = new TextDecoder();
-      let done = false;
-
-      while (!done) {
-        const { value, done: readerDone } = await reader.read();
-        done = readerDone;
-        
-        if (value) {
-          const chunk = decoder.decode(value, { stream: true });
-          const lines = chunk.split('\n').filter(Boolean);
-          
-          for (const line of lines) {
-            try {
-              const data = JSON.parse(line);
-              if (data.type === 'status') {
-                setLoadingText(data.message);
-              } else if (data.type === 'complete') {
-                setIsSearching(false);
-
-                if (data.id) {
-                  router.push(`/analises/${data.id}`);
-                } else {
-                  setToastMsg({ id: "analyze", title: "Nenhum insight novo gerado hoje.", isNew: false });
-                  setTimeout(() => {
-                    setToastMsg(null);
-                  }, 5000);
-                }
-              } else if (data.type === 'error') {
-                console.error("Meta API Stream Error:", data.error);
-                setIsSearching(false);
-              }
-            } catch (e) {
-              console.error("Failed to parse NDJSON line", line);
-            }
-          }
-        }
-      }
-    } catch (err) {
-      console.error("Failed to analyze campaigns:", err);
       setIsSearching(false);
     }
   };
@@ -434,7 +373,7 @@ export default function NotificationProvider({ children }: { children: ReactNode
     <NotificationContext.Provider value={{ 
       updates, unreadCount, loading, loadingText, isSearching, 
       searchForUpdates, markAllAsRead, hasMore, isFetchingMore, 
-      loadMoreUpdates, analyzeCampaigns,
+      loadMoreUpdates,
       isSyncingMeta, lastSyncAt, nextAutoSyncAt, syncCounter,
       syncMessage, syncProgress,
       isSyncingAll, syncAll, lastReadDate

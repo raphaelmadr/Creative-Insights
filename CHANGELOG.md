@@ -1,6 +1,38 @@
 # Changelog: Creative Insights (Fase 1)
 Data: 31 de Agosto de 2026
 
+## 🧹 Navegação Enxuta: `/analises` e `/anuncios` Removidas (Setembro 2026)
+* **`/anuncios` removida** junto de `components/CreativeView.tsx`, usada só por ela — a página com a grade completa de criativos, a seção de Testes e o rolamento infinito. A Home cobre a navegação pelos criativos: as categorias listam as peças, e a análise individual continua no card. `CreativeCard` e `/api/db-ads` permanecem, porque a Home os usa.
+* **`CreativeView.module.css` renomeado para `CreativeGrid.module.css`:** o componente que dava nome ao arquivo deixou de existir, e as classes que sobraram (`grid`, `card`, `info`) são compartilhadas por `CreativeCard` e `FunnelsOverview`.
+* **Transcrição em lote movida para `Configurações → IA`,** logo abaixo do prompt que a governa. É manutenção — custa uma chamada de visão por criativo e roda de vez em quando —, não um botão de uso diário na navegação principal. Sob demanda a transcrição continua acontecendo sozinha na primeira análise de cada peça.
+* **Navegação final:** Início, Insights, Análise de Similaridade, Equipe.
+
+### Home: leitura de índice
+* **Categorias recolhidas por padrão.** A ausência da chave no estado passou a significar "recolhido", com a lógica centralizada em `isCollapsed`/`toggleFunnel` em vez de espalhada pelos pontos que consultavam o estado. A Home abre como um índice — nome, critério e contagem por canal — e quem quiser ver as peças expande a categoria.
+* **Cabeçalho em uma única linha:** identidade da categoria à esquerda, o bloco de cards informativos alinhado à direita, e a seta de recolher no fim. Em tela estreita a fileira rola na horizontal em vez de quebrar.
+* **Métricas por categoria removidas** (gasto, aprovado no risco, CPA e ROAS). Sobrou o que responde de imediato: quantos anúncios, de quais canais, e por que estão ali. As métricas globais do topo da página não mudaram.
+* **Critérios sem jargão:** o tipo do critério virou rótulo do card e o limiar virou o valor — `VENDAS APROVADAS / acima de R$ 10.000` em vez de `CPA ≤ R$ 50`. A tradução é fiel a `lib/creative-metrics.ts`, onde a receita de referência é o valor de pedidos aprovados e o CPA é o custo por pedido aprovado.
+* **Rosa do TikTok (`#FF0050`)** no lugar do ciano, que competia com o azul da Meta e tinha contraste ruim nos dois temas. O azul da Meta passou ao oficial `#1877F2`.
+* **Bug: contagem por canal não fechava com o total.** Os cards de canal eram calculados sobre todos os anúncios da categoria, enquanto o total sob o nome usava os filtrados por data — com o filtro "Lançados no período" ligado, o total podia dizer "8 anúncios" enquanto os cards somavam 40. Agora ambos contam a mesma população.
+* **O total diz o que conta:** `8 anúncios lançados neste período`, acompanhando o filtro do topo (`lançados` / `veiculados`), com nota no card de contexto explicando o efeito do filtro.
+
+## 🧠 IA Baseada na Imagem, não no Nome do Arquivo (Setembro 2026)
+A IA passou a ter exatamente duas funções: **análise individual do criativo** e **análise de similaridade**. E as duas partem da peça em si.
+
+* **Transcrição visual (`lib/creative-vision.ts`):** a IA recebe a imagem e devolve o que está nela — headline, subheadline, CTA, textos de apoio, cores dominantes com sua função (fundo, texto, destaque), elementos visuais, presença de pessoa, oferta declarada, formato e legibilidade. Retorna JSON, é normalizada campo a campo e fica em cache em `AdCreative.visionTranscript`: uma chamada de visão por peça, reaproveitada por toda análise seguinte.
+* **Fim da análise pelo nome do arquivo:** `/api/hypothesis` lia `{{ad_name}}` e inferia o resto. O nome é convenção de nomenclatura do time, não descrição da peça — duas peças visualmente opostas podem ter nomes quase idênticos. A transcrição é agora anexada ao prompt automaticamente, inclusive em prompts salvos antes desta mudança, que não têm placeholder para ela. O nome segue no prompt, mas rotulado como referência interna que não descreve o criativo.
+* **Similaridade comparável, não adivinhada:** `/api/similaridade/analyze` já enviava as imagens, o que obrigava o modelo a "achar" a diferença entre elas. Agora envia também a transcrição de cada peça, então a comparação de headline, CTA e cores é verificável — e fica registrado no prompt o que exatamente foi comparado.
+* **Sob demanda com cache, mais lote:** a transcrição acontece na primeira análise que precisar dela. O botão de IA da página Anúncios — que antes gerava análises de campanha — virou a transcrição em lote das peças ativas ainda sem transcrição, em série, respeitando os limites de taxa dos provedores de visão. Uma peça ilegível devolve o motivo em vez de derrubar o lote.
+* **Prompt de transcrição configurável** em `Configurações → IA`, ao lado do de análise individual, com explicação de como os dois se encadeiam.
+
+### `/analises` removida
+A página de análise de campanhas e tudo que dependia dela saiu: `app/analises/`, `app/api/analises/`, `app/api/insights/meta/`, `components/AnalysisHeader.tsx`, a função `analyzeCampaigns()` do `NotificationProvider` (56 linhas), o modelo `CampaignAnalysis` — que tinha **zero registros**, nunca foi usado em produção — e o prompt `insightsPrompt`, órfão depois da remoção da rota. O link some do TopBar, onde **"Auditoria de Entity IDs" foi renomeado para "Análise de Similaridade"**.
+
+### Home: contexto para quem chega agora
+* **Cards explicativos por funil:** cada categoria passou a declarar seu próprio critério com os valores que estão valendo — `Meta: receita líquida ≥ R$ 10.000` / `TikTok: receita líquida ≥ R$ 8.000` para Prime Winners. Os números saem de `creativeCategories` no banco, então a explicação acompanha a configuração em vez de ser texto fixo que envelhece. Categoria sem corte é declarada como tal.
+* **Nota de leitura dos funis:** explica o mecanismo real — cada criativo é avaliado pelos cortes da própria plataforma e fica na primeira categoria em que se encaixa, de cima para baixo, e é por isso que as de cima valem mais.
+* **Funis collapsáveis**, individualmente e com "Recolher tudo", como já era na página de Anúncios.
+
 ## 🔐 Painel como Fonte Única de Configuração (Setembro 2026)
 Duas regras passaram a valer, e estão documentadas em `lib/integrations.ts`: **toda credencial se configura no painel, sem `.env`**, e **credencial ausente desabilita um recurso com mensagem própria, sem derrubar o sistema.**
 

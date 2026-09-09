@@ -72,14 +72,6 @@ model AlgorithmUpdate {
   createdAt    DateTime @default(now())
 }
 
-model CampaignAnalysis {
-  id        String   @id @default(uuid())
-  title     String?
-  resolved  Boolean  @default(false)
-  items     String
-  createdAt DateTime @default(now())
-}
-
 model AdCreative {
   id              String   @id
   adName          String
@@ -94,6 +86,14 @@ model AdCreative {
   platform        String   @default("META") // "META", "TIKTOK", "GOOGLE"
   status          String?
   createdTime     DateTime?
+
+  /// Transcrição visual gerada pela IA a partir da própria imagem: textos,
+  /// headline, CTA, cores e elementos. É a base das análises individuais e das
+  /// comparações de similaridade — analisar pelo nome do arquivo não descreve
+  /// o criativo. Gerada sob demanda e cacheada aqui.
+  visionTranscript String?  @db.Text
+  visionAnalyzedAt DateTime?
+
   metrics         AdDailyMetrics[]
 }
 
@@ -147,7 +147,7 @@ model SystemSettings {
   creativeCategories String? @db.Text
   
   hypothesisPrompt  String?  @db.Text
-  insightsPrompt    String?  @db.Text
+  visionPrompt      String?  @db.Text  // Instrução de transcrição da imagem
   andromedaPrompt   String?  @db.Text
   tavilySearchQuery String?  @db.Text
   marketInsightsPrompt String? @db.Text

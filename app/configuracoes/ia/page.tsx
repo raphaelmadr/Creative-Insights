@@ -1,15 +1,41 @@
 "use client";
 
 import React, { useState, useEffect } from "react";
-import { Save, Loader2 } from "lucide-react";
+import { Save, Loader2, Sparkles } from "lucide-react";
 
 export default function IAPage() {
   const [fetching, setFetching] = useState(true);
   const [savingSettings, setSavingSettings] = useState(false);
 
+  /**
+   * Transcrição em lote das peças ativas.
+   *
+   * Vive aqui, e não na navegação principal, porque é manutenção: custa uma
+   * chamada de visão por criativo e roda de vez em quando, não a cada acesso.
+   * Fica ao lado do prompt que a governa — edita-se o prompt e roda-se o lote.
+   */
+  const [transcribing, setTranscribing] = useState(false);
+
+  const handleTranscribeBatch = async () => {
+    if (transcribing) return;
+    setTranscribing(true);
+    try {
+      const res = await fetch("/api/creatives/vision", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ scope: "active" }),
+      });
+      const data = await res.json();
+      alert(data.message || data.error || "Transcrição concluída.");
+    } catch (e) {
+      alert("Erro ao transcrever os criativos.");
+    }
+    setTranscribing(false);
+  };
+
   const [settings, setSettings] = useState({
     hypothesisPrompt: "",
-    insightsPrompt: "",
+    visionPrompt: "",
     andromedaPrompt: "",
     tavilySearchQuery: "",
     marketInsightsPrompt: "",
@@ -23,7 +49,7 @@ export default function IAPage() {
         if (settingsRes.success && settingsRes.data) {
           setSettings({
             hypothesisPrompt: settingsRes.data.hypothesisPrompt ?? "",
-            insightsPrompt: settingsRes.data.insightsPrompt ?? "",
+            visionPrompt: settingsRes.data.visionPrompt ?? "",
             andromedaPrompt: settingsRes.data.andromedaPrompt ?? "",
             tavilySearchQuery: settingsRes.data.tavilySearchQuery ?? "",
             marketInsightsPrompt: settingsRes.data.marketInsightsPrompt ?? "",
@@ -75,15 +101,39 @@ export default function IAPage() {
 
         <div style={{ display: "flex", flexDirection: "column", gap: "1.5rem" }}>
           <label style={{ display: "flex", flexDirection: "column", gap: "0.5rem", fontSize: "0.9rem" }}>
+            <span style={{ fontWeight: 600 }}>Transcrição Visual do Criativo</span>
+            <span style={{ fontSize: "0.8rem", color: "var(--muted)", opacity: 0.8, lineHeight: 1.5 }}>
+              Primeira etapa de toda análise: a IA recebe a imagem e devolve o que está nela — headline, subheadline, CTA, textos, cores e elementos.
+              Deve retornar JSON. É o que substitui a antiga leitura pelo nome do arquivo, e o resultado fica em cache por criativo.
+            </span>
+            <textarea value={settings.visionPrompt} onChange={e => setSettings({...settings, visionPrompt: e.target.value})} placeholder="Em branco usa o prompt padrão de transcrição." style={{ padding: "1rem", borderRadius: "8px", border: "1px solid var(--card-border)", background: "var(--card-bg)", color: "var(--foreground)", minHeight: "120px", fontFamily: "monospace", fontSize: "0.85rem", resize: "vertical" }} />
+            <div style={{ display: "flex", alignItems: "center", gap: "0.75rem", flexWrap: "wrap" }}>
+              <button
+                type="button"
+                onClick={handleTranscribeBatch}
+                disabled={transcribing}
+                style={{ background: "transparent", color: "var(--primary)", border: "1px solid var(--primary)", padding: "0.5rem 1rem", borderRadius: "6px", fontWeight: 600, fontSize: "0.85rem", cursor: transcribing ? "wait" : "pointer", display: "flex", alignItems: "center", gap: "0.5rem" }}
+              >
+                {transcribing ? <Loader2 size={15} className="spin" /> : <Sparkles size={15} />}
+                {transcribing ? "Transcrevendo..." : "Transcrever peças ativas agora"}
+              </button>
+              <span style={{ fontSize: "0.78rem", color: "var(--muted)", opacity: 0.8 }}>
+                Processa em lote as peças ativas que ainda não têm transcrição, deixando as análises prontas de antemão.
+                Sob demanda isso já acontece sozinho na primeira análise de cada peça.
+              </span>
+            </div>
+          </label>
+
+          <label style={{ display: "flex", flexDirection: "column", gap: "0.5rem", fontSize: "0.9rem" }}>
             <span style={{ fontWeight: 600 }}>Analisar Criativo Individual (Botão)</span>
+            <span style={{ fontSize: "0.8rem", color: "var(--muted)", opacity: 0.8, lineHeight: 1.5 }}>
+              Recebe a transcrição acima somada aos números do período. A transcrição é anexada automaticamente, não precisa de variável no prompt.
+            </span>
             <textarea value={settings.hypothesisPrompt} onChange={e => setSettings({...settings, hypothesisPrompt: e.target.value})} style={{ padding: "1rem", borderRadius: "8px", border: "1px solid var(--card-border)", background: "var(--card-bg)", color: "var(--foreground)", minHeight: "120px", fontFamily: "monospace", fontSize: "0.85rem", resize: "vertical" }} />
           </label>
+          
           <label style={{ display: "flex", flexDirection: "column", gap: "0.5rem", fontSize: "0.9rem" }}>
-            <span style={{ fontWeight: 600 }}>Insights de Campanha (Dashboard Geral)</span>
-            <textarea value={settings.insightsPrompt} onChange={e => setSettings({...settings, insightsPrompt: e.target.value})} style={{ padding: "1rem", borderRadius: "8px", border: "1px solid var(--card-border)", background: "var(--card-bg)", color: "var(--foreground)", minHeight: "120px", fontFamily: "monospace", fontSize: "0.85rem", resize: "vertical" }} />
-          </label>
-          <label style={{ display: "flex", flexDirection: "column", gap: "0.5rem", fontSize: "0.9rem" }}>
-            <span style={{ fontWeight: 600 }}>Auditoria de Entity IDs (Projeto Andromeda)</span>
+            <span style={{ fontWeight: 600 }}>Análise de Similaridade (Projeto Andromeda)</span>
             <textarea value={settings.andromedaPrompt} onChange={e => setSettings({...settings, andromedaPrompt: e.target.value})} style={{ padding: "1rem", borderRadius: "8px", border: "1px solid var(--card-border)", background: "var(--card-bg)", color: "var(--foreground)", minHeight: "120px", fontFamily: "monospace", fontSize: "0.85rem", resize: "vertical" }} />
           </label>
         </div>

@@ -24,32 +24,6 @@ Retorne APENAS a hipótese em um texto direto (sem usar markdown, sem começar c
 Se o anúncio for muito novo (gasto quase zero), diga: "Aguardando mais veiculação para gerar hipótese."
 Exemplo bom: "O CTR alto indica que a imagem/hook chamou a atenção, mas a baixa conversão sugere falha na copy. Sugestão: Testar o mesmo design mas clareando a proposta de valor na copy da imagem, focando na urgência da oferta."`;
 
-const DEFAULT_INSIGHTS_PROMPT = `Você é um DIRETOR DE CRIAÇÃO ORIENTADO A DADOS (Data-Driven Creative Director) focado inteiramente na conversão de anúncios (estáticos e vídeos).
-Você acaba de receber os resultados brutos de performance de tráfego pago dos últimos 7 dias.
-
-SUA MISSÃO: Analisar os dados abaixo e gerar insights PRÁTICOS E APLICÁVEIS para a equipe de criação (designers), focando exclusivamente em melhorar a conversão. Crie hipóteses do porquê um criativo performou bem ou mal e sugira melhorias reais em copy, design, elementos visuais, legibilidade e hipóteses para novas variações.
-REGRA CRÍTICA 1: É ESTRITAMENTE PROIBIDO dar conselhos de mídia (orçamento, público, lances, escala). Fale APENAS com o olhar de um profissional criativo buscando assertividade em conversão.
-REGRA CRÍTICA 2: Identifique os gargalos visuais (ex: CPM alto = imagem possivelmente não atrai; CTR baixo = thumb/hook ruim; muitos cliques mas baixa conversão = promessa visual confusa ou CTA fraca).
-REGRA CRÍTICA 3: Formate o seu retorno EXATAMENTE em um array de objetos JSON (apenas o JSON, sem formatação markdown em volta).
-
-[DADOS DOS CRIATIVOS (Últimos 7 dias)]:
-{{topAds}}
-
-REGRA CRÍTICA 4: Cada item do JSON deve incluir o campo "adName", com o valor EXATO (cópia literal, sem parafrasear ou abreviar) do campo "nome" do criativo ao qual aquele insight se refere. Esse campo é usado para localizar a imagem real do criativo no nosso banco de dados.
-
-[Formato esperado do retorno (JSON Array puro)]:
-[
-  {
-    "adName": "nome exato copiado do campo \\"nome\\" do criativo",
-    "title": "Renovar Design de [Nome do Criativo]",
-    "content": "Sua hipótese profunda baseada nas métricas, seguida de sugestões de variações e melhorias em copy, cores, elementos ou legibilidade.",
-    "urgency": "Alta" | "Média" | "Baixa",
-    "category": "Melhoria de Design" | "Hipótese de Variação" | "Melhoria de Copy" | "Oportunidade Visual"
-  }
-]
-
-Escreva os relatórios focando nos 3 ou 4 criativos que mais gastaram ou que mais chamaram a sua atenção nos dados. NÃO CRIE ITENS INVENTADOS. Baseie-se ESTRITAMENTE na lista acima. Retorne o Array JSON válido.`;
-
 const DEFAULT_ANDROMEDA_PROMPT = `Você é um Estrategista Sênior especialista em Meta Ads, Andromeda e Entity IDs.
 Analise este grupo de anúncios que sofreram Canibalização de Verba (Fadiga Cruzada) no mesmo Entity ID.
 Nomes dos criativos envolvidos: \${creativeNames}
@@ -116,9 +90,6 @@ export async function GET() {
     if (!settings.hypothesisPrompt) {
       settings.hypothesisPrompt = DEFAULT_HYPOTHESIS_PROMPT;
     }
-    if (!settings.insightsPrompt) {
-      settings.insightsPrompt = DEFAULT_INSIGHTS_PROMPT;
-    }
     if (!settings.andromedaPrompt) {
       settings.andromedaPrompt = DEFAULT_ANDROMEDA_PROMPT;
     }
@@ -159,7 +130,7 @@ export async function POST(request: Request) {
       superWinnerSpend, superWinnerReturn, superWinnerCpa, 
       winnerSpend, winnerReturn, winnerCpa, 
       creativeCategories,
-      hypothesisPrompt, insightsPrompt, andromedaPrompt, 
+      hypothesisPrompt, visionPrompt, andromedaPrompt, 
       tavilySearchQuery, marketInsightsPrompt,
       metaAdAccountId, metaAccessToken, geminiApiKey, 
       openaiApiKey, anthropicApiKey, tavilyApiKey,
@@ -196,8 +167,8 @@ export async function POST(request: Request) {
     }
 
     if (hypothesisPrompt) updateData.hypothesisPrompt = hypothesisPrompt;
+    if (visionPrompt !== undefined) updateData.visionPrompt = visionPrompt || null;
     if (creativeCategories !== undefined) updateData.creativeCategories = creativeCategories;
-    if (insightsPrompt) updateData.insightsPrompt = insightsPrompt;
     if (andromedaPrompt) updateData.andromedaPrompt = andromedaPrompt;
     if (tavilySearchQuery) updateData.tavilySearchQuery = tavilySearchQuery;
     if (marketInsightsPrompt) updateData.marketInsightsPrompt = marketInsightsPrompt;
@@ -243,8 +214,8 @@ export async function POST(request: Request) {
         winnerReturn: parseFloat(winnerReturn) || 1000,
         winnerCpa: parseFloat(winnerCpa) || 60,
         ...(hypothesisPrompt && { hypothesisPrompt }),
+        ...(visionPrompt !== undefined && { visionPrompt: visionPrompt || null }),
         ...(creativeCategories !== undefined && { creativeCategories }),
-        ...(insightsPrompt && { insightsPrompt }),
         ...(andromedaPrompt && { andromedaPrompt }),
         ...(tavilySearchQuery && { tavilySearchQuery }),
         ...(marketInsightsPrompt && { marketInsightsPrompt }),

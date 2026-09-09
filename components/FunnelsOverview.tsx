@@ -6,7 +6,8 @@ import { useCacheFetch } from "@/hooks/useCacheFetch";
 import { Avatar } from "@/components/Avatar";
 import { Skeleton } from "@/components/Skeleton";
 import { CreativeCard } from "@/components/CreativeCard";
-import styles from "./CreativeView.module.css";
+import styles from "./CreativeGrid.module.css";
+import { ChevronDown, ChevronRight, Info } from "lucide-react";
 
 const FbIcon = ({ size = 12 }) => (
   <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -30,6 +31,90 @@ function formatCurrencyFull(value: number): string {
   if (Number.isNaN(value)) return "R$ 0,00";
   return `R$ ${value.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 }
+
+/** Valor de corte sem centavos: são sempre limiares redondos, e o ",00" só ocupa espaço. */
+function thresholdMoney(value: number): string {
+  return "R$ " + Math.round(value).toLocaleString("pt-BR");
+}
+
+/**
+ * Decompõe o critério de uma plataforma em pares rótulo/valor.
+ *
+ * Um card por condição, em vez de uma frase longa: o tipo do critério vira o
+ * rótulo e sobra só o limiar no valor, o que mantém tudo em uma linha. Sem
+ * sigla — a tradução é fiel a `lib/creative-metrics.ts`, onde a receita de
+ * referência é o valor de pedidos aprovados e o CPA é o custo por pedido
+ * aprovado.
+ *
+ * A regra real é conjuntiva: as condições listadas valem ao mesmo tempo, e um
+ * valor `0` significa "não usar este critério".
+ */
+function platformCriteria(rule: any): { label: string; value: string }[] {
+  if (!rule) return [];
+  const out: { label: string; value: string }[] = [];
+  if ((rule.minSpend || 0) > 0) out.push({ label: "investimento", value: `acima de ${thresholdMoney(rule.minSpend)}` });
+  if ((rule.minReturn || 0) > 0) out.push({ label: "vendas aprovadas", value: `acima de ${thresholdMoney(rule.minReturn)}` });
+  if ((rule.maxCpa || 0) > 0) out.push({ label: "custo por venda", value: `até ${thresholdMoney(rule.maxCpa)}` });
+  return out;
+}
+
+/**
+ * Canais, com a cor de marca usada nos ícones.
+ *
+ * O TikTok usa o rosa (#FF0050) e não o ciano: sobre os fundos escuros e claros
+ * do painel o ciano ficava com contraste ruim e competia com o azul da Meta.
+ */
+const PLATFORM_LABELS: { key: string; label: string; color: string }[] = [
+  { key: "META", label: "Meta", color: "#1877F2" },
+  { key: "TIKTOK", label: "TikTok", color: "#FF0050" },
+  { key: "GOOGLE", label: "Google", color: "#DB4437" },
+];
+
+const PLATFORM_ICONS: Record<string, React.ComponentType<{ size?: number }>> = {
+  META: FbIcon,
+  TIKTOK: TikTokIcon,
+  GOOGLE: GoogleIcon,
+};
+
+/**
+ * Estilo compartilhado pelos dois tipos de card do cabeçalho — o critério da
+ * categoria e a contagem por canal. É a mesma constante nos dois para que
+ * fiquem exatamente do mesmo tamanho, em vez de casarem por coincidência.
+ */
+const HEADER_CARD_STYLE: React.CSSProperties = {
+  display: "flex",
+  flexDirection: "column",
+  gap: "0.25rem",
+  background: "var(--background-main)",
+  border: "1px solid var(--card-border)",
+  borderRadius: "8px",
+  padding: "0.4rem 0.6rem",
+  minWidth: "148px",
+  minHeight: "2.8rem",
+  boxSizing: "border-box",
+  justifyContent: "center",
+};
+
+const CARD_LABEL_STYLE: React.CSSProperties = {
+  display: "flex",
+  alignItems: "center",
+  gap: "0.35rem",
+  fontSize: "0.58rem",
+  fontWeight: 700,
+  textTransform: "uppercase",
+  letterSpacing: "0.02em",
+  color: "var(--muted)",
+  whiteSpace: "nowrap",
+};
+
+const CARD_VALUE_STYLE: React.CSSProperties = {
+  fontSize: "0.74rem",
+  fontWeight: 600,
+  color: "var(--foreground)",
+  lineHeight: 1.3,
+  whiteSpace: "nowrap",
+};
+
 
 export default function FunnelsOverview({ dateFrom, dateTo, statusFilter, channelFilter, onMetricsUpdate, selectedDesigner, creators = [], hideOldAds = true }: { dateFrom: string; dateTo: string; statusFilter?: string; channelFilter?: string; onMetricsUpdate?: (metrics: any) => void; selectedDesigner: string | null; creators: any[]; hideOldAds?: boolean }) {
   const { syncCounter } = useNotifications();
@@ -75,6 +160,20 @@ export default function FunnelsOverview({ dateFrom, dateTo, statusFilter, channe
     return createdDate >= start && createdDate <= end;
   }, [hideOldAds, dateFrom, dateTo]);
 
+  /**
+   * Estado de recolhimento por categoria.
+   *
+   * Ausente no mapa significa **recolhido**: a home abre como um índice — nome,
+   * critério e contagem de cada categoria — e quem quiser ver as peças expande
+   * a que interessa. Carregar seis grades de criativos de uma vez enterrava
+   * essa leitura.
+   */
+  const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
+  const funnelKey = (funnel: any) => funnel.id || funnel.name;
+  const isCollapsed = (funnel: any) => collapsed[funnelKey(funnel)] ?? true;
+  const toggleFunnel = (funnel: any) =>
+    setCollapsed(prev => ({ ...prev, [funnelKey(funnel)]: !(prev[funnelKey(funnel)] ?? true) }));
+
   const { funnels, globalMetrics } = useMemo(() => {
     if (!data || !data.categorizedAds) return { funnels: [], globalMetrics: null };
 
@@ -106,11 +205,6 @@ export default function FunnelsOverview({ dateFrom, dateTo, statusFilter, channe
         returnVal += r;
         netOrders += n;
 
-        const plat = (c.platform || "META").toUpperCase();
-        if (plat === "META") platforms.META++;
-        if (plat === "TIKTOK") platforms.TIKTOK++;
-        if (plat === "GOOGLE") platforms.GOOGLE++;
-
         const creatorAcronym = (c.designer || "").trim().toUpperCase();
         if (creatorAcronym) {
           designersMap[creatorAcronym] = (designersMap[creatorAcronym] || 0) + 1;
@@ -126,6 +220,19 @@ export default function FunnelsOverview({ dateFrom, dateTo, statusFilter, channe
         totalImpressionsG += c.periodImpressions || 0;
         totalClicksG += c.periodClicks || 0;
         totalNetOrdersG += c.periodNetOrders || 0;
+      });
+
+      /*
+       * A contagem por canal é feita sobre `visibleAds`, os anúncios que a
+       * categoria realmente lista — e não sobre `baseFilteredAds`, usado só
+       * pelas métricas globais. Contando populações diferentes, a soma dos
+       * cards de canal não fechava com o total exibido sob o nome.
+       */
+      visibleAds.forEach((c: any) => {
+        const plat = (c.platform || "META").toUpperCase();
+        if (plat === "META") platforms.META++;
+        else if (plat === "TIKTOK") platforms.TIKTOK++;
+        else if (plat === "GOOGLE") platforms.GOOGLE++;
       });
 
       const topDesigners = Object.entries(designersMap)
@@ -183,70 +290,147 @@ export default function FunnelsOverview({ dateFrom, dateTo, statusFilter, channe
 
   if (!data) return <div>Erro ao carregar os dados.</div>;
 
+  const allCollapsed = funnels.length > 0 && funnels.every((f: any) => isCollapsed(f));
+
+  const toggleAll = () => {
+    const next: Record<string, boolean> = {};
+    for (const f of funnels) next[funnelKey(f)] = !allCollapsed;
+    setCollapsed(next);
+  };
+
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: "1.5rem" }}>
+
+      {/* Contexto para quem chega agora: o que é um funil e como um criativo cai nele. */}
+      {funnels.length > 0 && (
+        <div style={{ display: "flex", gap: "0.75rem", alignItems: "flex-start", background: "var(--card-bg)", border: "1px solid var(--card-border)", borderRadius: "12px", padding: "1rem" }}>
+          <Info size={16} style={{ flexShrink: 0, marginTop: "0.15rem", color: "var(--primary)" }} />
+          <div style={{ display: "flex", flexDirection: "column", gap: "0.35rem", fontSize: "0.85rem", lineHeight: 1.6 }}>
+            <span style={{ fontWeight: 600, color: "var(--foreground)" }}>Como ler estes funis</span>
+            <span style={{ color: "var(--muted)" }}>
+              Cada anúncio é avaliado pelos critérios do <strong>canal em que ele roda</strong>, e fica na{" "}
+              <strong>primeira categoria em que se encaixa</strong>, de cima para baixo. Por isso um{" "}
+              <strong>{funnels[0]?.name}</strong> vale mais que os de baixo: ele atingiu uma exigência maior.
+              Quem não atinge nenhuma aparece em Testes, na página de Anúncios.
+              As exigências são definidas em Configurações › Metas — mudá-las reorganiza tudo na hora.
+              {hideOldAds
+                ? " A contagem abaixo mostra só os anúncios que estrearam dentro do período; desligue \u201cLançados no período\u201d para ver todos os que tiveram veiculação."
+                : " A contagem abaixo mostra todos os anúncios com veiculação no período, inclusive os lançados antes dele."}
+            </span>
+          </div>
+          <button
+            onClick={toggleAll}
+            style={{ marginLeft: "auto", flexShrink: 0, background: "transparent", border: "1px solid var(--card-border)", borderRadius: "6px", padding: "0.35rem 0.7rem", fontSize: "0.75rem", fontWeight: 600, color: "var(--muted)", cursor: "pointer", display: "flex", alignItems: "center", gap: "0.3rem", whiteSpace: "nowrap" }}
+          >
+            {allCollapsed ? <><ChevronRight size={13} /> Expandir tudo</> : <><ChevronDown size={13} /> Recolher tudo</>}
+          </button>
+        </div>
+      )}
+
       {funnels.map((funnel: any) => (
         <div key={funnel.id || funnel.name} style={{ background: "var(--card-bg)", border: "1px solid var(--card-border)", borderRadius: "12px", padding: "1rem", display: "flex", flexDirection: "column", gap: "1rem" }}>
           
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "1rem" }}>
-            <div style={{ display: "flex", alignItems: "center", gap: "0.75rem" }}>
-              <div style={{ fontSize: "1.5rem", width: "40px", height: "40px", borderRadius: "8px", background: "var(--background-main)", border: "1px solid var(--card-border)", display: "flex", alignItems: "center", justifyContent: "center" }}>
+          {/*
+            Uma linha só: identidade da categoria, o que faz um anúncio estar
+            nela, a contagem por canal e a seta de recolher. `nowrap` garante a
+            linha única; em tela estreita a fileira rola na horizontal em vez de
+            quebrar, o que preserva a leitura de esquerda para a direita.
+          */}
+          <div style={{ display: "flex", flexWrap: "nowrap", alignItems: "stretch", gap: "0.5rem", overflowX: "auto" }}>
+
+            <div style={{ display: "flex", alignItems: "center", gap: "0.55rem", flexShrink: 0 }}>
+              <div style={{ fontSize: "1.15rem", width: "34px", height: "34px", borderRadius: "8px", background: "var(--background-main)", border: "1px solid var(--card-border)", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
                 {funnel.emoji || "📁"}
               </div>
-              <div style={{ display: "flex", flexDirection: "column" }}>
-                <h3 style={{ margin: 0, fontSize: "1.1rem", fontWeight: 700, color: "var(--foreground)" }}>{funnel.name}</h3>
-                <span style={{ fontSize: "0.75rem", color: "var(--muted)", fontWeight: 500 }}>
-                  {funnel.adsCount} {funnel.adsCount === 1 ? "anúncio" : "anúncios"}
+              <div style={{ display: "flex", flexDirection: "column", gap: "0.05rem" }}>
+                <h3 style={{ margin: 0, fontSize: "0.95rem", fontWeight: 700, color: "var(--foreground)", whiteSpace: "nowrap" }}>{funnel.name}</h3>
+                {/*
+                  O que este número conta depende do filtro "Lançados no
+                  período": com ele ligado são só as peças que estrearam dentro
+                  do intervalo, o que fazia o total parecer baixo demais sem
+                  explicar por quê.
+                */}
+                <span style={{ fontSize: "0.65rem", color: "var(--muted)", fontWeight: 500, whiteSpace: "nowrap" }}>
+                  {funnel.adsCount} {funnel.adsCount === 1 ? "anúncio" : "anúncios"}{" "}
+                  {hideOldAds ? "lançado" : "veiculado"}{funnel.adsCount === 1 ? "" : "s"} neste período
                 </span>
               </div>
             </div>
 
-            <div style={{ display: "flex", gap: "1.25rem", flexWrap: "wrap", alignItems: "center" }}>
-              {/* Distribuição de Redes */}
-              <div style={{ display: "flex", gap: "0.5rem" }}>
-                {funnel.platforms.META > 0 && (
-                  <div style={{ display: "flex", alignItems: "center", gap: "0.3rem", background: "rgba(59, 130, 246, 0.1)", padding: "0.2rem 0.5rem", borderRadius: "6px", color: "#3b82f6", fontWeight: 600, fontSize: "0.75rem", border: "1px solid rgba(59, 130, 246, 0.2)" }}>
-                    <FbIcon size={12} /> {funnel.platforms.META}
-                  </div>
-                )}
-                {funnel.platforms.TIKTOK > 0 && (
-                  <div style={{ display: "flex", alignItems: "center", gap: "0.3rem", background: "rgba(0, 242, 234, 0.1)", padding: "0.2rem 0.5rem", borderRadius: "6px", color: "#00f2ea", fontWeight: 600, fontSize: "0.75rem", border: "1px solid rgba(0, 242, 234, 0.2)" }}>
-                    <TikTokIcon size={12} /> {funnel.platforms.TIKTOK}
-                  </div>
-                )}
-                {funnel.platforms.GOOGLE > 0 && (
-                  <div style={{ display: "flex", alignItems: "center", gap: "0.3rem", background: "rgba(128, 128, 128, 0.1)", padding: "0.2rem 0.5rem", borderRadius: "6px", color: "var(--muted)", fontWeight: 600, fontSize: "0.75rem", border: "1px solid var(--card-border)" }}>
-                    <GoogleIcon size={12} /> {funnel.platforms.GOOGLE}
-                  </div>
-                )}
-              </div>
+            {/*
+              Todos os cards informativos num contêiner só, empurrado para a
+              direita: o "por que" e a quantidade formam um bloco contíguo, em
+              vez de ficarem separados por um vão no meio da linha.
+            */}
+            <div style={{ display: "flex", flexWrap: "nowrap", alignItems: "stretch", gap: "0.5rem", marginLeft: "auto", flexShrink: 0 }}>
+            {(() => {
+              /*
+               * Só canais que aparecem nos dados: os critérios de Google ficavam
+               * visíveis por causa de valores herdados no cadastro de Metas, para
+               * uma rede que não é sincronizada — três cards de ruído por
+               * categoria, e o que sobrava não caberia em uma linha.
+               */
+              const cards = PLATFORM_LABELS.filter(p => (funnel.platforms?.[p.key] || 0) > 0)
+                .flatMap(p =>
+                  platformCriteria(funnel.rules?.[p.key]).map((c, i) => ({ platform: p, criterion: c, key: `${p.key}-${i}` }))
+                );
 
-              <div style={{ width: "1px", height: "20px", background: "var(--card-border)", opacity: 0.5 }}></div>
+              if (cards.length === 0) {
+                return (
+                  <div style={{ ...HEADER_CARD_STYLE, minWidth: "215px" }}>
+                    <span style={CARD_LABEL_STYLE}>Como entra aqui</span>
+                    <span style={{ ...CARD_VALUE_STYLE, fontWeight: 500, color: "var(--muted)" }}>
+                      Sem exigência definida
+                    </span>
+                  </div>
+                );
+              }
 
-              {/* Métricas em Mini-Cards */}
-              <div style={{ display: "flex", gap: "0.5rem" }}>
-                <div style={{ background: "var(--background-main)", border: "1px solid var(--card-border)", padding: "0.25rem 0.6rem", borderRadius: "6px", display: "flex", flexDirection: "column", gap: "0.1rem" }}>
-                  <span style={{ fontSize: "0.6rem", color: "var(--muted)", textTransform: "uppercase", fontWeight: 600 }}>Gasto</span>
-                  <span style={{ fontSize: "0.85rem", fontWeight: 700, color: "var(--foreground)" }}>{formatCurrencyFull(funnel.spend)}</span>
+              return cards.map(({ platform, criterion, key }) => {
+                const Icon = PLATFORM_ICONS[platform.key];
+                return (
+                  <div key={`rule-${key}`} style={HEADER_CARD_STYLE}>
+                    <span style={CARD_LABEL_STYLE}>
+                      <span style={{ color: platform.color, display: "flex" }}><Icon size={10} /></span>
+                      {criterion.label}
+                    </span>
+                    <span style={CARD_VALUE_STYLE}>{criterion.value}</span>
+                  </div>
+                );
+              });
+            })()}
+
+            {/* Contagem por canal, no mesmo card dos critérios. */}
+            {PLATFORM_LABELS.filter(p => (funnel.platforms?.[p.key] || 0) > 0).map(p => {
+              const Icon = PLATFORM_ICONS[p.key];
+              const count = funnel.platforms[p.key];
+              return (
+                <div key={`count-${p.key}`} style={HEADER_CARD_STYLE}>
+                  <span style={CARD_LABEL_STYLE}>
+                    <span style={{ color: p.color, display: "flex" }}><Icon size={10} /></span>
+                    {p.label}
+                  </span>
+                  <span style={CARD_VALUE_STYLE}>
+                    {count} {count === 1 ? "anúncio" : "anúncios"}
+                  </span>
                 </div>
-                <div style={{ background: "var(--background-main)", border: "1px solid var(--card-border)", padding: "0.25rem 0.6rem", borderRadius: "6px", display: "flex", flexDirection: "column", gap: "0.1rem" }}>
-                  <span style={{ fontSize: "0.6rem", color: "var(--muted)", textTransform: "uppercase", fontWeight: 600 }}>Aprovado no Risco</span>
-                  <span style={{ fontSize: "0.85rem", fontWeight: 700, color: "var(--success)" }}>{formatCurrencyFull(funnel.returnVal)}</span>
-                </div>
-                <div style={{ background: "var(--background-main)", border: "1px solid var(--card-border)", padding: "0.25rem 0.6rem", borderRadius: "6px", display: "flex", flexDirection: "column", gap: "0.1rem" }}>
-                  <span style={{ fontSize: "0.6rem", color: "var(--muted)", textTransform: "uppercase", fontWeight: 600 }}>CPA</span>
-                  <span style={{ fontSize: "0.85rem", fontWeight: 700, color: "var(--foreground)" }}>{formatCurrencyFull(funnel.cpa)}</span>
-                </div>
-                <div style={{ background: "var(--background-main)", border: "1px solid var(--card-border)", padding: "0.25rem 0.6rem", borderRadius: "6px", display: "flex", flexDirection: "column", gap: "0.1rem" }}>
-                  <span style={{ fontSize: "0.6rem", color: "var(--muted)", textTransform: "uppercase", fontWeight: 600 }}>ROAS</span>
-                  <span style={{ fontSize: "0.85rem", fontWeight: 700, color: funnel.roas >= 1 ? "var(--success)" : "var(--danger)" }}>{funnel.roas.toFixed(2)}x</span>
-                </div>
-              </div>
+              );
+            })}
             </div>
+
+            {/* Recolher/expandir: só a seta. */}
+            <button
+              onClick={() => toggleFunnel(funnel)}
+              title={isCollapsed(funnel) ? "Expandir" : "Recolher"}
+              aria-label={isCollapsed(funnel) ? "Expandir categoria" : "Recolher categoria"}
+              style={{ flexShrink: 0, alignSelf: "center", background: "transparent", border: "none", padding: "0.25rem", color: "var(--muted)", cursor: "pointer", display: "flex", alignItems: "center" }}
+            >
+              {isCollapsed(funnel) ? <ChevronRight size={18} /> : <ChevronDown size={18} />}
+            </button>
           </div>
 
           {/* Cards Grid */}
-          {funnel.validAds && funnel.validAds.length > 0 && (
+          {!isCollapsed(funnel) && funnel.validAds && funnel.validAds.length > 0 && (
             <div className={styles.grid} style={{ marginTop: "0.5rem" }}>
               {funnel.validAds.map((c: any) => (
                 <CreativeCard 

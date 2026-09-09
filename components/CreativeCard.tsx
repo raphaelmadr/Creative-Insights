@@ -4,7 +4,7 @@ import React from "react";
 import { motion } from "framer-motion";
 import { Avatar } from "./Avatar";
 import SafeImage from "./SafeImage";
-import styles from "./CreativeView.module.css";
+import styles from "./CreativeGrid.module.css";
 import { Image as ImageIcon, Copy, Check, Sparkles, Loader2, ChevronDown } from "lucide-react";
 import { useState } from "react";
 

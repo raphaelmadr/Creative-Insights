@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
-import { generateWithFallback, AiImageInput } from "@/lib/ai";
+import { generateWithFallback, AiImageInput, isAiConfigured } from "@/lib/ai";
 import prisma from "@/lib/prisma";
+import { transcribeCreative, transcriptToPromptBlock } from "@/lib/creative-vision";
 
 export async function POST(req: NextRequest) {
   try {
@@ -9,6 +10,15 @@ export async function POST(req: NextRequest) {
 
     if (!group || !group.creatives || group.creatives.length === 0) {
       return NextResponse.json({ success: false, error: "Invalid group data" }, { status: 400 });
+    }
+
+    if (!(await isAiConfigured())) {
+      return NextResponse.json({
+        success: true,
+        unavailable: true,
+        aiInsight:
+          "Análise por IA indisponível: nenhuma chave de IA configurada. Configure em Configurações › IA.",
+      });
     }
 
     // Fetch configurations for the prompt
@@ -39,6 +49,26 @@ export async function POST(req: NextRequest) {
       .replace("{creativeNames}", creativeNames)
       .replace("{sharedTags}", sharedTagsStr)
       .replace("{cannibalizationRate}", canniRateStr);
+
+    /**
+     * Transcrição de cada peça do grupo.
+     *
+     * Enviar só as imagens obrigava o modelo a "achar" a diferença entre elas;
+     * com headline, CTA e cores em texto, a comparação passa a ser verificável
+     * — e fica registrado no prompt o que exatamente foi comparado.
+     */
+    const transcriptBlocks: string[] = [];
+    for (const creative of group.creatives) {
+      if (!creative.id) continue;
+      const result = await transcribeCreative(creative.id);
+      transcriptBlocks.push(
+        `--- ${creative.adName}\n${transcriptToPromptBlock(result.transcript, creative.adName)}`
+      );
+    }
+
+    if (transcriptBlocks.length > 0) {
+      prompt += `\n\n[TRANSCRIÇÃO VISUAL DE CADA PEÇA — compare estes elementos, não os nomes dos arquivos]\n${transcriptBlocks.join("\n\n")}`;
+    }
 
     const images: AiImageInput[] = [];
 
