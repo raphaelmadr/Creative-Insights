@@ -154,14 +154,27 @@ export async function POST(request: Request) {
       tiktokAdvertiserId, tiktokAppId, tiktokAppSecret, tiktokAccessToken
     } = body;
 
-    const updateData: any = {
-      superWinnerSpend: parseFloat(superWinnerSpend),
-      superWinnerReturn: parseFloat(superWinnerReturn),
-      superWinnerCpa: parseFloat(superWinnerCpa),
-      winnerSpend: parseFloat(winnerSpend),
-      winnerReturn: parseFloat(winnerReturn),
-      winnerCpa: parseFloat(winnerCpa),
+    const updateData: any = {};
+
+    // `parseFloat(undefined)` devolve NaN, e o Prisma recusa NaN num Float.
+    // Sem esta guarda, salvar de qualquer página que não envia as metas de
+    // performance — Sistema, por exemplo — derrubava a rota inteira com 500,
+    // levando junto as configurações que a página realmente queria gravar.
+    const asFloat = (value: any): number | undefined => {
+      if (value === undefined || value === null || value === '') return undefined;
+      const parsed = parseFloat(value);
+      return Number.isFinite(parsed) ? parsed : undefined;
     };
+
+    const performanceGoals = {
+      superWinnerSpend, superWinnerReturn, superWinnerCpa,
+      winnerSpend, winnerReturn, winnerCpa,
+    };
+
+    for (const [field, value] of Object.entries(performanceGoals)) {
+      const parsed = asFloat(value);
+      if (parsed !== undefined) updateData[field] = parsed;
+    }
 
     if (hypothesisPrompt) updateData.hypothesisPrompt = hypothesisPrompt;
     if (creativeCategories !== undefined) updateData.creativeCategories = creativeCategories;

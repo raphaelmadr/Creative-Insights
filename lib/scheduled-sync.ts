@@ -142,6 +142,20 @@ export async function runScheduledSync(options: RunOptions = {}): Promise<Schedu
     });
   }
 
+  // Log de início, não só de fim: quando a plataforma mata a função no meio
+  // (timeout de execução), o log final nunca acontece e a execução fica
+  // invisível — foi exatamente o que escondeu as primeiras execuções, que
+  // gravaram métricas e morreram antes de reportar. Um início sem fim
+  // correspondente é o sintoma a procurar em Configurações › Logs.
+  await logInfo(
+    "CRON",
+    `Iniciando sync automático. Modo: ${mode}. Fontes: ${[
+      ...adChannels.map((c) => c.label),
+      ...(slackEnabled ? ["Slack"] : []),
+    ].join(", ")}.`,
+    "/api/cron/sync-all"
+  );
+
   // Daqui em diante a janela é nossa. Cada fonte é isolada: uma que falha não
   // impede as outras, e nenhuma falha passa silenciosa.
   const channelOutcomes: ChannelOutcome[] = [];
