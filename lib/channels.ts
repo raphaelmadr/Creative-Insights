@@ -1,32 +1,37 @@
 /**
- * Registro de canais de anúncios.
+ * Registro das fontes de dados e o único orquestrador de sincronização.
  *
- * O orquestrador antigo tinha Meta e TikTok fixos no cliente, disparados em
- * `Promise.all` — os dois escreviam na mesma barra de progresso e o erro do
- * TikTok era engolido, de modo que a sincronização se declarava bem-sucedida
- * mesmo quando um canal falhava por completo.
+ * Existem exatamente duas sincronizações no sistema, e as duas passam por aqui:
  *
- * Aqui os canais são declarativos: quem tiver credenciais configuradas entra na
- * execução, um por vez, cada um com sua fatia de progresso e seu próprio
- * resultado reportado.
+ *   - Manual    → `POST /api/sync-all`      (botão "Sincronizar Redes")
+ *   - Automática → `GET /api/cron/sync-all` (disparador externo do cPanel)
+ *
+ * As duas executam `runSync()`, sem parâmetro de comportamento: mesma
+ * profundidade, mesmas fontes, mesmo mês. Não existe "modo rápido" e "modo
+ * profundo" — a divergência entre o que o botão fazia e o que o cron fazia era
+ * a maior fonte de confusão do processo.
+ *
+ * Adicionar uma fonte (Google Ads, por exemplo) é acrescentar uma entrada em
+ * `SOURCES`. Ela passa a valer no manual e no automático de uma vez, sem tocar
+ * em rota, painel ou orquestrador.
  */
 
 import prisma from "./prisma";
 import { runMetaSync } from "./meta-sync";
 import { runTikTokSync } from "./tiktok-sync";
+import { isSlackConfigured, runSlackSync } from "./slack-sync";
 
-export type ChannelId = "META" | "TIKTOK";
+export type SourceId = "META" | "TIKTOK" | "SLACK";
 
-export type SyncMode = "full" | "metrics";
-
-export interface ChannelRunResult {
-  syncedAds: number;
-  syncedMetrics: number;
+export interface SourceRunResult {
+  /** A fonte parou no teto de tempo e tem mais a fazer na próxima execução. */
   reachedLimit: boolean;
+  /** Resumo curto, escrito pela própria fonte, para toast e log. */
+  summary: string;
 }
 
-export interface ChannelOutcome extends ChannelRunResult {
-  channel: ChannelId;
+export interface SourceOutcome extends SourceRunResult {
+  id: SourceId;
   label: string;
   ok: boolean;
   error?: string;
@@ -34,124 +39,150 @@ export interface ChannelOutcome extends ChannelRunResult {
 
 type SettingsRow = Awaited<ReturnType<typeof prisma.systemSettings.findUnique>>;
 
-interface ChannelDefinition {
-  id: ChannelId;
+interface SourceDefinition {
+  id: SourceId;
   label: string;
-  /** Um canal só entra na execução quando tem credenciais utilizáveis. */
+  /** Uma fonte só entra na execução quando tem credenciais utilizáveis. */
   isConfigured(settings: SettingsRow): boolean;
-  run(
-    mode: SyncMode,
-    onProgress: (message: string, percentage: number) => void,
-    month?: number,
-    year?: number
-  ): Promise<ChannelRunResult>;
+  run(onProgress: (message: string, percentage: number) => void): Promise<SourceRunResult>;
 }
 
-export const CHANNELS: ChannelDefinition[] = [
+export const SOURCES: SourceDefinition[] = [
   {
     id: "META",
     label: "Meta",
     isConfigured: (settings) =>
       !!(settings?.metaAdAccountId || process.env.META_AD_ACCOUNT_ID) &&
       !!(settings?.metaAccessToken || process.env.META_ACCESS_TOKEN),
-    run: (mode, onProgress, month, year) => runMetaSync(mode, onProgress, month, year),
+    run: async (onProgress) => {
+      const result = await runMetaSync("full", onProgress);
+      return {
+        reachedLimit: result.reachedLimit,
+        summary: `${result.syncedAds} criativos / ${result.syncedMetrics} métricas`,
+      };
+    },
   },
   {
     id: "TIKTOK",
     label: "TikTok",
     isConfigured: (settings) => !!settings?.tiktokAdvertiserId && !!settings?.tiktokAccessToken,
-    run: async (mode, onProgress, month, year) => {
-      const result = await runTikTokSync(mode, onProgress, month, year);
+    run: async (onProgress) => {
+      const result = await runTikTokSync("full", onProgress);
       return {
-        syncedAds: result.syncedAds,
-        syncedMetrics: result.syncedMetrics,
         reachedLimit: result.reachedLimit,
+        summary: `${result.syncedAds} criativos / ${result.syncedMetrics} métricas`,
+      };
+    },
+  },
+  {
+    id: "SLACK",
+    label: "Entregas",
+    isConfigured: (settings) => isSlackConfigured(settings),
+    run: async (onProgress) => {
+      const result = await runSlackSync({}, onProgress);
+      return {
+        reachedLimit: false,
+        summary:
+          result.newDeliveries === 0 && result.updatedDeliveries === 0
+            ? "nenhuma nova"
+            : `${result.newDeliveries} novas / ${result.updatedDeliveries} atualizadas`,
       };
     },
   },
 ];
 
-export async function getConfiguredChannels(): Promise<ChannelDefinition[]> {
+export async function getConfiguredSources(): Promise<SourceDefinition[]> {
   const settings = await prisma.systemSettings.findUnique({ where: { id: 1 } });
-  return CHANNELS.filter((channel) => channel.isConfigured(settings));
+  return SOURCES.filter((source) => source.isConfigured(settings));
+}
+
+export interface SyncReport {
+  outcomes: SourceOutcome[];
+  /** Todas as fontes concluíram sem erro. */
+  ok: boolean;
+  /** Alguma fonte parou no teto de tempo — rodar de novo continua de onde parou. */
+  partial: boolean;
+  /** Uma linha para toast e log. */
+  summary: string;
 }
 
 /**
- * Executa todos os canais configurados, em série.
+ * Executa todas as fontes configuradas, em série.
  *
- * Em série, e não em paralelo, por três motivos: o progresso passa a ser legível,
- * os limites de taxa das APIs não competem entre si, e o teto de tempo de cada
- * canal fica previsível.
+ * Em série, e não em paralelo, por três motivos: o progresso passa a ser
+ * legível, os limites de taxa das APIs não competem entre si, e o teto de tempo
+ * de cada fonte fica previsível.
  */
-export async function runAllChannelSyncs(
-  mode: SyncMode,
-  onProgress?: (message: string, percentage: number, channel?: ChannelId) => void,
-  targetMonth?: number,
-  targetYear?: number
-): Promise<{ outcomes: ChannelOutcome[]; ok: boolean }> {
-  const channels = await getConfiguredChannels();
+export async function runSync(
+  onProgress?: (message: string, percentage: number, source?: SourceId) => void
+): Promise<SyncReport> {
+  const sources = await getConfiguredSources();
 
-  if (channels.length === 0) {
+  if (sources.length === 0) {
     throw new Error(
-      "Nenhum canal configurado. Cadastre as credenciais da Meta e/ou do TikTok em Configurações."
+      "Nenhuma fonte configurada. Cadastre as credenciais em Configurações › API."
     );
   }
 
-  const outcomes: ChannelOutcome[] = [];
-  const slice = 100 / channels.length;
+  const outcomes: SourceOutcome[] = [];
+  const slice = 100 / sources.length;
 
-  for (let i = 0; i < channels.length; i++) {
-    const channel = channels[i];
+  for (let i = 0; i < sources.length; i++) {
+    const source = sources[i];
     const base = i * slice;
 
     const report = (message: string, percentage: number) => {
       const overall = Math.min(100, Math.round(base + (percentage / 100) * slice));
-      onProgress?.(`[${channel.label}] ${message}`, overall, channel.id);
+      onProgress?.(`[${source.label}] ${message}`, overall, source.id);
     };
 
     try {
       report("Iniciando...", 0);
-      const result = await channel.run(mode, report, targetMonth, targetYear);
-      outcomes.push({ channel: channel.id, label: channel.label, ok: true, ...result });
+      const result = await source.run(report);
+      outcomes.push({ id: source.id, label: source.label, ok: true, ...result });
     } catch (error: any) {
-      // Um canal que falha não pode derrubar os demais — nem passar despercebido.
-      console.error(`[Sync] Canal ${channel.label} falhou:`, error);
+      // Uma fonte que falha não pode derrubar as demais — nem passar despercebida.
+      console.error(`[Sync] Fonte ${source.label} falhou:`, error);
       outcomes.push({
-        channel: channel.id,
-        label: channel.label,
+        id: source.id,
+        label: source.label,
         ok: false,
         error: error?.message || "Erro desconhecido",
-        syncedAds: 0,
-        syncedMetrics: 0,
         reachedLimit: false,
+        summary: "falhou",
       });
-      onProgress?.(`[${channel.label}] Falhou: ${error?.message || "erro desconhecido"}`, Math.round(base + slice), channel.id);
+      onProgress?.(
+        `[${source.label}] Falhou: ${error?.message || "erro desconhecido"}`,
+        Math.round(base + slice),
+        source.id
+      );
     }
   }
 
   const ok = outcomes.every((outcome) => outcome.ok);
+  const partial = outcomes.some((outcome) => outcome.reachedLimit);
 
-  if (ok && !outcomes.some((outcome) => outcome.reachedLimit)) {
-    const finishedAt = new Date();
+  // `lastSyncAt` é carimbado aqui, e só aqui, ao fim de toda execução que tenha
+  // gravado algo — inclusive parcial. A versão anterior exigia conclusão 100%
+  // limpa, então execuções parciais deixavam a interface anunciando uma data de
+  // semanas atrás sobre dados de horas atrás.
+  if (outcomes.some((outcome) => outcome.ok)) {
     await prisma.systemSettings.update({
       where: { id: 1 },
-      data: {
-        lastSyncAt: finishedAt,
-        ...(mode === "full" ? { lastDeepSyncAt: finishedAt } : { lastFastSyncAt: finishedAt }),
-      },
+      data: { lastSyncAt: new Date() },
     });
   }
 
-  return { outcomes, ok };
+  return { outcomes, ok, partial, summary: summarize(outcomes) };
 }
 
 /** Resumo curto para toast/log. */
-export function summarizeOutcomes(outcomes: ChannelOutcome[]): string {
+export function summarize(outcomes: SourceOutcome[]): string {
   return outcomes
     .map((outcome) => {
       if (!outcome.ok) return `${outcome.label}: falhou (${outcome.error})`;
-      const partial = outcome.reachedLimit ? " — parcial, rode novamente" : "";
-      return `${outcome.label}: ${outcome.syncedAds} criativos / ${outcome.syncedMetrics} métricas${partial}`;
+      const suffix = outcome.reachedLimit ? " — parcial, rode novamente" : "";
+      return `${outcome.label}: ${outcome.summary}${suffix}`;
     })
     .join(" · ");
 }

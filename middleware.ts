@@ -26,6 +26,6 @@ export default withAuth(
 
 export const config = {
   matcher: [
-    "/((?!api/auth|api/sync-meta|api/sync-tiktok|api/cron|_next/static|_next/image|favicon.ico|logo.png|login).*)",
+    "/((?!api/auth|api/cron|_next/static|_next/image|favicon.ico|logo.png|login).*)",
   ],
 };

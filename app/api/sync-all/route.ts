@@ -1,16 +1,17 @@
-import { runAllChannelSyncs, summarizeOutcomes } from "@/lib/channels";
+import { runSync } from "@/lib/channels";
+import { logError } from "@/lib/logger";
 
 export const maxDuration = 300;
 export const dynamic = "force-dynamic";
 
 /**
- * Sincronização de todos os canais configurados.
+ * Sincronização manual — o botão "Sincronizar Redes".
  *
- * Esta é a rota que o botão "Sincronizar Redes" usa. Ela sempre roda em modo
- * profundo (`full`) e sempre sobre o mês corrente — mídias de criativos estáticos
- * são persistidas e os links de vídeo renovados em toda execução.
+ * Executa `runSync()`, exatamente a mesma rotina da sincronização automática:
+ * todas as fontes configuradas, mesma profundidade, mês corrente. A única
+ * diferença entre as duas é o gatilho e o streaming de progresso daqui.
  */
-export async function POST(req: Request) {
+export async function POST() {
   const encoder = new TextEncoder();
 
   const stream = new ReadableStream({
@@ -24,47 +25,39 @@ export async function POST(req: Request) {
       };
 
       try {
-        const { outcomes, ok } = await runAllChannelSyncs("full", (message, percentage, channel) => {
-          send({ type: "progress", message, percentage, channel });
+        const report = await runSync((message, percentage, source) => {
+          send({ type: "progress", message, percentage, source });
         });
 
-        const summary = summarizeOutcomes(outcomes);
-
-        if (ok) {
-          const partial = outcomes.some((outcome) => outcome.reachedLimit);
+        if (report.ok) {
           send({
             type: "complete",
-            message: partial
-              ? `Sincronização parcial (teto de tempo). ${summary}`
-              : `Sincronização concluída. ${summary}`,
+            message: report.partial
+              ? `Sincronização parcial (teto de tempo). ${report.summary}`
+              : `Sincronização concluída. ${report.summary}`,
             percentage: 100,
-            partial,
-            outcomes,
+            partial: report.partial,
+            outcomes: report.outcomes,
           });
         } else {
-          // Falha de canal é reportada como erro — não pode ser mascarada por sucesso.
-          const failed = outcomes.filter((outcome) => !outcome.ok).map((outcome) => outcome.label);
+          // Falha de fonte é reportada como erro — não pode ser mascarada por sucesso.
+          const failed = report.outcomes.filter((o) => !o.ok).map((o) => o.label);
           send({
             type: "error",
-            error: `Falha em: ${failed.join(", ")}. ${summary}`,
+            error: `Falha em: ${failed.join(", ")}. ${report.summary}`,
             percentage: 100,
-            outcomes,
+            outcomes: report.outcomes,
           });
         }
       } catch (error: any) {
-        console.error("Sync All Error:", error);
-        try {
-          const { logError } = await import("@/lib/logger");
-          logError("BACKEND_SYNC", error, "/api/sync-all");
-        } catch {
-          // logging é best-effort
-        }
-        send({ type: "error", error: error?.message || "Erro desconhecido durante a sincronização.", percentage: 100 });
+        console.error("Sync Error:", error);
+        await logError("BACKEND_SYNC", error, "/api/sync-all");
+        send({ type: "error", error: error?.message || "Erro desconhecido", percentage: 100 });
       } finally {
         try {
           controller.close();
         } catch {
-          // já fechado
+          // Já fechado pelo cliente.
         }
       }
     },
@@ -72,9 +65,8 @@ export async function POST(req: Request) {
 
   return new Response(stream, {
     headers: {
-      "Content-Type": "application/x-ndjson",
+      "Content-Type": "application/x-ndjson; charset=utf-8",
       "Cache-Control": "no-cache, no-transform",
-      Connection: "keep-alive",
     },
   });
 }

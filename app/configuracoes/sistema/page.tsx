@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState, useEffect } from "react";
-import { Save, Loader2, Copy, Check, PlayCircle, AlertTriangle, RefreshCw, Eye, EyeOff, ShieldCheck, ShieldAlert } from "lucide-react";
+import { Save, Loader2, Copy, Check, AlertTriangle, RefreshCw, Eye, EyeOff, ShieldCheck, ShieldAlert } from "lucide-react";
 
 /** Cadência do disparador externo: bate sempre, o painel filtra. */
 const RECOMMENDED_CRON_EXPRESSION = "*/15 * * * *";
@@ -16,7 +16,6 @@ interface CronTriggerState {
   hasDbSecret: boolean;
   hasEnvSecret: boolean;
   baseUrl: string | null;
-  baseUrlSource: string | null;
   reachableExternally: boolean;
   triggerUrl: string | null;
   triggerCommand: string | null;
@@ -28,7 +27,6 @@ type TriggerFormat = "command" | "url";
 export default function SistemaPage() {
   const [fetching, setFetching] = useState(true);
   const [savingSettings, setSavingSettings] = useState(false);
-  const [testing, setTesting] = useState(false);
   const [rotating, setRotating] = useState(false);
   const [copied, setCopied] = useState<string | null>(null);
   const [revealUrl, setRevealUrl] = useState(false);
@@ -36,7 +34,6 @@ export default function SistemaPage() {
 
   const [settings, setSettings] = useState({
     cronSyncEnabled: true,
-    cronSyncMode: "metrics",
     cronSyncInterval: 120,
     cpanelUploadUrl: "",
     cpanelUploadSecret: "",
@@ -44,6 +41,7 @@ export default function SistemaPage() {
 
   // Informação só de leitura: estado da automação e fontes com credenciais.
   const [status, setStatus] = useState<{
+    lastSyncAt?: string | null;
     lastCronSyncAt?: string | null;
     sources: { label: string; configured: boolean }[];
   }>({ sources: [] });
@@ -59,17 +57,18 @@ export default function SistemaPage() {
         const data = settingsRes.data;
         setSettings({
           cronSyncEnabled: data.cronSyncEnabled ?? true,
-          cronSyncMode: data.cronSyncMode ?? "metrics",
           cronSyncInterval: data.cronSyncInterval ?? 120,
           cpanelUploadUrl: data.cpanelUploadUrl ?? "",
           cpanelUploadSecret: data.cpanelUploadSecret ?? "",
         });
         setStatus({
+          lastSyncAt: data.lastSyncAt,
           lastCronSyncAt: data.lastCronSyncAt,
+          // Espelha o registro de fontes do backend (`lib/channels.ts`).
           sources: [
             { label: "Meta", configured: !!(data.metaAdAccountId && data.metaAccessToken) },
             { label: "TikTok", configured: !!(data.tiktokAdvertiserId && data.tiktokAccessToken) },
-            { label: "Entregas (Slack)", configured: !!(data.slackBotToken && data.slackChannelId) },
+            { label: "Entregas", configured: !!(data.slackBotToken && data.slackChannelId) },
           ],
         });
       }
@@ -130,24 +129,6 @@ export default function SistemaPage() {
     setRotating(false);
   };
 
-  const handleTestNow = async () => {
-    if (testing) return;
-    setTesting(true);
-    try {
-      const res = await fetch("/api/sync-scheduled", { method: "POST" });
-      const data = await res.json();
-      alert(
-        data.success
-          ? `Execução concluída.\n\n${data.message || ""}`
-          : `A execução reportou falha.\n\n${data.message || data.error || "Erro desconhecido"}`
-      );
-      await loadAll();
-    } catch (e) {
-      alert("Erro ao disparar a sincronização de teste.");
-    }
-    setTesting(false);
-  };
-
   if (fetching) {
     return (
       <div className="glass-panel" style={{ padding: "4rem", display: "flex", justifyContent: "center", opacity: 0.5 }}>
@@ -159,6 +140,9 @@ export default function SistemaPage() {
   const nextEligible = status.lastCronSyncAt
     ? new Date(new Date(status.lastCronSyncAt).getTime() + settings.cronSyncInterval * 60 * 1000).toISOString()
     : null;
+  const nextEligibleLabel = nextEligible && new Date(nextEligible).getTime() <= Date.now()
+    ? "a qualquer momento"
+    : formatDateTime(nextEligible);
 
   const noSourceConfigured = status.sources.every(s => !s.configured);
   const triggerValue = (format === "command" ? trigger?.triggerCommand : trigger?.triggerUrl) ?? "";
@@ -202,52 +186,50 @@ export default function SistemaPage() {
       <form onSubmit={handleSaveSettings} style={{ display: "flex", flexDirection: "column", gap: "2rem" }}>
 
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-          <h3 style={{ fontSize: "1.1rem", fontWeight: 600, color: "var(--foreground)", margin: 0 }}>Automação e Background Tasks</h3>
+          <h3 style={{ fontSize: "1.1rem", fontWeight: 600, color: "var(--foreground)", margin: 0 }}>Sincronização Automática</h3>
           <button type="submit" disabled={savingSettings} style={{ background: "var(--primary)", color: "#fff", border: "none", padding: "0.6rem 1.5rem", borderRadius: "6px", fontWeight: 600, cursor: "pointer", display: "flex", alignItems: "center", gap: "0.5rem" }}>
             {savingSettings ? <Loader2 size={16} className="spin" /> : <Save size={16} />}
             Salvar Alterações
           </button>
         </div>
 
+        <p style={{ fontSize: "0.85rem", color: "var(--muted)", margin: 0, lineHeight: 1.6 }}>
+          Existem duas sincronizações no sistema, e as duas fazem exatamente a mesma coisa: percorrem
+          todas as fontes configuradas, no mês corrente. A <strong>manual</strong> é o botão
+          &quot;Sincronizar Redes&quot; no topo, a qualquer momento. A <strong>automática</strong> é esta,
+          no intervalo definido abaixo.
+        </p>
+
         <label style={{ display: "flex", alignItems: "flex-start", gap: "1rem", cursor: "pointer" }}>
           <input type="checkbox" checked={settings.cronSyncEnabled} onChange={e => setSettings({...settings, cronSyncEnabled: e.target.checked})} style={{ width: "1.2rem", height: "1.2rem", marginTop: "0.2rem", cursor: "pointer", accentColor: "var(--primary)" }} />
           <div style={{ display: "flex", flexDirection: "column", gap: "0.25rem" }}>
-            <span style={{ fontWeight: 600, fontSize: "0.95rem" }}>Sincronização Automática Ativa (Cron)</span>
-            <span style={{ fontSize: "0.85rem", color: "var(--muted)", opacity: 0.8 }}>Quando ativado, o sistema se sincroniza com as plataformas de anúncios e com as entregas do Slack automaticamente nos bastidores.</span>
+            <span style={{ fontWeight: 600, fontSize: "0.95rem" }}>Sincronização automática ativa</span>
+            <span style={{ fontSize: "0.85rem", color: "var(--muted)", opacity: 0.8 }}>Quando desligada, o disparador externo continua batendo mas nada é sincronizado.</span>
           </div>
         </label>
 
         {settings.cronSyncEnabled && (
           <div style={{ display: "flex", flexDirection: "column", gap: "1.5rem", padding: "1.5rem", background: "rgba(0,0,0,0.02)", borderRadius: "12px", border: "1px solid var(--card-border)", marginLeft: "2.2rem" }}>
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "1.5rem" }}>
-              <label style={{ display: "flex", flexDirection: "column", gap: "0.5rem", fontSize: "0.9rem" }}>
-                <span style={{ fontWeight: 600 }}>Intervalo de Execução</span>
-                <select value={settings.cronSyncInterval} onChange={e => setSettings({...settings, cronSyncInterval: Number(e.target.value)})} style={inputStyle}>
-                  <option value={15}>A cada 15 minutos</option>
-                  <option value={30}>A cada 30 minutos</option>
-                  <option value={60}>A cada 1 hora</option>
-                  <option value={120}>A cada 2 horas</option>
-                  <option value={360}>A cada 6 horas</option>
-                  <option value={720}>A cada 12 horas</option>
-                  <option value={1440}>Uma vez por dia (24h)</option>
-                </select>
-              </label>
-              <label style={{ display: "flex", flexDirection: "column", gap: "0.5rem", fontSize: "0.9rem" }}>
-                <span style={{ fontWeight: 600 }}>Modo da Sincronização Automática</span>
-                <select value={settings.cronSyncMode} onChange={e => setSettings({...settings, cronSyncMode: e.target.value})} style={inputStyle}>
-                  <option value="metrics">Rápida (Apenas Métricas, Instantâneo)</option>
-                  <option value="full">Profunda (Métricas + Download de Mídias)</option>
-                </select>
-              </label>
-            </div>
+            <label style={{ display: "flex", flexDirection: "column", gap: "0.5rem", fontSize: "0.9rem", maxWidth: "22rem" }}>
+              <span style={{ fontWeight: 600 }}>Intervalo de execução</span>
+              <select value={settings.cronSyncInterval} onChange={e => setSettings({...settings, cronSyncInterval: Number(e.target.value)})} style={inputStyle}>
+                <option value={15}>A cada 15 minutos</option>
+                <option value={30}>A cada 30 minutos</option>
+                <option value={60}>A cada 1 hora</option>
+                <option value={120}>A cada 2 horas</option>
+                <option value={360}>A cada 6 horas</option>
+                <option value={720}>A cada 12 horas</option>
+                <option value={1440}>Uma vez por dia (24h)</option>
+              </select>
+            </label>
 
             <div style={{ display: "flex", flexWrap: "wrap", gap: "1.5rem", fontSize: "0.85rem", color: "var(--muted)" }}>
-              <span><strong style={{ color: "var(--foreground)" }}>Última execução automática:</strong> {formatDateTime(status.lastCronSyncAt)}</span>
-              <span><strong style={{ color: "var(--foreground)" }}>Próxima janela elegível:</strong> {formatDateTime(nextEligible)}</span>
+              <span><strong style={{ color: "var(--foreground)" }}>Última sincronização:</strong> {formatDateTime(status.lastSyncAt)}</span>
+              <span><strong style={{ color: "var(--foreground)" }}>Próxima automática:</strong> {nextEligibleLabel}</span>
             </div>
 
             <div style={{ display: "flex", flexWrap: "wrap", gap: "0.5rem", alignItems: "center", fontSize: "0.85rem" }}>
-              <span style={{ color: "var(--muted)" }}>Fontes incluídas:</span>
+              <span style={{ color: "var(--muted)" }}>Fontes sincronizadas:</span>
               {status.sources.map(source => (
                 <span key={source.label} style={{ padding: "0.2rem 0.6rem", borderRadius: "999px", fontSize: "0.78rem", fontWeight: 600, border: "1px solid var(--card-border)", background: source.configured ? "rgba(34,197,94,0.12)" : "transparent", color: source.configured ? "#16a34a" : "var(--muted)", opacity: source.configured ? 1 : 0.6 }}>
                   {source.label}{source.configured ? "" : " (sem credenciais)"}
@@ -258,7 +240,7 @@ export default function SistemaPage() {
             {noSourceConfigured && (
               <div style={noticeStyle("warn")}>
                 <AlertTriangle size={16} style={{ flexShrink: 0, marginTop: "0.1rem" }} />
-                <span>Nenhuma fonte tem credenciais cadastradas — a automação não tem o que sincronizar. Preencha as chaves em Configurações › API.</span>
+                <span>Nenhuma fonte tem credenciais cadastradas — não há o que sincronizar. Preencha as chaves em Configurações › API.</span>
               </div>
             )}
           </div>
@@ -267,30 +249,23 @@ export default function SistemaPage() {
         <hr style={{ border: "none", borderTop: "1px solid var(--card-border)" }} />
 
         <div style={{ display: "flex", flexDirection: "column", gap: "1.2rem" }}>
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: "1rem", flexWrap: "wrap" }}>
-            <h3 style={{ display: "flex", alignItems: "center", gap: "0.6rem", fontSize: "1.1rem", fontWeight: 600, color: "var(--foreground)", margin: 0 }}>
-              Disparador Externo (Cron Job do cPanel)
-              {urlUsable ? (
-                <span style={{ display: "inline-flex", alignItems: "center", gap: "0.3rem", fontSize: "0.72rem", fontWeight: 600, color: "#16a34a", background: "rgba(34,197,94,0.12)", border: "1px solid rgba(34,197,94,0.3)", borderRadius: "999px", padding: "0.15rem 0.55rem" }}>
-                  <ShieldCheck size={12} /> Autenticada
-                </span>
-              ) : (
-                <span style={{ display: "inline-flex", alignItems: "center", gap: "0.3rem", fontSize: "0.72rem", fontWeight: 600, color: "#b45309", background: "rgba(245,158,11,0.12)", border: "1px solid rgba(245,158,11,0.3)", borderRadius: "999px", padding: "0.15rem 0.55rem" }}>
-                  <ShieldAlert size={12} /> Pendente
-                </span>
-              )}
-            </h3>
-            <button type="button" onClick={handleTestNow} disabled={testing} style={{ background: "transparent", color: "var(--primary)", border: "1px solid var(--primary)", padding: "0.6rem 1.2rem", borderRadius: "6px", fontWeight: 600, cursor: testing ? "wait" : "pointer", display: "flex", alignItems: "center", gap: "0.5rem" }}>
-              {testing ? <Loader2 size={16} className="spin" /> : <PlayCircle size={16} />}
-              {testing ? "Sincronizando..." : "Testar agora"}
-            </button>
-          </div>
+          <h3 style={{ display: "flex", alignItems: "center", gap: "0.6rem", fontSize: "1.1rem", fontWeight: 600, color: "var(--foreground)", margin: 0 }}>
+            Disparador Externo (Cron Job do cPanel)
+            {urlUsable ? (
+              <span style={{ display: "inline-flex", alignItems: "center", gap: "0.3rem", fontSize: "0.72rem", fontWeight: 600, color: "#16a34a", background: "rgba(34,197,94,0.12)", border: "1px solid rgba(34,197,94,0.3)", borderRadius: "999px", padding: "0.15rem 0.55rem" }}>
+                <ShieldCheck size={12} /> Autenticada
+              </span>
+            ) : (
+              <span style={{ display: "inline-flex", alignItems: "center", gap: "0.3rem", fontSize: "0.72rem", fontWeight: 600, color: "#b45309", background: "rgba(245,158,11,0.12)", border: "1px solid rgba(245,158,11,0.3)", borderRadius: "999px", padding: "0.15rem 0.55rem" }}>
+                <ShieldAlert size={12} /> Pendente
+              </span>
+            )}
+          </h3>
 
           <p style={{ fontSize: "0.85rem", color: "var(--muted)", margin: 0, lineHeight: 1.6 }}>
             Cole o valor abaixo no Cron Job do cPanel com a frequência <code>{RECOMMENDED_CRON_EXPRESSION}</code> (a cada 15 min).
-            Já vem autenticado e apontando para o domínio de produção. O disparador apenas acorda a aplicação —
-            quem decide se sincroniza, com que frequência e em que profundidade são as configurações acima, então
-            mudar o intervalo aqui passa a valer na hora, sem mexer no servidor.
+            O disparador só acorda a aplicação; é o intervalo acima que decide se há sincronização — então
+            mudá-lo passa a valer na hora, sem mexer no servidor.
           </p>
 
           <div style={{ display: "flex", flexDirection: "column", gap: "0.5rem", fontSize: "0.9rem" }}>
@@ -342,8 +317,8 @@ export default function SistemaPage() {
             </div>
             <span style={{ fontSize: "0.8rem", color: "var(--muted)", opacity: 0.8, lineHeight: 1.5 }}>
               {format === "command"
-                ? "O Cron Jobs padrão do cPanel executa um comando de shell — é este o formato para o campo \"Command\". O segredo vai no cabeçalho, fora da URL, e o comando descarta a resposta em caso de sucesso para o cPanel não te enviar um e-mail a cada 15 minutos."
-                : "Use este formato apenas se o seu disparador aceitar somente um link, sem comando. O segredo viaja na própria URL e por isso aparece nos logs de acesso do servidor."}
+                ? "O Cron Jobs padrão do cPanel executa um comando de shell — é este o formato para o campo \"Command\". O segredo vai no cabeçalho, fora da URL, e o comando descarta a resposta em caso de sucesso para o cPanel não te enviar um e-mail a cada batida."
+                : "Use apenas se o seu disparador aceitar somente um link, sem comando. O segredo viaja na própria URL e por isso aparece nos logs de acesso do servidor."}
             </span>
             <span style={{ fontSize: "0.8rem", color: "var(--muted)", opacity: 0.8 }}>
               O segredo é gravado no mesmo instante em que você gera, então o valor exibido já é aceito pelo servidor — pode colar direto.
@@ -363,8 +338,8 @@ export default function SistemaPage() {
               <span>
                 Não foi possível determinar o domínio público desta instalação
                 {trigger.baseUrl ? <> — só existe o endereço local <code>{trigger.baseUrl}</code>, que o servidor do cPanel não alcança</> : null}.
-                Abra esta página <strong>no domínio de produção da Vercel</strong> para copiar a URL correta, ou defina a variável
-                de ambiente <code>CRON_PUBLIC_URL</code> com o domínio público.
+                Abra esta página <strong>no domínio de produção</strong> para copiar o valor correto, ou defina
+                a variável de ambiente <code>CRON_PUBLIC_URL</code>.
               </span>
             </div>
           )}
@@ -373,18 +348,8 @@ export default function SistemaPage() {
             <div style={noticeStyle("info")}>
               <ShieldCheck size={16} style={{ flexShrink: 0, marginTop: "0.1rem" }} />
               <span>
-                A URL acima usa o <code>CRON_SECRET</code> definido no ambiente do servidor. Clique em <strong>Gerar</strong> para
-                passar a administrar o segredo por aqui — o de ambiente continua sendo aceito, então a troca não derruba o disparador.
-              </span>
-            </div>
-          )}
-
-          {urlUsable && format === "url" && (
-            <div style={noticeStyle("warn")}>
-              <AlertTriangle size={16} style={{ flexShrink: 0, marginTop: "0.1rem" }} />
-              <span>
-                Neste formato o segredo fica registrado nos logs de acesso da Vercel. Prefira <strong>Comando (cPanel)</strong>
-                quando o disparador aceitar um comando de shell. Gere um novo a qualquer momento se suspeitar de exposição.
+                O valor acima usa o <code>CRON_SECRET</code> do ambiente do servidor. Clique em <strong>Gerar</strong> para
+                administrar o segredo por aqui — o de ambiente continua aceito, então a troca não derruba o disparador.
               </span>
             </div>
           )}

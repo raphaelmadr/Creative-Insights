@@ -226,11 +226,3 @@ export async function runSlackSync(
 
   return { newDeliveries, updatedDeliveries, scannedMessages: opsToRun.length };
 }
-
-/** Resumo curto para toast/log. */
-export function summarizeSlackResult(result: SlackSyncResult): string {
-  if (result.newDeliveries === 0 && result.updatedDeliveries === 0) {
-    return "Slack: sem novas entregas";
-  }
-  return `Slack: ${result.newDeliveries} novas entregas / ${result.updatedDeliveries} atualizadas`;
-}

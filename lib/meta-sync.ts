@@ -852,16 +852,11 @@ export async function runMetaSync(
     );
   }
 
-  // --- 9. Carimbo de execução ---
+  // --- 9. Relato final ---
+  // O carimbo de `lastSyncAt` não é feito aqui: quem grava é `runSync()`, uma
+  // vez por execução, depois de todas as fontes. Dois escritores para o mesmo
+  // campo já produziram estado incoerente no banco.
   if (!reachedWallClock) {
-    const finishedAt = new Date();
-    await withDbRetry(() => prisma.systemSettings.update({
-      where: { id: 1 },
-      data: {
-        lastSyncAt: finishedAt,
-        ...(mode === "full" ? { lastDeepSyncAt: finishedAt } : { lastFastSyncAt: finishedAt }),
-      },
-    }));
     if (onProgress) onProgress("Sincronização da Meta concluída!", 100);
   } else {
     if (onProgress) onProgress("Meta: teto de tempo/taxa atingido. O progresso foi salvo; rode novamente para continuar.", 100);

@@ -147,7 +147,7 @@ export async function POST(request: Request) {
       openaiApiKey, anthropicApiKey, tavilyApiKey,
       groqApiKey, openRouterApiKey, cohereApiKey, huggingFaceApiKey,
       slackBotToken, slackChannelId,
-      teamCreativeGoal, cronSyncEnabled, cronSyncMode, cronSyncInterval,
+      teamCreativeGoal, cronSyncEnabled, cronSyncInterval,
       cpanelUploadUrl, cpanelUploadSecret,
       googleClientId, googleClientSecret, nextAuthSecret, nextAuthUrl,
       metaAppId, metaAppSecret,
@@ -196,7 +196,6 @@ export async function POST(request: Request) {
     if (slackChannelId !== undefined) updateData.slackChannelId = slackChannelId;
     if (teamCreativeGoal !== undefined) updateData.teamCreativeGoal = parseInt(teamCreativeGoal) || 300;
     if (cronSyncEnabled !== undefined) updateData.cronSyncEnabled = Boolean(cronSyncEnabled);
-    if (cronSyncMode !== undefined) updateData.cronSyncMode = cronSyncMode;
     if (cronSyncInterval !== undefined) updateData.cronSyncInterval = parseInt(cronSyncInterval) || 120;
     if (cpanelUploadUrl !== undefined) updateData.cpanelUploadUrl = cpanelUploadUrl;
     if (cpanelUploadSecret !== undefined) updateData.cpanelUploadSecret = cpanelUploadSecret;
@@ -239,7 +238,6 @@ export async function POST(request: Request) {
         ...(cohereApiKey !== undefined && { cohereApiKey }),
         ...(huggingFaceApiKey !== undefined && { huggingFaceApiKey }),
         ...(cronSyncEnabled !== undefined && { cronSyncEnabled: Boolean(cronSyncEnabled) }),
-        ...(cronSyncMode !== undefined && { cronSyncMode }),
         ...(cronSyncInterval !== undefined && { cronSyncInterval: parseInt(cronSyncInterval) || 120 }),
         ...(cpanelUploadUrl !== undefined && { cpanelUploadUrl }),
         ...(cpanelUploadSecret !== undefined && { cpanelUploadSecret }),

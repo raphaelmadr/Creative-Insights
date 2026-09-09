@@ -182,14 +182,11 @@ model SystemSettings {
   cpanelUploadSecret String? @db.Text
   
   cronSyncEnabled   Boolean  @default(true)
-  cronSyncMode      String   @default("metrics") // "metrics" ou "full"
   cronSyncInterval  Int      @default(120)       // Intervalo em minutos
   cronSecret        String?  @db.Text            // Gerado no painel; autoriza o disparador externo
 
-  lastSyncAt        DateTime?
-  lastFastSyncAt    DateTime?
-  lastDeepSyncAt    DateTime?
-  lastCronSyncAt    DateTime?
+  lastSyncAt        DateTime?  // Fim da última sincronização, manual ou automática
+  lastCronSyncAt    DateTime?  // Início da última automática; base do portão de intervalo
   updatedAt         DateTime @updatedAt
 }
 

@@ -11,7 +11,18 @@ import styles from "./TopBar.module.css";
 export default function TopBar() {
   const pathname = usePathname();
   const { theme, toggleTheme } = useTheme();
-  const { unreadCount, isSyncingAll, lastSyncAt, syncAll, updates, isSyncingMeta, syncMessage, syncProgress, isSearching, loadingText } = useNotifications();
+  const { unreadCount, isSyncingAll, lastSyncAt, nextAutoSyncAt, syncAll, updates, isSyncingMeta, syncMessage, syncProgress, isSearching, loadingText } = useNotifications();
+
+  const formatSyncStamp = (value: string) =>
+    new Date(value).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' });
+
+  /**
+   * Uma janela já vencida não significa "atrasado": o disparador externo bate a
+   * cada 15 minutos e a próxima batida sincroniza. Dizer uma hora no passado
+   * pareceria defeito.
+   */
+  const formatNextSync = (value: string) =>
+    new Date(value).getTime() <= Date.now() ? 'a qualquer momento' : formatSyncStamp(value);
   const [isNotificationsOpen, setIsNotificationsOpen] = useState(false);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [integrations, setIntegrations] = useState({ meta: true, tiktok: false, google: false });
@@ -184,10 +195,11 @@ export default function TopBar() {
                   <RefreshCw size={16} className={isSyncingAll ? "spin" : ""} style={{ animation: isSyncingAll ? "spin 2s linear infinite" : "none" }} />
                   {isSyncingAll ? "Sincronizando..." : "Sincronizar Redes"}
                 </button>
-                {lastSyncAt && (
-                  <span style={{ fontSize: '0.65rem', color: 'var(--muted)', textAlign: 'center', opacity: 0.7 }}>
-                    Última att: {new Date(lastSyncAt).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' })}
-                  </span>
+                {(lastSyncAt || nextAutoSyncAt) && (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '0.1rem', fontSize: '0.65rem', color: 'var(--muted)', textAlign: 'center', opacity: 0.7 }}>
+                    {lastSyncAt && <span>Última att: {formatSyncStamp(lastSyncAt)}</span>}
+                    {nextAutoSyncAt && <span>Próxima automática: {formatNextSync(nextAutoSyncAt)}</span>}
+                  </div>
                 )}
               </div>
               </div>
@@ -218,10 +230,11 @@ export default function TopBar() {
               <RefreshCw size={16} className={isSyncingAll ? "spin" : ""} style={{ animation: isSyncingAll ? "spin 2s linear infinite" : "none" }} />
               {isSyncingAll ? "Sincronizando..." : "Sincronizar Redes"}
             </button>
-            {lastSyncAt && !isSyncingAll && (
-              <span style={{ position: 'absolute', top: '100%', left: 0, right: 0, marginTop: '0.25rem', fontSize: '0.6rem', color: 'var(--muted)', textAlign: 'center', opacity: 0.7, whiteSpace: 'nowrap' }}>
-                Última att: {new Date(lastSyncAt).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' })}
-              </span>
+            {(lastSyncAt || nextAutoSyncAt) && !isSyncingAll && (
+              <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, marginTop: '0.25rem', display: 'flex', flexDirection: 'column', gap: '0.05rem', fontSize: '0.6rem', color: 'var(--muted)', textAlign: 'center', opacity: 0.7, whiteSpace: 'nowrap' }}>
+                {lastSyncAt && <span>Última att: {formatSyncStamp(lastSyncAt)}</span>}
+                {nextAutoSyncAt && <span>Próxima automática: {formatNextSync(nextAutoSyncAt)}</span>}
+              </div>
             )}
           </div>
 

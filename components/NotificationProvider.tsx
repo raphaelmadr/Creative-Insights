@@ -29,11 +29,11 @@ interface NotificationContextType {
   loadMoreUpdates: () => Promise<void>;
   analyzeCampaigns: (dateFrom?: string, dateTo?: string) => Promise<void>;
   isSyncingMeta: boolean;
+  /** Fim da última sincronização — manual ou automática, completa ou parcial. */
   lastSyncAt: string | null;
-  lastFastSyncAt: string | null;
-  lastDeepSyncAt: string | null;
+  /** Quando o cron pode voltar a rodar. `null` se a automação está desligada. */
+  nextAutoSyncAt: string | null;
   syncCounter: number;
-  syncMeta: (mode?: 'metrics' | 'full') => Promise<void>;
   syncMessage: string;
   syncProgress: number;
   isSyncingAll: boolean;
@@ -55,10 +55,8 @@ const NotificationContext = createContext<NotificationContextType>({
   analyzeCampaigns: async (dateFrom?: string, dateTo?: string) => {},
   isSyncingMeta: false,
   lastSyncAt: null,
-  lastFastSyncAt: null,
-  lastDeepSyncAt: null,
+  nextAutoSyncAt: null,
   syncCounter: 0,
-  syncMeta: async () => {},
   syncMessage: "",
   syncProgress: 0,
   isSyncingAll: false,
@@ -86,8 +84,11 @@ export default function NotificationProvider({ children }: { children: ReactNode
   const [syncProgress, setSyncProgress] = useState(0);
   const [syncMessage, setSyncMessage] = useState("");
   const [lastSyncAt, setLastSyncAt] = useState<string | null>(null);
-  const [lastFastSyncAt, setLastFastSyncAt] = useState<string | null>(null);
-  const [lastDeepSyncAt, setLastDeepSyncAt] = useState<string | null>(null);
+  const [lastCronSyncAt, setLastCronSyncAt] = useState<string | null>(null);
+  const [cronConfig, setCronConfig] = useState<{ enabled: boolean; intervalMinutes: number }>({
+    enabled: false,
+    intervalMinutes: 120,
+  });
   const [syncCounter, setSyncCounter] = useState(0);
   const [isSyncingAll, setIsSyncingAll] = useState(false);
 
@@ -138,8 +139,11 @@ export default function NotificationProvider({ children }: { children: ReactNode
         const json = await response.json();
         if (isMounted && json.success && json.data) {
           if (json.data.lastSyncAt) setLastSyncAt(json.data.lastSyncAt);
-          if (json.data.lastFastSyncAt) setLastFastSyncAt(json.data.lastFastSyncAt);
-          if (json.data.lastDeepSyncAt) setLastDeepSyncAt(json.data.lastDeepSyncAt);
+          if (json.data.lastCronSyncAt) setLastCronSyncAt(json.data.lastCronSyncAt);
+          setCronConfig({
+            enabled: json.data.cronSyncEnabled ?? false,
+            intervalMinutes: json.data.cronSyncInterval || 120,
+          });
         }
       } catch (err) {
         console.error("Failed to fetch settings:", err);
@@ -369,52 +373,16 @@ export default function NotificationProvider({ children }: { children: ReactNode
     return completion;
   };
 
-  const syncMeta = async (mode: 'metrics' | 'full' = 'full') => {
-    if (isSyncingMeta) return;
-    setIsSyncingMeta(true);
-    setSyncProgress(0);
-    setSyncMessage("Iniciando...");
-    setToastMsg({ id: "sync-process", title: mode === 'full' ? "Sincronizando Mídias do Mês..." : "Sincronizando Mês Atual...", isNew: false });
-    
-    try {
-      // 1. Sincroniza apenas o mês atual (rápido)
-      await runSyncStream(`/api/sync-meta?mode=${mode}`);
-      
-      setToastMsg({ id: "sync-process", title: "✅ Mês atual sincronizado! Buscando histórico...", isNew: true });
-      const nowStr = new Date().toISOString();
-      setLastSyncAt(nowStr);
-      if (mode === 'metrics') {
-        setLastFastSyncAt(nowStr);
-      } else {
-        setLastDeepSyncAt(nowStr);
-      }
-      setSyncCounter(prev => prev + 1);
-
-      if (mode === 'full') {
-        setToastMsg({ id: "sync-process", title: "✅ Sincronização profunda do mês atual concluída!", isNew: true });
-      } else {
-        setToastMsg({ id: "sync-process", title: "✅ Sincronização rápida concluída!", isNew: true });
-      }
-
-      setSyncCounter(prev => prev + 1);
-    } catch (err: any) {
-      console.error(err);
-      setToastMsg({ id: "sync-process", title: `❌ Erro na sincronização: ${err.message || "Timeout"}`, isNew: false, isError: true });
-    } finally {
-      setIsSyncingMeta(false);
-      setTimeout(() => setToastMsg(null), 5000);
-    }
-  };
-
   /**
-   * Sincroniza todos os canais configurados.
+   * A sincronização manual: todas as fontes configuradas, mês corrente.
    *
-   * Sempre profunda e sempre no mês corrente: é a única operação de
-   * sincronização exposta na interface, idêntica em desktop e mobile.
+   * É a única operação de sincronização exposta na interface, idêntica em
+   * desktop e mobile, e executa no backend exatamente a mesma rotina que o
+   * cron — `runSync()`. Não há modo rápido e modo profundo.
    *
-   * O backend percorre os canais em série e reporta o resultado de cada um; um
-   * canal que falha aparece como erro em vez de ser silenciosamente ignorado,
-   * como acontecia quando Meta e TikTok rodavam em Promise.all.
+   * O backend percorre as fontes em série e reporta o resultado de cada uma;
+   * uma fonte que falha aparece como erro em vez de ser silenciosamente
+   * ignorada, como acontecia quando Meta e TikTok rodavam em Promise.all.
    */
   const syncAll = async () => {
     if (isSyncingAll) return;
@@ -428,9 +396,7 @@ export default function NotificationProvider({ children }: { children: ReactNode
     try {
       const completion = await runSyncStream("/api/sync-all");
 
-      const nowStr = new Date().toISOString();
-      setLastSyncAt(nowStr);
-      setLastDeepSyncAt(nowStr);
+      setLastSyncAt(new Date().toISOString());
       setSyncCounter(prev => prev + 1);
 
       setToastMsg({
@@ -455,12 +421,21 @@ export default function NotificationProvider({ children }: { children: ReactNode
     }
   };
 
+  /**
+   * `lastCronSyncAt` marca o início da última execução automática; somado ao
+   * intervalo configurado, dá a próxima janela. `null` desliga a exibição em
+   * vez de anunciar uma previsão que não vai acontecer.
+   */
+  const nextAutoSyncAt = cronConfig.enabled && lastCronSyncAt
+    ? new Date(new Date(lastCronSyncAt).getTime() + cronConfig.intervalMinutes * 60 * 1000).toISOString()
+    : null;
+
   return (
     <NotificationContext.Provider value={{ 
       updates, unreadCount, loading, loadingText, isSearching, 
       searchForUpdates, markAllAsRead, hasMore, isFetchingMore, 
       loadMoreUpdates, analyzeCampaigns,
-      isSyncingMeta, lastSyncAt, lastFastSyncAt, lastDeepSyncAt, syncCounter, syncMeta,
+      isSyncingMeta, lastSyncAt, nextAutoSyncAt, syncCounter,
       syncMessage, syncProgress,
       isSyncingAll, syncAll, lastReadDate
     }}>
