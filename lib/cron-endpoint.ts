@@ -20,14 +20,11 @@ import { logInfo, logWarning, logError } from "./logger";
 const DEFAULT_INTERVAL_MINUTES = 120;
 
 /**
- * Segredos aceitos: o gerado pelo painel (`cronSecret`) e o `CRON_SECRET` de
- * ambiente. Os dois convivem para que trocar de um para o outro não abra
- * janela de indisponibilidade. Sem nenhum dos dois, o endpoint fica aberto — é
- * o estado que o painel sinaliza como pendente.
+ * O segredo aceito é o gerado pelo painel (`cronSecret`). Sem ele o endpoint
+ * fica aberto — é o estado que o painel sinaliza como pendente.
  */
-async function acceptedSecrets(): Promise<string[]> {
+export async function acceptedSecrets(): Promise<string[]> {
   const secrets: string[] = [];
-  if (process.env.CRON_SECRET) secrets.push(process.env.CRON_SECRET);
 
   try {
     const settings = await prisma.systemSettings.findUnique({
@@ -36,29 +33,43 @@ async function acceptedSecrets(): Promise<string[]> {
     });
     if (settings?.cronSecret) secrets.push(settings.cronSecret);
   } catch (error) {
-    // Banco indisponível não pode virar "endpoint liberado": se havia um
-    // segredo de ambiente ele continua exigido.
+    // Banco indisponível: sem segredo legível, a sincronização falharia adiante
+    // de qualquer forma — o log registra a causa real.
     console.error("[Cron] Não foi possível ler o segredo do banco:", error);
   }
 
   return secrets;
 }
 
-export async function handleCronRequest(req: Request) {
-  const url = new URL(req.url);
+/**
+ * Um único autorizador para todos os endpoints de cron.
+ *
+ * Antes o cron de notícias validava por `process.env.CRON_SECRET` enquanto o de
+ * sincronização passou a usar o segredo do painel — dois endpoints de cron
+ * exigindo segredos diferentes, e o de notícias ficando aberto quando a
+ * variável não existia.
+ */
+export async function isCronRequestAuthorized(req: Request): Promise<boolean> {
   const secrets = await acceptedSecrets();
 
-  if (secrets.length > 0) {
-    const header = req.headers.get("authorization");
-    const query = url.searchParams.get("secret") || url.searchParams.get("token");
-    const authorized = secrets.some((s) => header === `Bearer ${s}` || query === s);
-    if (!authorized) {
-      return NextResponse.json({ success: false, error: "Unauthorized" }, { status: 401 });
-    }
-  } else {
+  if (secrets.length === 0) {
     console.warn(
       "[Cron] Endpoint sem segredo configurado — qualquer um com a URL pode disparar. Gere um em Configurações › Sistema."
     );
+    return true;
+  }
+
+  const url = new URL(req.url);
+  const header = req.headers.get("authorization");
+  const query = url.searchParams.get("secret") || url.searchParams.get("token");
+  return secrets.some((s) => header === `Bearer ${s}` || query === s);
+}
+
+export async function handleCronRequest(req: Request) {
+  const url = new URL(req.url);
+
+  if (!(await isCronRequestAuthorized(req))) {
+    return NextResponse.json({ success: false, error: "Unauthorized" }, { status: 401 });
   }
 
   // `?force=1` ignora o portão de intervalo, para testar o disparo na hora.
@@ -128,7 +139,12 @@ export async function handleCronRequest(req: Request) {
       console.log(`[Cron ${percentage}%] ${message}`);
     });
 
-    if (report.ok) {
+    // Falta de credencial não é erro de execução: fica registrado como aviso e
+    // responde 200, para o disparador do cPanel não passar a enviar e-mail de
+    // falha a cada batida por causa de uma configuração incompleta.
+    if (report.nothingConfigured) {
+      await logWarning("CRON", report.summary, "/api/cron/sync-all");
+    } else if (report.ok) {
       await logInfo("CRON", `Concluída. ${report.summary}`, "/api/cron/sync-all");
     } else {
       await logWarning("CRON", `Concluída com falhas. ${report.summary}`, "/api/cron/sync-all");
@@ -137,7 +153,7 @@ export async function handleCronRequest(req: Request) {
     return NextResponse.json(
       {
         success: report.ok,
-        status: "ran",
+        status: report.nothingConfigured ? "nothing-configured" : "ran",
         message: report.summary,
         partial: report.partial,
         outcomes: report.outcomes,

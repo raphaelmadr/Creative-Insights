@@ -156,6 +156,11 @@ model SystemSettings {
   metaAppId         String?
   metaAppSecret     String?  @db.Text
   metaAccessToken   String?  @db.Text
+
+  // IDs das conversões personalizadas da conta. Ver lib/meta-conversions.ts:
+  // definem CPA, Receita Líquida e as categorias de winner.
+  metaRiskApprovedConversionId    String?
+  metaPaymentApprovedConversionId String?
   
   tiktokAdvertiserId String?
   tiktokAppId        String?

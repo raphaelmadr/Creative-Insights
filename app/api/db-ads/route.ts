@@ -305,7 +305,7 @@ export async function GET(req: Request) {
         testes,
         // Declara qual evento de conversão está por trás do CPA e da receita,
         // para a interface nunca reportar "o CPA" sem qualificar a origem.
-        conversions: activeConversionDescriptor(),
+        conversions: activeConversionDescriptor(settings),
         metrics: {
           totalSpend: totalSpend.toFixed(2),
           avgCtr: globalCtr.toFixed(2),

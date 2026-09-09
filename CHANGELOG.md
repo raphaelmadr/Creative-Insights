@@ -1,6 +1,25 @@
 # Changelog: Creative Insights (Fase 1)
 Data: 31 de Agosto de 2026
 
+## 🔐 Painel como Fonte Única de Configuração (Setembro 2026)
+Duas regras passaram a valer, e estão documentadas em `lib/integrations.ts`: **toda credencial se configura no painel, sem `.env`**, e **credencial ausente desabilita um recurso com mensagem própria, sem derrubar o sistema.**
+
+* **Fallbacks de `.env` removidos:** Meta (conta e token), cPanel (URL e senha), segredo do cron e — no CLI local `meta-sync-sql.ts` — os mesmos quatro, que duplicavam a lógica. Onde havia `settings?.x || process.env.X`, agora há só o painel.
+* **Bug: chaves de IA que não funcionavam.** `lib/ai.ts` sempre leu as chaves apenas do banco, mas três rotas de insights liberavam a requisição checando `process.env.GEMINI_API_KEY`. Com as chaves só no `.env`, a requisição passava a guarda e chegava ao gerador sem chave nenhuma — o recurso falhava com a mensagem errada. Um único `isAiConfigured()` passou a decidir, lendo o que o gerador de fato usa.
+* **Sincronização sem fonte deixou de ser erro:** `runSync()` lançava exceção quando nenhuma fonte tinha credenciais, transformando configuração incompleta em falha de sistema. Agora devolve `nothingConfigured` com a mensagem do que cadastrar; o cron registra como aviso e responde 200, para o disparador do cPanel não passar a enviar e-mail de falha a cada batida.
+* **`lib/integrations.ts`:** registro único do estado das integrações — Meta, TikTok, Slack, IA, Tavily, armazenamento de mídia e login Google. Cada uma declara o que habilita, onde se configura, e se o valor em uso ainda vem do ambiente. `Configurações → Sistema` exibe esse estado, com selo `via .env — mover para o painel` no que falta migrar.
+* **Autenticação de cron unificada:** o cron de notícias validava por `process.env.CRON_SECRET` enquanto o de sincronização passou a usar o segredo do painel — dois endpoints exigindo segredos diferentes, e o de notícias ficando **aberto** quando a variável não existia. `isCronRequestAuthorized()` agora atende os dois. A variável `CRON_PUBLIC_URL` foi eliminada: a URL pública sai do campo do painel, com o domínio de produção da Vercel como segunda opção.
+* **IDs de conversão saíram do código:** `metaRiskApprovedConversionId` e `metaPaymentApprovedConversionId` são configuráveis em `Configurações → API`. Estavam em variável de ambiente com constantes fixas no código, invisíveis e impossíveis de trocar sem deploy — e definem CPA, Receita Líquida e as categorias de winner. Com o painel vazio, os `action_type` resolvidos são idênticos aos anteriores, então a matemática das métricas não mudou.
+* **Vercel Blob removido:** não é usado. Saíram o ramo de upload em `media-upload.ts` e em `meta-sync-sql.ts`, o campo `usesVercelBlob`, a dependência `@vercel/blob` e a coluna que havia sido criada para o token. `isStorageConfigured()` passou a exigir cPanel de verdade, em vez de se declarar configurado por causa de um token de Blob presente.
+* **Aviso de URL sem TLS:** a URL de upload no banco estava em `http://`, e a senha viaja nessa requisição como cabeçalho `Authorization`. O painel agora avisa quando a URL não é `https://`.
+
+### Duas exceções que permanecem no ambiente
+Não são pendências, são limites estruturais:
+* **`DATABASE_URL`** — não se guarda o endereço do banco dentro do banco.
+* **`NEXTAUTH_SECRET`** — o middleware valida o cookie de sessão no runtime edge, antes de qualquer acesso ao banco. Se ele e a rota de auth usassem segredos diferentes, ninguém entraria no sistema, inclusive no painel onde a configuração seria feita.
+
+`VERCEL_PROJECT_PRODUCTION_URL` e `NODE_ENV` também seguem no ambiente, mas são injetados pela plataforma — não são configuração de usuário.
+
 ## 🧹 Simplificação: Duas Sincronizações, Uma Rotina (Setembro 2026)
 O processo havia acumulado variáveis que se contradiziam entre si. A regra passou a ser explícita: **existem exatamente duas sincronizações — manual e automática — e as duas executam a mesma rotina, `runSync()`.**
 

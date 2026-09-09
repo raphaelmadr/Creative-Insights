@@ -30,47 +30,81 @@ export interface ConversionEvent {
   label: string;
 }
 
-/** `risk_approved_cc` — pedido aprovado na análise de risco. */
-export const RISK_APPROVED_EVENT: ConversionEvent = {
-  id: process.env.META_RISK_APPROVED_CONVERSION_ID || "2105075753380751",
-  actionType: `offsite_conversion.custom.${process.env.META_RISK_APPROVED_CONVERSION_ID || "2105075753380751"}`,
-  key: "risk_approved_cc",
-  label: "aprovado no risco",
-};
+/**
+ * IDs de fábrica das conversões personalizadas desta conta.
+ *
+ * São o ponto de partida quando o painel não define nada; configurá-los em
+ * Configurações › API sobrepõe estes valores. Antes viviam em variável de
+ * ambiente, o que os tornava invisíveis e impossíveis de trocar sem deploy.
+ */
+export const DEFAULT_RISK_APPROVED_CONVERSION_ID = "2105075753380751";
+export const DEFAULT_PAYMENT_APPROVED_CONVERSION_ID = "27308373288832722";
 
-/** `payment_approved_cc` — pagamento aprovado (recorrente). */
-export const PAYMENT_APPROVED_EVENT: ConversionEvent = {
-  id: process.env.META_PAYMENT_APPROVED_CONVERSION_ID || "27308373288832722",
-  actionType: `offsite_conversion.custom.${process.env.META_PAYMENT_APPROVED_CONVERSION_ID || "27308373288832722"}`,
-  key: "payment_approved_cc",
-  label: "pagamento aprovado",
-};
+export interface ConversionSettings {
+  metaRiskApprovedConversionId?: string | null;
+  metaPaymentApprovedConversionId?: string | null;
+}
 
-/** Evento de compra padrão do pixel. */
+/** Evento de compra padrão do pixel — não é configurável, é do próprio Meta. */
 export const STANDARD_PURCHASE_EVENT: ConversionEvent = {
   actionType: "offsite_conversion.fb_pixel_purchase",
   key: "purchase",
   label: "compra (padrão Meta)",
 };
 
+export interface ResolvedConversions {
+  /** `risk_approved_cc` — pedido aprovado na análise de risco. */
+  riskApproved: ConversionEvent;
+  /** `payment_approved_cc` — pagamento aprovado (recorrente). */
+  paymentApproved: ConversionEvent;
+  standardPurchase: ConversionEvent;
+  /**
+   * O evento que define CPA, Receita Líquida e as categorias de winner.
+   *
+   * É `risk_approved_cc` para acompanhar o workspace-goal do Motion, que usa
+   * `risk_approved_value`, e para bater com a meta de CPA definida no painel —
+   * calibrada na escala das centenas de reais, que só esse evento produz.
+   */
+  primary: ConversionEvent;
+  /** O evento que define a Receita Bruta exibida ao lado da líquida. */
+  grossRevenue: ConversionEvent;
+}
+
 /**
- * O evento que define CPA, Receita Líquida e as categorias de winner.
+ * Resolve os eventos a partir das configurações do painel.
  *
- * É `risk_approved_cc` para acompanhar o workspace-goal do Motion, que usa
- * `risk_approved_value`, e para bater com a meta de CPA definida no painel —
- * calibrada na escala das centenas de reais, que só esse evento produz.
- *
- * Trocar aqui muda o número em todo o produto de uma vez; a meta de CPA em
- * Configurações precisa ser recalibrada junto.
+ * Recebe as configurações em vez de lê-las: `runMetaSync` já as carregou, e uma
+ * segunda consulta no meio do laço de métricas custaria caro.
  */
-export const PRIMARY_CONVERSION_EVENT = RISK_APPROVED_EVENT;
+export function resolveConversions(settings?: ConversionSettings | null): ResolvedConversions {
+  const riskId =
+    (settings?.metaRiskApprovedConversionId || "").trim() || DEFAULT_RISK_APPROVED_CONVERSION_ID;
+  const paymentId =
+    (settings?.metaPaymentApprovedConversionId || "").trim() ||
+    DEFAULT_PAYMENT_APPROVED_CONVERSION_ID;
 
-/** O evento que define a Receita Bruta exibida ao lado da líquida. */
-export const GROSS_REVENUE_EVENT = PAYMENT_APPROVED_EVENT;
+  const riskApproved: ConversionEvent = {
+    id: riskId,
+    actionType: `offsite_conversion.custom.${riskId}`,
+    key: "risk_approved_cc",
+    label: "aprovado no risco",
+  };
 
-// Compatibilidade com os pontos que já importam os action types diretamente.
-export const RISK_APPROVED_ACTION = RISK_APPROVED_EVENT.actionType;
-export const PAYMENT_APPROVED_ACTION = PAYMENT_APPROVED_EVENT.actionType;
+  const paymentApproved: ConversionEvent = {
+    id: paymentId,
+    actionType: `offsite_conversion.custom.${paymentId}`,
+    key: "payment_approved_cc",
+    label: "pagamento aprovado",
+  };
+
+  return {
+    riskApproved,
+    paymentApproved,
+    standardPurchase: STANDARD_PURCHASE_EVENT,
+    primary: riskApproved,
+    grossRevenue: paymentApproved,
+  };
+}
 
 /**
  * Fallbacks de receita bruta, usados só quando a conversão personalizada não
@@ -87,17 +121,18 @@ export const GROSS_VALUE_FALLBACK_ACTIONS = [
  * Descritor que a API devolve junto das métricas, para a interface poder
  * declarar qual evento está por trás dos números que está exibindo.
  */
-export function activeConversionDescriptor() {
+export function activeConversionDescriptor(settings?: ConversionSettings | null) {
+  const conversions = resolveConversions(settings);
   return {
     cpa: {
-      key: PRIMARY_CONVERSION_EVENT.key,
-      label: PRIMARY_CONVERSION_EVENT.label,
-      id: PRIMARY_CONVERSION_EVENT.id ?? null,
+      key: conversions.primary.key,
+      label: conversions.primary.label,
+      id: conversions.primary.id ?? null,
     },
     grossRevenue: {
-      key: GROSS_REVENUE_EVENT.key,
-      label: GROSS_REVENUE_EVENT.label,
-      id: GROSS_REVENUE_EVENT.id ?? null,
+      key: conversions.grossRevenue.key,
+      label: conversions.grossRevenue.label,
+      id: conversions.grossRevenue.id ?? null,
     },
   };
 }

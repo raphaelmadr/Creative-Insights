@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
-import { generateText } from "@/lib/ai";
+import { generateText, isAiConfigured } from "@/lib/ai";
+import { isCronRequestAuthorized } from "@/lib/cron-endpoint";
 import prisma from "@/lib/prisma";
 import { tavily } from "@tavily/core";
 import * as cheerio from 'cheerio';
@@ -28,8 +29,8 @@ async function extractOpenGraphImage(url: string): Promise<string | null> {
 }
 
 export async function GET(request: Request) {
-  const authHeader = request.headers.get("authorization");
-  if (process.env.CRON_SECRET && authHeader !== `Bearer ${process.env.CRON_SECRET}`) {
+  // Mesmo segredo do painel que o cron de sincronização usa.
+  if (!(await isCronRequestAuthorized(request))) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
@@ -78,8 +79,12 @@ Compile seus achados e gere para CADA insight a seguinte estrutura EXATA em form
 
 REGRA CRÍTICA: Responda ESTRITAMENTE EM TEXTO PURO (MARKDOWN). É ESTRITAMENTE PROIBIDO retornar JSON. Use títulos (##) e os emojis conforme o modelo acima.`;
 
-    if (!process.env.GEMINI_API_KEY && !process.env.ANTHROPIC_API_KEY) {
-      return NextResponse.json({ success: false, reason: "No AI API keys configured" });
+    if (!(await isAiConfigured())) {
+      return NextResponse.json({
+        success: true,
+        unavailable: true,
+        reason: "Nenhuma chave de IA configurada. Configure em Configurações › IA.",
+      });
     }
 
     const tavilyKey = settings?.tavilyApiKey || process.env.TAVILY_API_KEY;

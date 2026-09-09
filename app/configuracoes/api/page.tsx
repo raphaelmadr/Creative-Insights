@@ -10,6 +10,8 @@ export default function ApiPage() {
   const [settings, setSettings] = useState({
     metaAdAccountId: "",
     metaAccessToken: "",
+    metaRiskApprovedConversionId: "",
+    metaPaymentApprovedConversionId: "",
     tiktokAdvertiserId: "",
     tiktokAccessToken: "",
     googleClientId: "",
@@ -31,6 +33,8 @@ export default function ApiPage() {
           setSettings({
             metaAdAccountId: settingsRes.data.metaAdAccountId ?? "",
             metaAccessToken: settingsRes.data.metaAccessToken ?? "",
+            metaRiskApprovedConversionId: settingsRes.data.metaRiskApprovedConversionId ?? "",
+            metaPaymentApprovedConversionId: settingsRes.data.metaPaymentApprovedConversionId ?? "",
             tiktokAdvertiserId: settingsRes.data.tiktokAdvertiserId ?? "",
             tiktokAccessToken: settingsRes.data.tiktokAccessToken ?? "",
             googleClientId: settingsRes.data.googleClientId ?? "",
@@ -97,6 +101,16 @@ export default function ApiPage() {
             <label style={{ display: "flex", flexDirection: "column", gap: "0.5rem", fontSize: "0.9rem" }}>
               <span style={{ fontWeight: 600 }}>Access Token</span>
               <input type="password" value={settings.metaAccessToken} onChange={e => setSettings({...settings, metaAccessToken: e.target.value})} style={{ padding: "0.8rem", borderRadius: "8px", border: "1px solid var(--card-border)", background: "var(--card-bg)", color: "var(--foreground)", fontFamily: "monospace" }} />
+            </label>
+            <label style={{ display: "flex", flexDirection: "column", gap: "0.5rem", fontSize: "0.9rem" }}>
+              <span style={{ fontWeight: 600 }}>Conversão &quot;aprovado no risco&quot; (ID)</span>
+              <input type="text" value={settings.metaRiskApprovedConversionId} onChange={e => setSettings({...settings, metaRiskApprovedConversionId: e.target.value})} placeholder="padrão: 2105075753380751" style={{ padding: "0.8rem", borderRadius: "8px", border: "1px solid var(--card-border)", background: "var(--card-bg)", color: "var(--foreground)", fontFamily: "monospace" }} />
+              <span style={{ fontSize: "0.78rem", color: "var(--muted)", opacity: 0.8, lineHeight: 1.5 }}>Define CPA, Receita Líquida e as categorias de winner. Trocar aqui muda o número em todo o produto — recalibre a meta de CPA em Metas.</span>
+            </label>
+            <label style={{ display: "flex", flexDirection: "column", gap: "0.5rem", fontSize: "0.9rem" }}>
+              <span style={{ fontWeight: 600 }}>Conversão &quot;pagamento aprovado&quot; (ID)</span>
+              <input type="text" value={settings.metaPaymentApprovedConversionId} onChange={e => setSettings({...settings, metaPaymentApprovedConversionId: e.target.value})} placeholder="padrão: 27308373288832722" style={{ padding: "0.8rem", borderRadius: "8px", border: "1px solid var(--card-border)", background: "var(--card-bg)", color: "var(--foreground)", fontFamily: "monospace" }} />
+              <span style={{ fontSize: "0.78rem", color: "var(--muted)", opacity: 0.8, lineHeight: 1.5 }}>Define a Receita Bruta exibida ao lado da líquida. Em branco usa o padrão da conta.</span>
             </label>
           </div>
         </div>

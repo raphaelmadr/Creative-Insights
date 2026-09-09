@@ -1,14 +1,17 @@
 import { NextResponse } from "next/server";
-import { generateText } from "@/lib/ai";
+import { generateText, isAiConfigured } from "@/lib/ai";
 
 export async function POST(request: Request) {
   try {
     const { imageUrl, metrics } = await request.json();
 
-    if (!process.env.GEMINI_API_KEY && !process.env.ANTHROPIC_API_KEY) {
+    // Recurso indisponível não é erro: devolve sucesso com a mensagem dizendo
+    // exatamente o que falta, para a interface não mostrar uma falha genérica.
+    if (!(await isAiConfigured())) {
       return NextResponse.json({
         success: true,
-        insight: "Mocked AI Review: Aumentar o contraste do botão e testar uma variação com cores quentes no fundo, baseando-se no último update do Andromeda."
+        unavailable: true,
+        insight: "Análise por IA indisponível: nenhuma chave de IA configurada. Configure em Configurações › IA."
       });
     }
 

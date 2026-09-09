@@ -113,6 +113,27 @@ async function getBestHuggingFaceModel(): Promise<string> {
 }
 
 /**
+ * Há alguma chave de IA configurada?
+ *
+ * Lê apenas o painel, porque é só o painel que `generateWithFallback` consulta.
+ * Rotas que checavam `process.env.GEMINI_API_KEY` liberavam a requisição com
+ * base numa chave que o gerador nunca leria — o recurso falhava depois, com a
+ * mensagem errada.
+ */
+export async function isAiConfigured(): Promise<boolean> {
+  const settings = await prisma.systemSettings.findUnique({ where: { id: 1 } });
+  return [
+    settings?.geminiApiKey,
+    settings?.anthropicApiKey,
+    settings?.openaiApiKey,
+    settings?.groqApiKey,
+    settings?.openRouterApiKey,
+    settings?.cohereApiKey,
+    settings?.huggingFaceApiKey,
+  ].some((key) => !!(key && key.trim()));
+}
+
+/**
  * Generates text from prompt, with optional images, using a fallback mechanism.
  * Order of fallback: Gemini -> OpenAI -> Claude
  */

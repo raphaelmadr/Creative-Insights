@@ -25,16 +25,15 @@ async function buildState() {
     resolveCronBaseUrl(),
   ]);
 
+  // Só o painel: o endpoint de cron não aceita mais segredo de ambiente, então
+  // reportá-lo aqui faria o painel exibir uma URL que levaria 401.
   const dbSecret = settings?.cronSecret || null;
-  const envSecret = process.env.CRON_SECRET || null;
-  // O segredo do painel manda na URL exibida; o de ambiente segue aceito pelo
-  // endpoint, mas não é revelado aqui.
-  const secretForUrl = dbSecret || envSecret;
+  const secretForUrl = dbSecret;
 
   return {
-    hasSecret: !!(dbSecret || envSecret),
+    hasSecret: !!dbSecret,
     hasDbSecret: !!dbSecret,
-    hasEnvSecret: !!envSecret,
+    hasEnvSecret: false,
     secret: dbSecret,
     path: CRON_PATH,
     baseUrl: resolution.baseUrl,

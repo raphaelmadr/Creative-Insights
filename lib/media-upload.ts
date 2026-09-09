@@ -12,12 +12,21 @@ export interface MediaStorageSettings {
   cpanelUploadSecret?: string | null;
 }
 
+/** De onde um valor efetivo veio. `null` quando não existe em lugar algum. */
+export type ConfigSource = "db" | "env" | null;
+
 export interface ResolvedStorageConfig {
   uploadUrl?: string;
   uploadSecret?: string;
   /** Host do cPanel, usado para reconhecer URLs já persistidas. */
   host?: string;
-  usesVercelBlob: boolean;
+  /**
+   * Origem de cada valor. O painel precisa disso para não mentir: lendo apenas
+   * o banco, um valor que vive na variável de ambiente aparecia como campo
+   * vazio, e não havia como saber se o armazenamento estava configurado.
+   */
+  uploadUrlSource: ConfigSource;
+  uploadSecretSource: ConfigSource;
 }
 
 const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -30,10 +39,10 @@ const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 export function resolveStorageConfig(
   settings?: MediaStorageSettings | null
 ): ResolvedStorageConfig {
-  const uploadUrl =
-    (settings?.cpanelUploadUrl || "").trim() || process.env.CPANEL_UPLOAD_URL || "";
-  const uploadSecret =
-    (settings?.cpanelUploadSecret || "").trim() || process.env.CPANEL_UPLOAD_SECRET || "";
+  const dbUrl = (settings?.cpanelUploadUrl || "").trim();
+  const dbSecret = (settings?.cpanelUploadSecret || "").trim();
+  const uploadUrl = dbUrl;
+  const uploadSecret = dbSecret;
 
   let host: string | undefined;
   if (uploadUrl) {
@@ -48,12 +57,13 @@ export function resolveStorageConfig(
     uploadUrl: uploadUrl || undefined,
     uploadSecret: uploadSecret || undefined,
     host,
-    usesVercelBlob: !!process.env.BLOB_READ_WRITE_TOKEN,
+    uploadUrlSource: dbUrl ? "db" : null,
+    uploadSecretSource: dbSecret ? "db" : null,
   };
 }
 
 export function isStorageConfigured(config: ResolvedStorageConfig): boolean {
-  return (!!config.uploadUrl && !!config.uploadSecret) || config.usesVercelBlob;
+  return !!config.uploadUrl && !!config.uploadSecret;
 }
 
 /**
@@ -182,20 +192,6 @@ export async function persistRemoteMedia(
       if (attempt < 3) await delay(500 * Math.pow(2, attempt - 1));
     }
     return null;
-  }
-
-  if (config.usesVercelBlob) {
-    try {
-      const { put } = await import("@vercel/blob");
-      const uploadResult = await put(`ad-images/${filename}`, blob, {
-        access: "public",
-        addRandomSuffix: false,
-      });
-      return uploadResult.url;
-    } catch (error) {
-      console.warn(`[media-upload] Falha no Vercel Blob: ${(error as Error).message}`);
-      return null;
-    }
   }
 
   return null;

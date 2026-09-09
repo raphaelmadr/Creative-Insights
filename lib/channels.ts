@@ -51,9 +51,7 @@ export const SOURCES: SourceDefinition[] = [
   {
     id: "META",
     label: "Meta",
-    isConfigured: (settings) =>
-      !!(settings?.metaAdAccountId || process.env.META_AD_ACCOUNT_ID) &&
-      !!(settings?.metaAccessToken || process.env.META_ACCESS_TOKEN),
+    isConfigured: (settings) => !!settings?.metaAdAccountId && !!settings?.metaAccessToken,
     run: async (onProgress) => {
       const result = await runMetaSync("full", onProgress);
       return {
@@ -102,6 +100,8 @@ export interface SyncReport {
   ok: boolean;
   /** Alguma fonte parou no teto de tempo — rodar de novo continua de onde parou. */
   partial: boolean;
+  /** Não havia fonte alguma com credenciais: nada foi feito, e isso não é erro. */
+  nothingConfigured: boolean;
   /** Uma linha para toast e log. */
   summary: string;
 }
@@ -118,10 +118,19 @@ export async function runSync(
 ): Promise<SyncReport> {
   const sources = await getConfiguredSources();
 
+  // Ausência de credenciais não é falha: nada a fazer é um resultado legítimo,
+  // relatado com a mensagem que diz o que configurar. Lançar aqui transformava
+  // uma configuração incompleta em erro de sistema.
   if (sources.length === 0) {
-    throw new Error(
-      "Nenhuma fonte configurada. Cadastre as credenciais em Configurações › API."
-    );
+    onProgress?.("Nenhuma fonte com credenciais configuradas.", 100);
+    return {
+      outcomes: [],
+      ok: true,
+      partial: false,
+      nothingConfigured: true,
+      summary:
+        "Nenhuma fonte configurada — nada a sincronizar. Cadastre as credenciais da Meta, do TikTok e/ou do Slack em Configurações › API.",
+    };
   }
 
   const outcomes: SourceOutcome[] = [];
@@ -173,7 +182,7 @@ export async function runSync(
     });
   }
 
-  return { outcomes, ok, partial, summary: summarize(outcomes) };
+  return { outcomes, ok, partial, nothingConfigured: false, summary: summarize(outcomes) };
 }
 
 /** Resumo curto para toast/log. */

@@ -19,7 +19,7 @@ export const CRON_PATH = "/api/cron/sync-all";
 export interface CronUrlResolution {
   /** Base sem barra final, já com protocolo. `null` quando nada é conhecido. */
   baseUrl: string | null;
-  source: "CRON_PUBLIC_URL" | "VERCEL_PROJECT_PRODUCTION_URL" | "NEXTAUTH_URL" | null;
+  source: "PAINEL" | "VERCEL_PROJECT_PRODUCTION_URL" | "NEXTAUTH_URL" | null;
   /** Falso quando só foi possível chegar a um endereço local. */
   reachableExternally: boolean;
 }
@@ -40,13 +40,14 @@ export async function resolveCronBaseUrl(): Promise<CronUrlResolution> {
     .catch(() => null);
 
   const candidates: { value: string | null; source: CronUrlResolution["source"] }[] = [
-    // Escape hatch para domínio próprio que não esteja em nenhuma das outras fontes.
-    { value: normalize(process.env.CRON_PUBLIC_URL), source: "CRON_PUBLIC_URL" },
+    // Painel primeiro: é a fonte de verdade da configuração.
+    { value: normalize(settings?.nextAuthUrl), source: "PAINEL" },
+    // Injetado pela plataforma, não é configuração de usuário.
     {
       value: normalize(process.env.VERCEL_PROJECT_PRODUCTION_URL),
       source: "VERCEL_PROJECT_PRODUCTION_URL",
     },
-    { value: normalize(settings?.nextAuthUrl), source: "NEXTAUTH_URL" },
+    // Transitório, até a URL pública estar cadastrada no painel.
     { value: normalize(process.env.NEXTAUTH_URL), source: "NEXTAUTH_URL" },
   ];
 

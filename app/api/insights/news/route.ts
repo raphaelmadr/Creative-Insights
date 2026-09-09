@@ -97,9 +97,7 @@ REGRA CRÍTICA: Responda ESTRITAMENTE EM TEXTO PURO (MARKDOWN). É ESTRITAMENTE 
           settings?.groqApiKey ||
           settings?.openRouterApiKey ||
           settings?.cohereApiKey ||
-          settings?.huggingFaceApiKey ||
-          process.env.GEMINI_API_KEY || 
-          process.env.ANTHROPIC_API_KEY
+          settings?.huggingFaceApiKey
         );
 
         if (!hasAnyAiKey) {

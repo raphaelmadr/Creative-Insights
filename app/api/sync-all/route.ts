@@ -29,7 +29,16 @@ export async function POST() {
           send({ type: "progress", message, percentage, source });
         });
 
-        if (report.ok) {
+        if (report.nothingConfigured) {
+          // Nada configurado é informação, não falha: o toast diz o que fazer.
+          send({
+            type: "complete",
+            message: report.summary,
+            percentage: 100,
+            partial: true,
+            outcomes: [],
+          });
+        } else if (report.ok) {
           send({
             type: "complete",
             message: report.partial

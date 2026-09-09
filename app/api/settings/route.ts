@@ -1,5 +1,7 @@
 import { NextResponse } from 'next/server';
 import prisma from "@/lib/prisma";
+import { isStorageConfigured, resolveStorageConfig } from "@/lib/media-upload";
+import { buildIntegrationStatuses } from "@/lib/integrations";
 
 export const dynamic = 'force-dynamic';
 
@@ -127,7 +129,23 @@ export async function GET() {
       settings.marketInsightsPrompt = DEFAULT_MARKET_INSIGHTS_PROMPT;
     }
 
-    return NextResponse.json({ success: true, data: settings });
+    // O painel edita o banco, mas precisa mostrar o que está EM VIGOR: um valor
+    // que vive na variável de ambiente aparecia como campo vazio, dando a
+    // impressão de que o armazenamento de mídia não estava configurado.
+    const storage = resolveStorageConfig(settings);
+
+    return NextResponse.json({
+      success: true,
+      data: settings,
+      integrations: buildIntegrationStatuses(settings),
+      mediaStorage: {
+        uploadUrl: storage.uploadUrl ?? "",
+        uploadSecret: storage.uploadSecret ?? "",
+        uploadUrlSource: storage.uploadUrlSource,
+        uploadSecretSource: storage.uploadSecretSource,
+        configured: isStorageConfigured(storage),
+      },
+    });
   } catch (error) {
     console.error('Error fetching settings:', error);
     return NextResponse.json({ success: false, error: 'Failed to fetch settings' }, { status: 500 });
@@ -151,6 +169,7 @@ export async function POST(request: Request) {
       cpanelUploadUrl, cpanelUploadSecret,
       googleClientId, googleClientSecret, nextAuthSecret, nextAuthUrl,
       metaAppId, metaAppSecret,
+      metaRiskApprovedConversionId, metaPaymentApprovedConversionId,
       tiktokAdvertiserId, tiktokAppId, tiktokAppSecret, tiktokAccessToken
     } = body;
 
@@ -199,6 +218,8 @@ export async function POST(request: Request) {
     if (cronSyncInterval !== undefined) updateData.cronSyncInterval = parseInt(cronSyncInterval) || 120;
     if (cpanelUploadUrl !== undefined) updateData.cpanelUploadUrl = cpanelUploadUrl;
     if (cpanelUploadSecret !== undefined) updateData.cpanelUploadSecret = cpanelUploadSecret;
+    if (metaRiskApprovedConversionId !== undefined) updateData.metaRiskApprovedConversionId = metaRiskApprovedConversionId;
+    if (metaPaymentApprovedConversionId !== undefined) updateData.metaPaymentApprovedConversionId = metaPaymentApprovedConversionId;
     if (googleClientId !== undefined) updateData.googleClientId = googleClientId;
     if (googleClientSecret !== undefined) updateData.googleClientSecret = googleClientSecret;
     if (nextAuthSecret !== undefined) updateData.nextAuthSecret = nextAuthSecret;
@@ -241,6 +262,8 @@ export async function POST(request: Request) {
         ...(cronSyncInterval !== undefined && { cronSyncInterval: parseInt(cronSyncInterval) || 120 }),
         ...(cpanelUploadUrl !== undefined && { cpanelUploadUrl }),
         ...(cpanelUploadSecret !== undefined && { cpanelUploadSecret }),
+        ...(metaRiskApprovedConversionId !== undefined && { metaRiskApprovedConversionId }),
+        ...(metaPaymentApprovedConversionId !== undefined && { metaPaymentApprovedConversionId }),
         ...(googleClientId !== undefined && { googleClientId }),
         ...(googleClientSecret !== undefined && { googleClientSecret }),
         ...(nextAuthSecret !== undefined && { nextAuthSecret }),

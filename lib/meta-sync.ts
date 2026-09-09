@@ -10,8 +10,7 @@ import {
 import { loadAliasIndex, resolveDesigner } from "./designer-match";
 import { normalizeMetaStatus } from "./ad-status";
 import {
-  PAYMENT_APPROVED_ACTION,
-  RISK_APPROVED_ACTION,
+  resolveConversions,
   GROSS_VALUE_FALLBACK_ACTIONS,
 } from "./meta-conversions";
 import {
@@ -111,15 +110,22 @@ export async function runMetaSync(
 
   const settings = await prisma.systemSettings.findUnique({ where: { id: 1 } });
 
-  let metaAccountId = settings?.metaAdAccountId || process.env.META_AD_ACCOUNT_ID;
-  const metaToken = settings?.metaAccessToken || process.env.META_ACCESS_TOKEN;
+  // Os eventos de conversão vêm do painel; resolvidos uma vez, aqui, porque o
+  // laço de métricas abaixo os consulta por linha.
+  const conversions = resolveConversions(settings);
+  const RISK_APPROVED_ACTION = conversions.riskApproved.actionType;
+  const PAYMENT_APPROVED_ACTION = conversions.paymentApproved.actionType;
+
+  // Painel apenas: credencial é configuração de sistema, não de ambiente.
+  let metaAccountId = settings?.metaAdAccountId || undefined;
+  const metaToken = settings?.metaAccessToken || undefined;
 
   if (metaAccountId && !metaAccountId.startsWith("act_")) {
     metaAccountId = `act_${metaAccountId}`;
   }
 
   if (!metaAccountId || !metaToken) {
-    throw new Error("Credenciais do Meta Ads não configuradas no painel nem no .env");
+    throw new Error("Credenciais do Meta Ads não configuradas em Configurações › API.");
   }
 
   const storage = resolveStorageConfig(settings);

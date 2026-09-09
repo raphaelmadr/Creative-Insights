@@ -46,8 +46,9 @@ export async function runMetaSyncSql(
   resetWallClock();
   const settings = await prisma.systemSettings.findUnique({ where: { id: 1 } });
   
-  let metaAccountId = settings?.metaAdAccountId || process.env.META_AD_ACCOUNT_ID;
-  const metaToken = settings?.metaAccessToken || process.env.META_ACCESS_TOKEN;
+  // Painel apenas: este CLI lê o mesmo banco que a aplicação.
+  let metaAccountId = settings?.metaAdAccountId || undefined;
+  const metaToken = settings?.metaAccessToken || undefined;
 
   if (metaAccountId && !metaAccountId.startsWith('act_')) {
     metaAccountId = `act_${metaAccountId}`;
@@ -162,7 +163,7 @@ export async function runMetaSyncSql(
     } catch (e) {}
   }
   const settingsData = await prisma.systemSettings.findUnique({ where: { id: 1 } });
-  const globalCpanelUrl = settingsData?.cpanelUploadUrl || process.env.CPANEL_UPLOAD_URL;
+  const globalCpanelUrl = settingsData?.cpanelUploadUrl || undefined;
 
   const refreshAdIds = Array.from(new Set([
     ...adIds.filter((id) => !existingIds.has(id))
@@ -382,8 +383,8 @@ export async function runMetaSyncSql(
                 const blob = await imgRes.blob();
                 const filename = `${adId}-${videoId || creative.image_hash || 'image'}.jpg`;
                 
-                const uploadUrl = settingsData?.cpanelUploadUrl || process.env.CPANEL_UPLOAD_URL;
-                const uploadSecret = settingsData?.cpanelUploadSecret || process.env.CPANEL_UPLOAD_SECRET;
+                const uploadUrl = settingsData?.cpanelUploadUrl || undefined;
+                const uploadSecret = settingsData?.cpanelUploadSecret || undefined;
 
                 if (uploadUrl && uploadSecret) {
                   const formData = new FormData();
@@ -416,11 +417,6 @@ export async function runMetaSyncSql(
                     imageUrl = fbImageUrl;
                     thumbnailUrl = fbImageUrl;
                   }
-                } else if (process.env.BLOB_READ_WRITE_TOKEN) {
-                  const { put } = await import('@vercel/blob');
-                  const uploadResult = await put(`ad-images/${filename}`, blob, { access: 'public', addRandomSuffix: false });
-                  imageUrl = uploadResult.url;
-                  thumbnailUrl = uploadResult.url;
                 } else {
                   imageUrl = fbImageUrl;
                   thumbnailUrl = fbImageUrl;

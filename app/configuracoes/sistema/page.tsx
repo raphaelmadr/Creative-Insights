@@ -21,6 +21,23 @@ interface CronTriggerState {
   triggerCommand: string | null;
 }
 
+interface IntegrationStatus {
+  id: string;
+  label: string;
+  configured: boolean;
+  enables: string;
+  where: string;
+  fromEnv: boolean;
+}
+
+interface MediaStorageState {
+  uploadUrl: string;
+  uploadSecret: string;
+  uploadUrlSource: "db" | "env" | null;
+  uploadSecretSource: "db" | "env" | null;
+  configured: boolean;
+}
+
 /** O Cron Jobs padrão do cPanel executa um comando; alguns disparadores só aceitam um link. */
 type TriggerFormat = "command" | "url";
 
@@ -47,6 +64,9 @@ export default function SistemaPage() {
   }>({ sources: [] });
 
   const [trigger, setTrigger] = useState<CronTriggerState | null>(null);
+  const [storage, setStorage] = useState<MediaStorageState | null>(null);
+  const [integrations, setIntegrations] = useState<IntegrationStatus[]>([]);
+  const [revealUploadSecret, setRevealUploadSecret] = useState(false);
 
   const loadAll = React.useCallback(() => {
     return Promise.all([
@@ -55,11 +75,16 @@ export default function SistemaPage() {
     ]).then(([settingsRes, cronRes]) => {
       if (settingsRes.success && settingsRes.data) {
         const data = settingsRes.data;
+        const media = settingsRes.mediaStorage;
+        setStorage(media ?? null);
+        setIntegrations(settingsRes.integrations ?? []);
         setSettings({
           cronSyncEnabled: data.cronSyncEnabled ?? true,
           cronSyncInterval: data.cronSyncInterval ?? 120,
-          cpanelUploadUrl: data.cpanelUploadUrl ?? "",
-          cpanelUploadSecret: data.cpanelUploadSecret ?? "",
+          // Valor efetivo, não só o do banco: se estiver na variável de
+          // ambiente, o campo mostra o que está de fato em vigor.
+          cpanelUploadUrl: media?.uploadUrl ?? data.cpanelUploadUrl ?? "",
+          cpanelUploadSecret: media?.uploadSecret ?? data.cpanelUploadSecret ?? "",
         });
         setStatus({
           lastSyncAt: data.lastSyncAt,
@@ -145,6 +170,14 @@ export default function SistemaPage() {
     : formatDateTime(nextEligible);
 
   const noSourceConfigured = status.sources.every(s => !s.configured);
+
+  const sourceLabel = (source: "db" | "env" | null | undefined) => {
+    if (source === "db") return "Salvo neste painel.";
+    if (source === "env") return "Vindo da variável de ambiente do servidor. Salvar grava no banco, que passa a ter precedência.";
+    return "Não configurado.";
+  };
+
+  const insecureUploadUrl = /^http:\/\//i.test(settings.cpanelUploadUrl.trim());
   const triggerValue = (format === "command" ? trigger?.triggerCommand : trigger?.triggerUrl) ?? "";
   const urlUsable = !!triggerValue && !!trigger?.reachableExternally && !!trigger?.hasSecret;
 
@@ -184,6 +217,42 @@ export default function SistemaPage() {
   return (
     <div className="glass-panel" style={{ padding: "2rem", borderRadius: "16px" }}>
       <form onSubmit={handleSaveSettings} style={{ display: "flex", flexDirection: "column", gap: "2rem" }}>
+
+        {integrations.length > 0 && (
+          <div style={{ display: "flex", flexDirection: "column", gap: "0.9rem" }}>
+            <h3 style={{ fontSize: "1.1rem", fontWeight: 600, color: "var(--foreground)", margin: 0 }}>Status das Integrações</h3>
+            <p style={{ fontSize: "0.85rem", color: "var(--muted)", margin: 0, lineHeight: 1.6 }}>
+              Uma credencial ausente desabilita apenas o recurso dela — o resto do sistema segue funcionando.
+              Abaixo, o que está ativo e o que está indisponível agora.
+            </p>
+            <div style={{ display: "flex", flexDirection: "column", gap: "0.5rem" }}>
+              {integrations.map(item => (
+                <div key={item.id} style={{ display: "flex", gap: "0.7rem", alignItems: "flex-start", padding: "0.7rem 0.9rem", borderRadius: "8px", border: "1px solid var(--card-border)", background: item.configured ? "rgba(34,197,94,0.06)" : "rgba(245,158,11,0.08)" }}>
+                  {item.configured
+                    ? <ShieldCheck size={16} color="#16a34a" style={{ flexShrink: 0, marginTop: "0.15rem" }} />
+                    : <ShieldAlert size={16} color="#b45309" style={{ flexShrink: 0, marginTop: "0.15rem" }} />}
+                  <div style={{ display: "flex", flexDirection: "column", gap: "0.15rem", fontSize: "0.85rem" }}>
+                    <span style={{ fontWeight: 600, color: "var(--foreground)" }}>
+                      {item.label}
+                      {item.fromEnv && (
+                        <span style={{ marginLeft: "0.5rem", fontSize: "0.7rem", fontWeight: 600, color: "#b45309", background: "rgba(245,158,11,0.14)", border: "1px solid rgba(245,158,11,0.3)", borderRadius: "999px", padding: "0.1rem 0.45rem" }}>
+                          via .env — mover para o painel
+                        </span>
+                      )}
+                    </span>
+                    <span style={{ color: "var(--muted)", lineHeight: 1.5 }}>
+                      {item.configured
+                        ? `Habilita ${item.enables}.`
+                        : `Indisponível: ${item.enables}. Configure em ${item.where}.`}
+                    </span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        <hr style={{ border: "none", borderTop: "1px solid var(--card-border)" }} />
 
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
           <h3 style={{ fontSize: "1.1rem", fontWeight: 600, color: "var(--foreground)", margin: 0 }}>Sincronização Automática</h3>
@@ -357,18 +426,54 @@ export default function SistemaPage() {
 
         <hr style={{ border: "none", borderTop: "1px solid var(--card-border)" }} />
 
-        <div style={{ display: "flex", flexDirection: "column", gap: "1.5rem" }}>
-          <h3 style={{ fontSize: "1.1rem", fontWeight: 600, color: "var(--foreground)", margin: 0 }}>Hospedagem de Imagens (cPanel)</h3>
+        <div style={{ display: "flex", flexDirection: "column", gap: "1.2rem" }}>
+          <h3 style={{ display: "flex", alignItems: "center", gap: "0.6rem", fontSize: "1.1rem", fontWeight: 600, color: "var(--foreground)", margin: 0 }}>
+            Hospedagem de Imagens (cPanel)
+            {storage?.configured ? (
+              <span style={{ display: "inline-flex", alignItems: "center", gap: "0.3rem", fontSize: "0.72rem", fontWeight: 600, color: "#16a34a", background: "rgba(34,197,94,0.12)", border: "1px solid rgba(34,197,94,0.3)", borderRadius: "999px", padding: "0.15rem 0.55rem" }}>
+                <ShieldCheck size={12} /> Configurada
+              </span>
+            ) : (
+              <span style={{ display: "inline-flex", alignItems: "center", gap: "0.3rem", fontSize: "0.72rem", fontWeight: 600, color: "#b45309", background: "rgba(245,158,11,0.12)", border: "1px solid rgba(245,158,11,0.3)", borderRadius: "999px", padding: "0.15rem 0.55rem" }}>
+                <ShieldAlert size={12} /> Não configurada
+              </span>
+            )}
+          </h3>
+
+          <p style={{ fontSize: "0.85rem", color: "var(--muted)", margin: 0, lineHeight: 1.6 }}>
+            Meta e TikTok entregam URLs de vida curta; as mídias são copiadas para cá para não expirarem.
+            Os campos mostram o que está <strong>em vigor</strong> — o painel tem precedência sobre a variável de ambiente.
+          </p>
+
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "1.5rem" }}>
             <label style={{ display: "flex", flexDirection: "column", gap: "0.5rem", fontSize: "0.9rem" }}>
               <span style={{ fontWeight: 600 }}>URL de Upload (Webhook)</span>
               <input type="url" value={settings.cpanelUploadUrl} onChange={e => setSettings({...settings, cpanelUploadUrl: e.target.value})} placeholder="https://..." style={{ ...inputStyle, fontFamily: "monospace" }} />
+              <span style={{ fontSize: "0.78rem", color: "var(--muted)", opacity: 0.8 }}>{sourceLabel(storage?.uploadUrlSource)}</span>
             </label>
             <label style={{ display: "flex", flexDirection: "column", gap: "0.5rem", fontSize: "0.9rem" }}>
               <span style={{ fontWeight: 600 }}>Senha (Secret Token)</span>
-              <input type="password" value={settings.cpanelUploadSecret} onChange={e => setSettings({...settings, cpanelUploadSecret: e.target.value})} style={{ ...inputStyle, fontFamily: "monospace" }} />
+              <div style={{ display: "flex", gap: "0.5rem" }}>
+                <input type={revealUploadSecret ? "text" : "password"} value={settings.cpanelUploadSecret} onChange={e => setSettings({...settings, cpanelUploadSecret: e.target.value})} style={{ ...inputStyle, flex: 1, fontFamily: "monospace" }} />
+                <button type="button" onClick={() => setRevealUploadSecret(v => !v)} title={revealUploadSecret ? "Ocultar" : "Revelar"} style={iconButtonStyle}>
+                  {revealUploadSecret ? <EyeOff size={16} /> : <Eye size={16} />}
+                </button>
+              </div>
+              <span style={{ fontSize: "0.78rem", color: "var(--muted)", opacity: 0.8 }}>{sourceLabel(storage?.uploadSecretSource)}</span>
             </label>
           </div>
+
+          {insecureUploadUrl && (
+            <div style={noticeStyle("warn")}>
+              <AlertTriangle size={16} style={{ flexShrink: 0, marginTop: "0.1rem" }} />
+              <span>
+                A URL está em <code>http://</code>, sem TLS. A senha acima é enviada nessa requisição, em texto
+                claro na rede. Troque para <code>https://</code>.
+              </span>
+            </div>
+          )}
+
+
         </div>
       </form>
     </div>
