@@ -83,6 +83,8 @@ type Group = {
   cannibalizationRate: number;
   isCannibalized: boolean;
   aiInsight?: string;
+  /** Quantas peças do grupo entraram na análise, para o critério ficar auditável. */
+  aiAnalyzedCount?: number;
   creatives: SimilarCreative[];
 };
 
@@ -138,6 +140,7 @@ export default function SimilaridadePage() {
           if (!prev) return prev;
           const newGroups = [...prev.groups];
           newGroups[groupIndex].aiInsight = data.aiInsight;
+          newGroups[groupIndex].aiAnalyzedCount = data.analyzedCount;
           return { ...prev, groups: newGroups };
         });
       } else {
@@ -306,7 +309,10 @@ export default function SimilaridadePage() {
                       <Sparkles color="var(--primary)" size={24} style={{ flexShrink: 0 }} />
                       <div>
                         <p style={{ margin: "0 0 0.5rem 0", fontSize: "0.95rem", color: "var(--foreground)", display: "flex", alignItems: "center", gap: "0.4rem" }}>
-                          <strong className="gradient-text">Insight do Diretor de Arte (IA):</strong> Análise de similaridade visual concluída. 
+                          <strong className="gradient-text">Leitura do algoritmo (IA):</strong>{" "}
+                          {group.aiAnalyzedCount
+                            ? `${group.aiAnalyzedCount} de ${group.creatives.length} peças analisadas — as que concentraram a verba.`
+                            : "Análise concluída."}{" "}
                         </p>
                         <div className="prose prose-invert max-w-none" style={{ margin: 0, fontSize: "0.85rem", opacity: 0.8, lineHeight: 1.5 }}>
                           <ReactMarkdown>{group.aiInsight}</ReactMarkdown>

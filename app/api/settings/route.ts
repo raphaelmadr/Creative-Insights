@@ -2,19 +2,10 @@ import { NextResponse } from 'next/server';
 import prisma from "@/lib/prisma";
 import { isStorageConfigured, resolveStorageConfig } from "@/lib/media-upload";
 import { buildIntegrationStatuses } from "@/lib/integrations";
-import { DEFAULT_HYPOTHESIS_PROMPT } from "@/lib/ai-prompts";
+import { DEFAULT_ANDROMEDA_PROMPT, DEFAULT_HYPOTHESIS_PROMPT } from "@/lib/ai-prompts";
 
 export const dynamic = 'force-dynamic';
 
-
-const DEFAULT_ANDROMEDA_PROMPT = `Você é um Estrategista Sênior especialista em Meta Ads, Andromeda e Entity IDs.
-Analise este grupo de anúncios que sofreram Canibalização de Verba (Fadiga Cruzada) no mesmo Entity ID.
-Nomes dos criativos envolvidos: \${creativeNames}
-Tags da taxonomia compartilhadas: \${sharedTags}
-Share de Gasto do criativo 'Vencedor Injusto': \${cannibalizationRate}%
-
-Dê uma instrução direta (máximo de 2 frases curtas) para a equipe de Design sobre como criar uma nova variação para que o algoritmo não considere mais uma 'variação cosmética' (que cai no mesmo Entity ID).
-Regra de ouro: Leia os nomes! Se os nomes indicarem 'IMG' (imagem), NÃO fale sobre alterar os '3 primeiros segundos' (que é pra vídeo). Se for imagem, mande mudar o fundo, o cenário, as cores principais ou a pessoa em cena radicalmente. Seja cirúrgico e tático, direto ao ponto, sem cumprimentos ou introduções, no tom da urgência.`;
 
 const DEFAULT_TAVILY_SEARCH_QUERY = "UGC hook variations, Direct response design teardown, Creative fatigue management, A/B test ad creative, estudos de caso de anúncios Meta Ads, hacks de retenção de atenção";
 

@@ -134,6 +134,9 @@ export default function IAPage() {
           
           <label style={{ display: "flex", flexDirection: "column", gap: "0.5rem", fontSize: "0.9rem" }}>
             <span style={{ fontWeight: 600 }}>Análise de Similaridade (Projeto Andromeda)</span>
+            <span style={{ fontSize: "0.8rem", color: "var(--muted)", opacity: 0.8, lineHeight: 1.5 }}>
+              Contexto adicional, não o critério. A análise sempre segue o mesmo roteiro — peças que concentraram a verba, leitura das artes, hipóteses sobre o algoritmo do canal e o que produzir — para que duas análises sejam comparáveis entre si. O texto daqui entra somado a esse roteiro.
+            </span>
             <textarea value={settings.andromedaPrompt} onChange={e => setSettings({...settings, andromedaPrompt: e.target.value})} style={{ padding: "1rem", borderRadius: "8px", border: "1px solid var(--card-border)", background: "var(--card-bg)", color: "var(--foreground)", minHeight: "120px", fontFamily: "monospace", fontSize: "0.85rem", resize: "vertical" }} />
           </label>
         </div>

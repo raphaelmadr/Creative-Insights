@@ -36,13 +36,34 @@ NÃO fale de mídia, verba, público, campanha ou métricas: o assunto é o cria
  * prompt editável do painel, porque é o critério da análise — não um ajuste de
  * tom que possa ser reescrito sem intenção.
  *
- * VAZIO DE PROPÓSITO: preencher com o material da equipe sobre o Andromeda
- * (Meta) e sobre o algoritmo do TikTok. Enquanto estiver vazio, o bloco não
- * entra no prompt e a análise segue o critério sem essa fundamentação — nada
- * inventado aqui, para a IA não citar mecanismo que ninguém verificou.
+ * Cada canal só entra depois que a equipe registrou o que sabe dele: canal com
+ * texto vazio não recebe o bloco, e a análise roda sem essa fundamentação em
+ * vez de citar mecanismo que ninguém verificou.
+ *
+ * TIKTOK ainda vazio — falta o material do algoritmo do TikTok.
  */
 export const DELIVERY_ALGORITHM_KNOWLEDGE = {
-  META: "",
+  META: `O Project Andromeda é o motor de recuperação e correspondência de anúncios (ad-matching) da Meta, anunciado em dezembro de 2024, que substituiu a infraestrutura de publicidade anterior. Ele decide quais anúncios sequer competirão no leilão, antes de o usuário vê-los.
+
+Arquitetura: dois estágios — uma camada rápida de correspondência aproximada, que lança uma rede ampla sobre os candidatos, e um modelo de ranqueamento profundo que pontua a lista final. Onde o sistema antigo escolhia entre milhares de anúncios por leilão, o Andromeda avalia dezenas de milhões em frações de segundo, buscando a melhor correspondência para cada indivíduo. Roda em Superchips NVIDIA Grace Hopper e no silício MTIA da própria Meta. Trouxe um aumento de 10.000x na capacidade do modelo no estágio de correspondência; a Meta reportou +6% em recall e +8% na qualidade dos anúncios em segmentos selecionados, e o considera 4x mais eficiente em impulsionar desempenho que os modelos anteriores de ranqueamento.
+
+A mudança de paradigma — O CRIATIVO É A SEGMENTAÇÃO: antes o anunciante definia o público (idade, interesses, lookalike) e a Meta buscava essas pessoas. O Andromeda inverte a lógica: o sistema LÊ O CRIATIVO para decidir quem deve vê-lo. A seleção manual de público importa muito menos; públicos amplos frequentemente superam a segmentação detalhada por interesses, e os Lookalikes perderam força como principal alavanca. Consequência direta para a disputa entre peças do mesmo grupo: o que a arte comunica é o que define a audiência que ela alcança — duas peças que comunicam a mesma coisa disputam a mesma audiência.
+
+O que o algoritmo recompensa:
+- Volume e diversidade genuína de criativos. Marcas competitivas testam dezenas ou centenas de novos ativos por mês.
+- Diferenciação real: ângulos, ganchos e formatos genuinamente diferentes. Mudar apenas a cor de fundo do mesmo vídeo não é variação — é o mesmo anúncio.
+- Não fragmentar o aprendizado: mais de 20 criativos em um único conjunto de anúncios pode piorar a entrega.
+- Sinal de conversão de qualidade: o algoritmo valida as previsões com os dados que recebe, e CAPI configurada com alta nota de EMQ (Event Match Quality) passou de diferencial a pré-requisito.
+- Comentários de spam degradam o CTR e corrompem o sinal de qualidade criativa — recomenda-se ocultá-los em vez de respondê-los.
+
+As 5 barreiras que uma peça precisa vencer, na ordem — é aqui que se diagnostica onde a peça preterida parou:
+1. RETRIEVAL — o anúncio é recuperado como candidato? O estágio de correspondência precisa entender a arte e achar para quem ela serve. Peça que comunica o mesmo que outra disputa a mesma audiência e tende a perder a recuperação para a que o modelo já pontua melhor.
+2. AUCTION — pontuado pelo modelo de ranqueamento profundo, o anúncio ganha o leilão? Aparece no CPM: CPM alto indica que o algoritmo cobra mais caro para entregar aquela peça.
+3. ATTENTION — a peça para o scroll? Aparece no CTR e na retenção.
+4. INTENT — o clique era de interesse real ou de curiosidade? Aparece no CVR: CTR alto com CVR baixo é atenção sem intenção.
+5. CONVERSION — a promessa da arte se sustenta até a compra? Aparece no CPA e no ROAS.
+
+Contexto de operação de mídia (útil para entender a distribuição, mas FORA do que esta análise deve recomendar): campanhas Advantage+ Shopping (ASC) são o formato que melhor alavanca o Andromeda, entregando CPA 17% menor que campanhas manuais; a recomendação estrutural é consolidar campanhas em públicos amplos para dar mais orçamento e dados ao algoritmo.`,
   TIKTOK: "",
 } as const;
 
@@ -54,8 +75,14 @@ export const DELIVERY_ALGORITHM_KNOWLEDGE = {
  * seguida. Uma análise que muda de forma a cada execução não se compara com a
  * anterior, e é a comparação que ensina.
  */
-export const DEFAULT_ANDROMEDA_PROMPT = `Você é um Estrategista de Criativos de Performance. Analise um grupo de anúncios concorrentes do mesmo canal e explique como o algoritmo distribuiu a verba entre eles.
+export const DEFAULT_ANDROMEDA_PROMPT = `Você é um Estrategista Sênior de Criativos de Performance. Analise um grupo de anúncios concorrentes do mesmo canal e explique como o algoritmo distribuiu a verba entre eles.
 
-O assunto é a DISPUTA entre as peças: por que a que mais recebeu investimento foi escolhida, e o que nas outras fez o algoritmo preteri-las. Use a leitura visual de cada peça — ângulo, hook, composição, cores, textos, oferta — e não os nomes dos arquivos.
+O assunto é a DISPUTA entre as peças: por que a que mais recebeu investimento foi escolhida, e o que nas outras fez o algoritmo preteri-las. Use a leitura visual de cada arte — ângulo, hook, composição, cores, textos, oferta — e não os nomes dos arquivos.
 
-Escreva em português, direto, sem introdução.`;
+Não conclua pelo "quem tem o CTR maior". Classifique cada peça por este scorecard, que separa quem escalou de quem só pareceu bem:
+- SCALER: absorve alto investimento mantendo CPA/ROAS aceitável. Venceu na conversão.
+- NICHE WINNER: CPA/ROAS excelente, às vezes melhor que o do Scaler, mas investimento baixo ou estagnado. Bateu no teto de escala — audiência pequena, saturação de frequência.
+- ATTENTION WINNER: CTR excelente e CPA ruim ou nulo. Atraiu curiosos e falhou na intenção ou na conversão.
+- FALSE POSITIVE: métricas bonitas (CPM e CPC baixos) e não converte.
+
+Leia também alcance e frequência: frequência subindo com CTR caindo é saturação da audiência daquela arte, não defeito novo da peça.`;

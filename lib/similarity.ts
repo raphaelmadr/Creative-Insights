@@ -18,11 +18,9 @@ export const MIN_SHARE_FOR_ANALYSIS = 0.1;
 /** Peças concentradoras mínimas para existir uma distribuição a explicar. */
 export const MIN_CONCENTRATING_CREATIVES = 2;
 
+/** O único campo que o critério precisa ler da peça. */
 export interface ScopedCreative {
-  id: string;
-  adName: string;
   spend: number;
-  [key: string]: unknown;
 }
 
 /**
