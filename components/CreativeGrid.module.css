@@ -90,3 +90,80 @@
   align-items: center;
   gap: 0.5rem;
 }
+
+/*
+ * Popup da análise: a peça em alta à esquerda, a leitura da IA à direita.
+ *
+ * Duas colunas porque a análise fala da arte — ler uma citando "o CTA" sem a
+ * peça ao lado obriga a decorar. Abaixo de 900px não cabem as duas, e então
+ * empilha: a arte por cima, com altura limitada para o texto não sumir da tela.
+ */
+.analysisModal {
+  display: flex;
+  align-items: stretch;
+  max-width: min(96vw, 1240px);
+  max-height: 90vh;
+  border-radius: 16px;
+  overflow: hidden;
+  /* Superfície de painel do tema — os mesmos tokens dos cartões, opacos nos dois
+     temas. `--background` não existe no tema: o popup saía transparente. */
+  background: var(--card-bg);
+  color: var(--foreground);
+  border: 1px solid var(--card-border);
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.45);
+}
+
+.analysisMedia {
+  flex: 0 1 auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  /* Fundo da arte: o cinza do app, não preto fixo — peças verticais deixam
+     faixas dos lados, e elas precisam pertencer ao tema em uso. */
+  background: var(--background-main);
+  /* Mídia expirada cai no aviso do SafeImage, uma div sem dimensão própria:
+     sem um piso aqui ela colapsaria e o popup abriria só com o texto. */
+  min-width: 260px;
+  min-height: 260px;
+}
+
+.analysisMedia img,
+.analysisMedia video {
+  display: block;
+  max-width: min(56vw, 720px);
+  max-height: 90vh;
+  object-fit: contain;
+}
+
+.analysisText {
+  flex: 1 1 420px;
+  min-width: 320px;
+  max-width: 480px;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+@media (max-width: 900px) {
+  .analysisModal {
+    flex-direction: column;
+    max-width: 96vw;
+  }
+
+  .analysisMedia {
+    min-width: 0;
+    min-height: 160px;
+  }
+
+  .analysisMedia img,
+  .analysisMedia video {
+    max-width: 96vw;
+    max-height: 38vh;
+  }
+
+  .analysisText {
+    flex: 1 1 auto;
+    max-width: none;
+    min-width: 0;
+  }
+}

@@ -68,6 +68,9 @@ export async function GET(req: Request) {
         id: true, adName: true, adsetName: true, campaignName: true, designer: true,
         imageUrl: true, thumbnailUrl: true, videoUrl: true, mediaType: true,
         publisherPlatforms: true, platform: true, createdTime: true, status: true,
+        // Só a data: o texto da análise é grande e o cartão só precisa saber
+        // que existe uma salva — ele a busca em `/api/hypothesis` ao abrir.
+        aiAnalyzedAt: true,
       },
     });
 
@@ -206,6 +209,7 @@ export async function GET(req: Request) {
         platform: ad.platform,
         createdTime: ad.createdTime,
         status: ad.status,
+        aiAnalyzedAt: ad.aiAnalyzedAt,
         firstDeliveryAt: totals.firstDeliveryAt,
         lastDeliveryAt: totals.lastDeliveryAt,
         // Prefixo `period` = recorte de datas. Sem prefixo = acumulado de veiculação.

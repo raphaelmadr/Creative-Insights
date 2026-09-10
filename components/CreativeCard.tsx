@@ -6,7 +6,7 @@ import { motion } from "framer-motion";
 import { Avatar } from "./Avatar";
 import SafeImage from "./SafeImage";
 import styles from "./CreativeGrid.module.css";
-import { Image as ImageIcon, Copy, Check, Sparkles, Loader2, ChevronDown, X } from "lucide-react";
+import { Image as ImageIcon, Copy, Check, Sparkles, Loader2, RefreshCw, X } from "lucide-react";
 import { useEffect, useState } from "react";
 
 function CopyButton({ text }: { text: string }) {
@@ -159,36 +159,81 @@ function CreativePreviewModal({ creative, onClose }: { creative: any; onClose: (
   );
 }
 
+/** Análise já salva no banco, entregue pela grade junto com o criativo. */
+interface SavedAnalysis {
+  hypothesis: string;
+  analyzedAt: string | null;
+}
+
 /**
  * Estado da análise de IA de um criativo.
  *
- * Vive no cartão, e não dentro do bloco de resultado: o gatilho passou a ficar
- * sobre a imagem e o texto sai embaixo, nas informações — dois pontos distantes
- * da árvore para um estado só.
+ * Vive no cartão porque os dois pontos que dependem dele — o gatilho sobre a
+ * imagem e o popup que mostra o texto — ficam distantes na árvore.
+ *
+ * A análise fica salva no banco. Quando o criativo já tem uma, abrir o popup é
+ * uma leitura do banco — instantânea e sem custo; o modelo só é chamado na
+ * primeira análise da peça ou quando alguém pede a refação.
  */
-function useHypothesis(creative: any) {
-  const [hypothesis, setHypothesis] = useState<string | null>(null);
+function useHypothesis(creative: any, savedAnalysis?: SavedAnalysis | null) {
   const [loading, setLoading] = useState(false);
 
-  const analyze = () => {
+  // Só o que foi gerado neste cartão. A análise que já estava no banco chega
+  // por prop, da grade — copiá-la para o estado criaria uma segunda verdade
+  // sobre o mesmo texto, e um efeito de sincronia para mantê-las iguais.
+  const [fresh, setFresh] = useState<{ hypothesis: string; analyzedAt: string | null } | null>(null);
+
+  /*
+   * O que o cartão mostra, em ordem de precedência: a análise recém-gerada
+   * aqui, depois a que a grade trouxe do banco. `aiAnalyzedAt` entra como
+   * último recurso porque a data chega no `/api/db-ads`, antes do texto.
+   */
+  const hypothesis = fresh?.hypothesis ?? savedAnalysis?.hypothesis ?? null;
+  const savedAt = fresh?.analyzedAt ?? savedAnalysis?.analyzedAt ?? creative.aiAnalyzedAt ?? null;
+
+  const request = (force: boolean) => {
     setLoading(true);
-    fetch("/api/hypothesis", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(creative)
-    })
-      .then(res => res.json())
+
+    // A rota POST também devolveria a análise salva, mas o GET evita mandar o
+    // criativo inteiro só para receber de volta um texto que já está no banco.
+    const cached: Promise<any> =
+      savedAt && !force && creative.id
+        ? fetch(`/api/hypothesis?adId=${encodeURIComponent(creative.id)}`).then(res => res.json())
+        : Promise.resolve(null);
+
+    cached
+      .then(saved =>
+        saved?.hypothesis
+          ? saved
+          : fetch("/api/hypothesis", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ ...creative, force })
+            }).then(res => res.json())
+      )
       .then(data => {
-        setHypothesis(data.success ? data.hypothesis : "Não foi possível gerar hipótese para este anúncio.");
+        setFresh({
+          hypothesis:
+            data.success && data.hypothesis
+              ? data.hypothesis
+              : "Não foi possível gerar hipótese para este anúncio.",
+          analyzedAt: data.analyzedAt ?? savedAt,
+        });
         setLoading(false);
       })
       .catch(() => {
-        setHypothesis("Erro ao conectar com a IA.");
+        setFresh({ hypothesis: "Erro ao conectar com a IA.", analyzedAt: null });
         setLoading(false);
       });
   };
 
-  return { hypothesis, loading, analyze };
+  return {
+    hypothesis,
+    loading,
+    savedAt,
+    analyze: () => request(false),
+    reanalyze: () => request(true),
+  };
 }
 
 /**
@@ -199,11 +244,19 @@ function useHypothesis(creative: any) {
  * da IA no hover, quando deixa de ser enfeite e vira ação. Antes era um quadrado
  * solto no canto do cartão, alinhado ao selo só por coincidência.
  */
-function AnalyzeButton({ onClick }: { onClick: () => void }) {
+function AnalyzeButton({
+  onClick,
+  saved,
+  loading,
+}: {
+  onClick: () => void;
+  saved?: boolean;
+  loading?: boolean;
+}) {
   return (
     <button
       onClick={(e) => { e.preventDefault(); e.stopPropagation(); onClick(); }}
-      title="Analisar criativo com IA"
+      title={saved ? "Ver a análise salva deste criativo" : "Analisar criativo com IA"}
       style={{
         position: "absolute", top: "8px", right: "8px", zIndex: 10,
         display: "inline-flex", alignItems: "center", gap: "0.35rem",
@@ -224,55 +277,228 @@ function AnalyzeButton({ onClick }: { onClick: () => void }) {
         e.currentTarget.style.color = "rgba(255,255,255,0.92)";
       }}
     >
-      <Sparkles size={12} />
-      Analisar
+      {loading ? <Loader2 size={12} style={{ animation: "spin 2s linear infinite" }} /> : <Sparkles size={12} />}
+      {loading ? "Analisando" : saved ? "Ver análise salva" : "Analisar"}
     </button>
   );
 }
 
-function HypothesisPanel({ hypothesis, loading }: { hypothesis: string | null; loading: boolean }) {
-  const [isExpanded, setIsExpanded] = useState(false);
+/** Data e hora da análise salva — o rodapé do popup tem espaço para as duas. */
+function formatSavedAt(value: string): string {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "data desconhecida";
+  return date.toLocaleString("pt-BR", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
 
-  // A resposta agora vem em três etapas; 150 caracteres cortavam no meio da transcrição.
-  const MAX_LENGTH = 320;
-  const isLong = hypothesis && hypothesis.length > MAX_LENGTH;
-  const displayText = (hypothesis && !isExpanded && isLong) ? hypothesis.substring(0, MAX_LENGTH) + "..." : hypothesis;
+/*
+ * As três etapas que o prompt de análise garante, cada uma em linha própria.
+ * Destacá-las custa uma expressão regular e devolve a estrutura do texto: sem
+ * isso o popup mostra um bloco corrido de mil caracteres.
+ */
+const SECTION_TITLE = /^\s*(?:\*\*|##\s*)?(Transcri[çc][ãa]o|An[áa]lise|Melhorias)\b\s*:?\s*(?:\*\*)?\s*$/i;
+
+/** A análise em si: títulos de etapa destacados, o resto como parágrafo. */
+function AnalysisBody({ text }: { text: string }) {
+  const lines = text.split("\n");
 
   return (
-    <div style={{ marginTop: "1rem", padding: "1rem", background: "rgba(16, 185, 129, 0.1)", borderRadius: "0.5rem", borderLeft: "3px solid #10b981" }}>
-      <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", marginBottom: "0.5rem", color: "#10b981", fontWeight: 600, fontSize: "0.8rem" }}>
-        <Sparkles size={14} /> 
-        Leitura do criativo pela IA
-      </div>
-      {loading ? (
-        <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", opacity: 0.7, fontSize: "0.85rem" }}>
-          <Loader2 size={14} className="spin" style={{ animation: "spin 2s linear infinite" }} />
-          Lendo a peça e analisando...
-        </div>
-      ) : (
-        <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-start", gap: "0.5rem" }}>
-          <p style={{ fontSize: "0.85rem", opacity: 0.9, lineHeight: 1.5, whiteSpace: "pre-wrap", margin: 0 }}>
-            {displayText}
-          </p>
-          {isLong && (
-            <button
-              onClick={() => setIsExpanded(!isExpanded)}
+    <div style={{ display: "flex", flexDirection: "column", gap: "0.35rem" }}>
+      {lines.map((line, i) => {
+        if (!line.trim()) return <div key={i} style={{ height: "0.35rem" }} />;
+
+        const title = line.match(SECTION_TITLE);
+        if (title) {
+          return (
+            <h4
+              key={i}
               style={{
-                background: "none", border: "none", color: "#10b981",
-                fontSize: "0.75rem", fontWeight: "bold", cursor: "pointer", padding: 0,
-                textDecoration: "none", display: "flex", alignItems: "center", gap: "0.2rem"
+                margin: i === 0 ? 0 : "0.5rem 0 0",
+                color: "#10b981",
+                fontSize: "0.72rem",
+                fontWeight: 700,
+                textTransform: "uppercase",
+                letterSpacing: "0.6px",
               }}
             >
-              {isExpanded ? (
-                <>Ver menos</>
-              ) : (
-                <>Ler mais <ChevronDown size={12} /></>
-              )}
-            </button>
+              {title[1]}
+            </h4>
+          );
+        }
+
+        return (
+          <p
+            key={i}
+            style={{
+              margin: 0,
+              fontSize: "0.84rem",
+              lineHeight: 1.6,
+              opacity: 0.9,
+              whiteSpace: "pre-wrap",
+            }}
+          >
+            {line}
+          </p>
+        );
+      })}
+    </div>
+  );
+}
+
+/**
+ * Popup da análise: a peça em alta à esquerda, a leitura da IA à direita.
+ *
+ * A análise fala da arte — "o CTA está apagado", "a headline compete com o
+ * selo". Lê-la embaixo do cartão, com a miniatura de 200px acima, obrigava a
+ * decorar a peça; aqui as duas ficam lado a lado. E o popup abre no clique, com
+ * a arte já visível, em vez de esperar a resposta do modelo para mostrar algo.
+ */
+function AnalysisModal({
+  creative,
+  hypothesis,
+  loading,
+  savedAt,
+  onReanalyze,
+  onClose,
+}: {
+  creative: any;
+  hypothesis: string | null;
+  loading: boolean;
+  savedAt?: string | null;
+  onReanalyze: () => void;
+  onClose: () => void;
+}) {
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+    };
+    document.addEventListener("keydown", onKey);
+
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+
+    return () => {
+      document.removeEventListener("keydown", onKey);
+      document.body.style.overflow = previousOverflow;
+    };
+  }, [onClose]);
+
+  const posterUrl = creative.thumbnail_url || creative.image_url || "";
+  const imageUrl = creative.image_url || creative.thumbnail_url || "";
+
+  return createPortal(
+    <div
+      onClick={onClose}
+      role="dialog"
+      aria-modal="true"
+      aria-label={`Análise do criativo ${creative.ad_name}`}
+      style={{
+        position: "fixed", inset: 0, zIndex: 9999,
+        background: "rgba(0,0,0,0.82)", backdropFilter: "blur(6px)", WebkitBackdropFilter: "blur(6px)",
+        display: "flex", alignItems: "center", justifyContent: "center", padding: "1.5rem"
+      }}
+    >
+      <motion.div
+        initial={{ opacity: 0, scale: 0.96 }}
+        animate={{ opacity: 1, scale: 1 }}
+        transition={{ type: "spring", stiffness: 260, damping: 24 }}
+        onClick={(e) => e.stopPropagation()}
+        className={styles.analysisModal}
+        style={{ position: "relative" }}
+      >
+        <div className={styles.analysisMedia}>
+          {creative.videoUrl ? (
+            <video src={creative.videoUrl} poster={posterUrl} controls preload="metadata" />
+          ) : imageUrl ? (
+            <SafeImage src={imageUrl} alt={creative.ad_name} />
+          ) : (
+            <div style={{ padding: "4rem 3rem", color: "rgba(255,255,255,0.5)", fontSize: "0.8rem" }}>
+              <ImageIcon size={28} />
+            </div>
           )}
         </div>
-      )}
-    </div>
+
+        <div className={styles.analysisText}>
+          {/* Cabeçalho fixo: o nome da peça é a referência de tudo o que o texto diz. */}
+          <div
+            style={{
+              flexShrink: 0, display: "flex", flexDirection: "column", gap: "0.4rem",
+              padding: "1rem 2.6rem 0.75rem 1.1rem", borderBottom: "1px solid var(--card-border)"
+            }}
+          >
+            <div style={{ display: "flex", alignItems: "center", gap: "0.45rem", color: "#10b981", fontWeight: 700, fontSize: "0.78rem" }}>
+              <Sparkles size={14} />
+              Leitura do criativo pela IA
+            </div>
+            <div style={{ display: "flex", alignItems: "flex-start", gap: "0.5rem" }}>
+              <span style={{ flex: 1, minWidth: 0, fontSize: "0.72rem", opacity: 0.7, lineHeight: 1.4, wordBreak: "break-all" }}>
+                {creative.ad_name}
+              </span>
+              <CopyButton text={creative.ad_name} />
+            </div>
+          </div>
+
+          {/* Só o texto rola: o cabeçalho e o rodapé ficam à vista numa análise longa. */}
+          <div style={{ flex: 1, minHeight: 0, overflowY: "auto", padding: "0.9rem 1.1rem" }}>
+            {loading ? (
+              <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", opacity: 0.7, fontSize: "0.85rem" }}>
+                <Loader2 size={14} style={{ animation: "spin 2s linear infinite" }} />
+                {savedAt ? "Refazendo a análise..." : "Lendo a peça e analisando..."}
+              </div>
+            ) : hypothesis ? (
+              <AnalysisBody text={hypothesis} />
+            ) : (
+              <p style={{ margin: 0, fontSize: "0.85rem", opacity: 0.7 }}>Nada a mostrar para esta peça.</p>
+            )}
+          </div>
+
+          <div
+            style={{
+              flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "space-between",
+              gap: "0.75rem", flexWrap: "wrap", padding: "0.7rem 1.1rem",
+              borderTop: "1px solid var(--card-border)", fontSize: "0.68rem", opacity: 0.75
+            }}
+          >
+            {/* Dizer que o texto veio do banco é o que explica por que abriu na hora. */}
+            <span>{savedAt ? `Análise salva em ${formatSavedAt(savedAt)}` : "Análise desta sessão"}</span>
+            <button
+              onClick={(e) => { e.preventDefault(); e.stopPropagation(); onReanalyze(); }}
+              disabled={loading}
+              title="Descartar a análise salva e pedir uma nova à IA"
+              style={{
+                background: "none", border: "none", color: "#10b981",
+                fontSize: "0.68rem", fontWeight: 600, cursor: loading ? "default" : "pointer",
+                opacity: loading ? 0.4 : 1, padding: 0,
+                display: "inline-flex", alignItems: "center", gap: "0.3rem"
+              }}
+            >
+              <RefreshCw size={11} /> Refazer análise
+            </button>
+          </div>
+        </div>
+
+        <button
+          onClick={onClose}
+          title="Fechar (Esc)"
+          aria-label="Fechar"
+          style={{
+            position: "absolute", top: "10px", right: "10px",
+            display: "inline-flex", alignItems: "center", justifyContent: "center",
+            width: "28px", height: "28px", borderRadius: "100px",
+            background: "var(--card-bg)", border: "1px solid var(--card-border)",
+            color: "var(--foreground)", cursor: "pointer"
+          }}
+        >
+          <X size={15} />
+        </button>
+      </motion.div>
+    </div>,
+    document.body
   );
 }
 
@@ -369,10 +595,12 @@ interface CreativeCardProps {
   creative: any;
   creators: any[];
   tier?: "super" | "winner";
+  /** Análise salva desta peça, quando a grade já a trouxe do banco. */
+  savedAnalysis?: SavedAnalysis;
 }
 
-export function CreativeCard({ creative, creators, tier }: CreativeCardProps) {
-  const ai = useHypothesis(creative);
+export function CreativeCard({ creative, creators, tier, savedAnalysis }: CreativeCardProps) {
+  const ai = useHypothesis(creative, savedAnalysis);
 
   /*
    * Antes o clique na arte chamava um `setHoveredPreview` que ninguém renderiza
@@ -380,6 +608,17 @@ export function CreativeCard({ creative, creators, tier }: CreativeCardProps) {
    * qualquer tela que use o componente.
    */
   const [zoomed, setZoomed] = useState(false);
+
+  /*
+   * O popup abre no clique, não no fim da análise: a arte já está à vista
+   * enquanto o modelo escreve, e uma análise já salva aparece na hora. Analisar
+   * de novo é sempre um pedido explícito — nunca um efeito de abrir o popup.
+   */
+  const [analysisOpen, setAnalysisOpen] = useState(false);
+  const openAnalysis = () => {
+    setAnalysisOpen(true);
+    if (!ai.hypothesis && !ai.loading) ai.analyze();
+  };
   const previewUrl = creative.image_url || creative.thumbnail_url;
   
   const creatorAcronym = (creative.designer || "").trim().toUpperCase();
@@ -446,7 +685,7 @@ export function CreativeCard({ creative, creators, tier }: CreativeCardProps) {
       )}
 
       {/* Canto oposto ao selo do criador, na mesma altura. */}
-      {!ai.hypothesis && !ai.loading && <AnalyzeButton onClick={ai.analyze} />}
+      <AnalyzeButton onClick={openAnalysis} saved={!!ai.savedAt} loading={ai.loading} />
     </div>
     
     <div className={styles.info}>
@@ -490,8 +729,6 @@ export function CreativeCard({ creative, creators, tier }: CreativeCardProps) {
         </div>
       </div>
       
-      {(ai.loading || ai.hypothesis) && <HypothesisPanel hypothesis={ai.hypothesis} loading={ai.loading} />}
-
       <div style={{ marginTop: "0.75rem", display: "flex", justifyContent: "space-between", alignItems: "center", borderTop: "1px solid var(--card-border)", paddingTop: "0.5rem" }}>
         {creative.createdTime ? (
           <span style={{ fontSize: "0.65rem", color: "var(--foreground)", opacity: 0.5, fontWeight: 500 }} title="Anúncio rodando desde">
@@ -515,6 +752,17 @@ export function CreativeCard({ creative, creators, tier }: CreativeCardProps) {
     </div>
 
     {zoomed && <CreativePreviewModal creative={creative} onClose={() => setZoomed(false)} />}
+
+    {analysisOpen && (
+      <AnalysisModal
+        creative={creative}
+        hypothesis={ai.hypothesis}
+        loading={ai.loading}
+        savedAt={ai.savedAt}
+        onReanalyze={ai.reanalyze}
+        onClose={() => setAnalysisOpen(false)}
+      />
+    )}
   </motion.div>
   );
 }

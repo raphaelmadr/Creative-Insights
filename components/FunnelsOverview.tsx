@@ -324,6 +324,75 @@ export default function FunnelsOverview({ dateFrom, dateTo, statusFilter, channe
     }
   }, [globalMetrics, onMetricsUpdate]);
 
+  /**
+   * Análises de IA já salvas dos criativos que estão na tela.
+   *
+   * Analisar uma peça é uma decisão de quem clica; reler o que já foi analisado
+   * não deveria ser — então a análise salva aparece sozinha no cartão. Vem em
+   * uma requisição por lote, depois da primeira pintura e só para as categorias
+   * expandidas: fora do `/api/db-ads`, que o painel inteiro espera, e fora das
+   * centenas de peças que ninguém abriu.
+   */
+  const [savedAnalyses, setSavedAnalyses] = useState<
+    Record<string, { hypothesis: string; analyzedAt: string | null }>
+  >({});
+
+  // Quais ids já foram pedidos, para o efeito não repetir o lote a cada render.
+  const requestedAnalyses = React.useRef<Set<string>>(new Set());
+
+  const visibleAnalyzedIds = useMemo(() => {
+    const ids: string[] = [];
+    for (const funnel of funnels) {
+      if (isCollapsed(funnel)) continue;
+      for (const ad of funnel.validAds ?? []) {
+        // `aiAnalyzedAt` vem do db-ads: a data basta para saber quem tem análise.
+        if (ad?.id && ad.aiAnalyzedAt) ids.push(ad.id);
+      }
+    }
+    return ids;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [funnels, collapsed]);
+
+  useEffect(() => {
+    const missing = visibleAnalyzedIds.filter(id => !requestedAnalyses.current.has(id));
+    if (missing.length === 0) return;
+
+    missing.forEach(id => requestedAnalyses.current.add(id));
+
+    let alive = true;
+    // Fatias de 200 para a requisição não crescer sem limite numa categoria grande.
+    const chunks: string[][] = [];
+    for (let i = 0; i < missing.length; i += 200) chunks.push(missing.slice(i, i + 200));
+
+    Promise.all(
+      chunks.map(adIds =>
+        fetch("/api/hypothesis/saved", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ adIds }),
+        })
+          .then(res => res.json())
+          .then(data => data?.analyses ?? {})
+          .catch(() => {
+            // Falhar aqui só custa um clique no botão do cartão; libera os ids
+            // para uma nova tentativa em vez de derrubar a grade.
+            adIds.forEach(id => requestedAnalyses.current.delete(id));
+            return {};
+          })
+      )
+    ).then(parts => {
+      if (!alive) return;
+      const merged = Object.assign({}, ...parts);
+      if (Object.keys(merged).length > 0) {
+        setSavedAnalyses(prev => ({ ...prev, ...merged }));
+      }
+    });
+
+    return () => {
+      alive = false;
+    };
+  }, [visibleAnalyzedIds]);
+
 
   if (loading && !data) return (
     <div style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
@@ -496,7 +565,12 @@ export default function FunnelsOverview({ dateFrom, dateTo, statusFilter, channe
           {!isCollapsed(funnel) && funnel.validAds && funnel.validAds.length > 0 && (
             <div className={styles.grid} style={{ marginTop: "0.5rem" }}>
               {funnel.validAds.map((c: any) => (
-                <CreativeCard key={c.id} creative={c} creators={creators} />
+                <CreativeCard
+                  key={c.id}
+                  creative={c}
+                  creators={creators}
+                  savedAnalysis={savedAnalyses[c.id]}
+                />
               ))}
             </div>
           )}

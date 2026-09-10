@@ -26,3 +26,36 @@ export const DEFAULT_HYPOTHESIS_PROMPT = `Você é um Diretor de Criação espec
 
 Escreva em português, direto, com os títulos "Transcrição", "Análise" e "Melhorias" em linhas próprias. Sem markdown, sem asteriscos.
 NÃO fale de mídia, verba, público, campanha ou métricas: o assunto é o criativo.`;
+
+/**
+ * O que a equipe aprendeu sobre a distribuição de verba entre anúncios.
+ *
+ * É a base das hipóteses da análise de similaridade: sem esse conhecimento a IA
+ * responde com generalidade sobre "ranqueamento de anúncios", que é exatamente
+ * o texto vago que a página existe para substituir. Vive no código, e não no
+ * prompt editável do painel, porque é o critério da análise — não um ajuste de
+ * tom que possa ser reescrito sem intenção.
+ *
+ * VAZIO DE PROPÓSITO: preencher com o material da equipe sobre o Andromeda
+ * (Meta) e sobre o algoritmo do TikTok. Enquanto estiver vazio, o bloco não
+ * entra no prompt e a análise segue o critério sem essa fundamentação — nada
+ * inventado aqui, para a IA não citar mecanismo que ninguém verificou.
+ */
+export const DELIVERY_ALGORITHM_KNOWLEDGE = {
+  META: "",
+  TIKTOK: "",
+} as const;
+
+/**
+ * Análise de similaridade: por que o algoritmo escolheu uma peça e preteriu as outras.
+ *
+ * O critério é fixo — investimento primeiro, imagens depois, hipóteses ao fim —
+ * porque a página serve uma decisão recorrente da equipe: o que produzir em
+ * seguida. Uma análise que muda de forma a cada execução não se compara com a
+ * anterior, e é a comparação que ensina.
+ */
+export const DEFAULT_ANDROMEDA_PROMPT = `Você é um Estrategista de Criativos de Performance. Analise um grupo de anúncios concorrentes do mesmo canal e explique como o algoritmo distribuiu a verba entre eles.
+
+O assunto é a DISPUTA entre as peças: por que a que mais recebeu investimento foi escolhida, e o que nas outras fez o algoritmo preteri-las. Use a leitura visual de cada peça — ângulo, hook, composição, cores, textos, oferta — e não os nomes dos arquivos.
+
+Escreva em português, direto, sem introdução.`;

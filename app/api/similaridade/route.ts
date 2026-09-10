@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import prisma from "@/lib/prisma";
+import { hasDistributionToExplain } from "@/lib/similarity";
 
 // Quebra o nome em tags usando delimitadores comuns
 function extractTags(name: string): string[] {
@@ -84,6 +85,7 @@ export async function GET(req: NextRequest) {
           id: ad.id,
           adName: ad.adName,
           campaignName: ad.campaignName,
+          platform: (ad.platform || "META").toUpperCase(),
           imageUrl: ad.imageUrl || ad.thumbnailUrl,
           tags: extractTags(ad.adName),
           spend,
@@ -105,6 +107,7 @@ export async function GET(req: NextRequest) {
     const groups: Array<{ 
       reason: string, 
       sharedTags: string[], 
+      platform: string,
       totalSpend: number,
       cannibalizationRate: number,
       isCannibalized: boolean,
@@ -113,17 +116,25 @@ export async function GET(req: NextRequest) {
     
     const groupedIds = new Set<string>();
 
-    // Pass 1: Agrupar por Mesma Imagem
+    /*
+     * Pass 1: Agrupar por Mesma Imagem — dentro da plataforma.
+     *
+     * Um anúncio do Meta e um do TikTok não disputam a mesma verba, e cada
+     * plataforma decide a entrega com um algoritmo próprio. Agrupá-los junto
+     * produzia "concorrência" entre peças que nunca concorreram, e uma análise
+     * que não sabe de qual algoritmo está falando. A chave leva a plataforma.
+     */
     const imageGroups = new Map<string, typeof aggregatedAds>();
     for (const ad of aggregatedAds) {
       if (!ad.imageUrl || ad.imageUrl.trim() === "") continue;
-      if (!imageGroups.has(ad.imageUrl)) {
-        imageGroups.set(ad.imageUrl, []);
+      const key = `${ad.platform}::${ad.imageUrl}`;
+      if (!imageGroups.has(key)) {
+        imageGroups.set(key, []);
       }
-      imageGroups.get(ad.imageUrl)!.push(ad);
+      imageGroups.get(key)!.push(ad);
     }
 
-    for (const [img, adsList] of Array.from(imageGroups.entries())) {
+    for (const [, adsList] of Array.from(imageGroups.entries())) {
       if (adsList.length > 1) {
         adsList.forEach(a => groupedIds.add(a.id));
         
@@ -134,6 +145,7 @@ export async function GET(req: NextRequest) {
         groups.push({
           reason: "Imagens Idênticas",
           sharedTags: [],
+          platform: adsList[0].platform,
           totalSpend,
           cannibalizationRate,
           isCannibalized: cannibalizationRate > 0.75, // 75% da verba em 1 só
@@ -153,6 +165,10 @@ export async function GET(req: NextRequest) {
       for (let j = i + 1; j < remainingAds.length; j++) {
         if (groupedIds.has(remainingAds[j].id)) continue;
         
+        // Mesma razão do passe 1: taxonomia parecida entre canais diferentes não
+        // é concorrência, é coincidência de nomenclatura.
+        if (remainingAds[j].platform !== remainingAds[i].platform) continue;
+
         const intersection = getSharedTags(remainingAds[i].tags, remainingAds[j].tags);
         
         // Se compartilham pelo menos 2 a 3 tags importantes (conceito/ângulo), são parecidos
@@ -172,6 +188,7 @@ export async function GET(req: NextRequest) {
         groups.push({
           reason: "Conceitos Semelhantes",
           sharedTags: currentSharedTags,
+          platform: currentGroup[0].platform,
           totalSpend,
           cannibalizationRate,
           isCannibalized: cannibalizationRate > 0.75,
@@ -180,19 +197,30 @@ export async function GET(req: NextRequest) {
       }
     }
 
+    /*
+     * Grupo sem disputa a explicar não é exibido.
+     *
+     * A análise olha as peças que concentraram a verba; quando o grupo tem
+     * menos de duas dessas, não houve distribuição entre concorrentes — é uma
+     * peça sozinha com uma cauda que o algoritmo não entregou, ou um grupo que
+     * a taxonomia juntou por coincidência de nomenclatura. Sem nada a analisar,
+     * exibir só ocupa a leitura da equipe.
+     */
+    const analyzableGroups = groups.filter(group => hasDistributionToExplain(group.creatives));
+
     // Ordenar os grupos pelo gasto total do grupo e por quem tem canibalização ativa
-    groups.sort((a, b) => {
+    analyzableGroups.sort((a, b) => {
       if (a.isCannibalized && !b.isCannibalized) return -1;
       if (!a.isCannibalized && b.isCannibalized) return 1;
       return b.totalSpend - a.totalSpend;
     });
 
     // AI Insight is no longer fetched automatically
-    groups.forEach((group: any) => {
+    analyzableGroups.forEach((group: any) => {
       group.aiInsight = ""; // Will be fetched on demand
     });
 
-    return NextResponse.json({ success: true, groups });
+    return NextResponse.json({ success: true, groups: analyzableGroups });
   } catch (error: any) {
     console.error("Erro em Similaridade API:", error);
     return NextResponse.json({ success: false, error: error.message }, { status: 500 });

@@ -94,6 +94,13 @@ model AdCreative {
   visionTranscript String?  @db.Text
   visionAnalyzedAt DateTime?
 
+  /// Análise da peça escrita pela IA — transcrição, análise e melhorias —, o
+  /// texto exato que o cartão mostra. Cacheada aqui porque cada clique em
+  /// "Analisar" gastava uma chamada nova ao modelo para uma peça que não muda:
+  /// caro e lento. Só é regerada quando alguém pede a refação explicitamente.
+  aiAnalysis       String?  @db.Text
+  aiAnalyzedAt     DateTime?
+
   metrics         AdDailyMetrics[]
 }
 

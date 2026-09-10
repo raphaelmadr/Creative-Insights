@@ -39,6 +39,20 @@ function daysAgoUTC(days: number): Date {
   return d;
 }
 
+/** O algoritmo por trás da entrega do grupo, escrito como a equipe fala dele. */
+function platformLabel(platform: string): string {
+  const key = (platform || "META").toUpperCase();
+  if (key === "TIKTOK") return "TikTok · algoritmo de entrega";
+  if (key === "GOOGLE") return "Google · algoritmo de entrega";
+  return "Meta · Andromeda";
+}
+
+/** Versão curta, para os selos sobre a imagem. */
+function platformShort(platform: string): string {
+  const key = (platform || "META").toUpperCase();
+  return key === "TIKTOK" ? "TIKTOK" : key === "GOOGLE" ? "GOOGLE" : "META";
+}
+
 const PRESET_LABELS: Record<string, string> = {
   today: "de hoje",
   yesterday: "de ontem",
@@ -63,6 +77,8 @@ type SimilarCreative = {
 type Group = {
   reason: string;
   sharedTags: string[];
+  /** Um grupo é sempre de um canal só: verba do Meta não disputa com a do TikTok. */
+  platform: string;
   totalSpend: number;
   cannibalizationRate: number;
   isCannibalized: boolean;
@@ -150,8 +166,8 @@ export default function SimilaridadePage() {
               Análise de Similaridade de Criativos
             </h1>
             <p style={{ opacity: 0.7, marginTop: "0.5rem", maxWidth: 800, lineHeight: 1.6 }}>
-              Descubra se seus anúncios estão muito parecidos visualmente. O Meta bloqueia a entrega de anúncios muito semelhantes. Veja quais grupos estão concorrendo entre si.
-              {groups.length > 0 && <span> Encontramos <strong>{groups.length} grupos</strong> concorrendo entre si.</span>}
+              Entenda como o algoritmo de cada canal escolheu entre seus anúncios parecidos. Meta (Andromeda) e TikTok concentram a entrega em uma peça e preterem as demais quando as considera variações da mesma coisa — aqui você vê onde isso aconteceu e por quê.
+              {groups.length > 0 && <span> Encontramos <strong>{groups.length} grupos</strong> com verba disputada entre peças concorrentes.</span>}
             </p>
           </div>
           
@@ -266,7 +282,7 @@ export default function SimilaridadePage() {
                     </h3>
                     
                     <span style={{ background: "rgba(255,255,255,0.1)", padding: "0.3rem 0.8rem", borderRadius: "100px", fontSize: "0.75rem", fontWeight: 600, border: "1px solid rgba(255,255,255,0.1)" }}>
-                      Criativos Concorrendo Entre Si
+                      {platformLabel(group.platform)}
                     </span>
                   </div>
 
@@ -362,7 +378,7 @@ export default function SimilaridadePage() {
 
                           {isKilledAtSource && (
                             <div style={{ position: "absolute", top: "0.5rem", left: "0.5rem", background: "var(--danger)", color: "#fff", padding: "0.25rem 0.5rem", borderRadius: "100px", fontSize: "0.65rem", fontWeight: "bold", zIndex: 10, boxShadow: "0 2px 10px rgba(239,68,68,0.3)", display: "flex", alignItems: "center", gap: "0.2rem" }}>
-                              <Ghost size={12} /> IGNORADO PELO META
+                              <Ghost size={12} /> IGNORADO PELO {platformShort(group.platform)}
                             </div>
                           )}
 

@@ -7,15 +7,66 @@ import { DEFAULT_HYPOTHESIS_PROMPT } from "@/lib/ai-prompts";
 export const maxDuration = 120;
 export const dynamic = "force-dynamic";
 
+/**
+ * Análise individual do criativo.
+ *
+ * `GET  ?adId=...`  devolve a análise já salva, sem gastar chamada de IA.
+ * `POST { id, ... }` devolve a análise salva quando existir; só chama o modelo
+ *                    na primeira vez, ou quando o pedido vem com `force: true`.
+ *
+ * O cache existe porque a análise é sobre a PEÇA — composição, textos, CTA —, e
+ * a peça não muda depois de publicada: reanalisar a cada clique só repetiria a
+ * mesma leitura pagando tokens de novo.
+ */
+export async function GET(req: Request) {
+  const adId = new URL(req.url).searchParams.get("adId");
+  if (!adId) {
+    return NextResponse.json({ success: false, error: "adId é obrigatório." }, { status: 400 });
+  }
+
+  const creative = await prisma.adCreative.findUnique({
+    where: { id: adId },
+    select: { aiAnalysis: true, aiAnalyzedAt: true },
+  });
+
+  return NextResponse.json({
+    success: true,
+    cached: !!creative?.aiAnalysis,
+    hypothesis: creative?.aiAnalysis ?? null,
+    analyzedAt: creative?.aiAnalyzedAt ?? null,
+  });
+}
+
 export async function POST(req: Request) {
   try {
     const data = await req.json();
-    const { id, ad_name, adName, spend, ctr, riskApprovedValue } = data ?? {};
+    const { id, ad_name, adName, spend, ctr, riskApprovedValue, force } = data ?? {};
 
     const creativeName = adName || ad_name || null;
 
     if (!id && !creativeName) {
       return NextResponse.json({ error: "id ou adName é obrigatório" }, { status: 400 });
+    }
+
+    /*
+     * O cache vem antes de qualquer verificação de IA: uma análise já salva
+     * continua servindo mesmo que a chave tenha sido removida depois.
+     */
+    if (id && !force) {
+      const saved = await prisma.adCreative.findUnique({
+        where: { id },
+        select: { aiAnalysis: true, aiAnalyzedAt: true },
+      });
+
+      if (saved?.aiAnalysis) {
+        return NextResponse.json({
+          success: true,
+          cached: true,
+          transcribed: true,
+          hypothesis: saved.aiAnalysis,
+          analyzedAt: saved.aiAnalyzedAt,
+        });
+      }
     }
 
     if (!(await isAiConfigured())) {
@@ -40,6 +91,7 @@ export async function POST(req: Request) {
 
     if (!vision?.ok || !vision.transcript) {
       const reason = vision?.error || "esta peça não tem imagem ou capa para a IA ler.";
+      // Recusa não vai para o cache: a mídia pode voltar a ficar legível.
       return NextResponse.json({
         success: true,
         transcribed: false,
@@ -92,7 +144,29 @@ Nome do arquivo: ${creativeName ?? "(sem nome)"}`;
 
     const text = await generateWithFallback(prompt);
 
-    return NextResponse.json({ success: true, hypothesis: text, transcribed: true });
+    /*
+     * Grava a análise para que o próximo clique saia do banco. `updateMany`
+     * porque o pedido pode chegar só com o nome da peça (sem id) e porque um
+     * criativo removido pela sincronização não deve derrubar a resposta.
+     */
+    let analyzedAt: Date | null = null;
+    if (id && text) {
+      analyzedAt = new Date();
+      await prisma.adCreative
+        .updateMany({ where: { id }, data: { aiAnalysis: text, aiAnalyzedAt: analyzedAt } })
+        .catch((error) => {
+          console.error("Falha ao salvar a análise do criativo:", error);
+          analyzedAt = null;
+        });
+    }
+
+    return NextResponse.json({
+      success: true,
+      cached: false,
+      hypothesis: text,
+      transcribed: true,
+      analyzedAt,
+    });
   } catch (error: any) {
     console.error("Hypothesis API Error:", error);
     return NextResponse.json({ error: error.message }, { status: 500 });
