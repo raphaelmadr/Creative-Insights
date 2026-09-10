@@ -54,9 +54,22 @@ export const SOURCES: SourceDefinition[] = [
     isConfigured: (settings) => !!settings?.metaAdAccountId && !!settings?.metaAccessToken,
     run: async (onProgress) => {
       const result = await runMetaSync("full", onProgress);
+
+      // O destino das artes entra no resumo: uma sync que gravou métricas mas
+      // deixou peças sem imagem precisa dizer isso na cara do operador.
+      const media = result.media;
+      const mediaParts = [
+        media.uploaded > 0 && `${media.uploaded} artes enviadas`,
+        media.pending > 0 && `${media.pending} na fila`,
+        media.failed > 0 && `${media.failed} falharam`,
+        media.withoutSource > 0 && `${media.withoutSource} sem imagem na origem`,
+      ].filter(Boolean);
+
       return {
         reachedLimit: result.reachedLimit,
-        summary: `${result.syncedAds} criativos / ${result.syncedMetrics} métricas`,
+        summary:
+          `${result.syncedAds} criativos / ${result.syncedMetrics} métricas` +
+          (mediaParts.length > 0 ? ` / ${mediaParts.join(", ")}` : ""),
       };
     },
   },

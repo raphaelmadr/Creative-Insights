@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import prisma from "@/lib/prisma";
 import { hasDistributionToExplain } from "@/lib/similarity";
+import { matchCategory, resolveCategories } from "@/lib/creative-categories";
+import { EMPTY_TOTALS, type CreativeTotals } from "@/lib/creative-metrics";
 
 // Quebra o nome em tags usando delimitadores comuns
 function extractTags(name: string): string[] {
@@ -49,6 +51,43 @@ export async function GET(req: NextRequest) {
       }
     });
 
+    /*
+     * Categoria da peça (Winners, Testando...): decidida pelos ACUMULADOS de
+     * veiculação, sem recorte de data, exatamente como a home decide. Usar os
+     * números do período faria a mesma peça trocar de categoria entre as duas
+     * telas só porque aqui existe um filtro de datas.
+     */
+    const settingsForCategories = await prisma.systemSettings.findUnique({
+      where: { id: 1 },
+      select: { creativeCategories: true },
+    });
+    const categories = resolveCategories(settingsForCategories?.creativeCategories);
+
+    const lifetime = await prisma.adDailyMetrics.groupBy({
+      by: ["adCreativeId"],
+      where: {
+        adCreativeId: { in: ads.map(a => a.id) },
+        OR: [{ impressions: { gt: 0 } }, { spend: { gt: 0 } }],
+      },
+      _sum: {
+        spend: true, impressions: true, clicks: true,
+        riskApprovedValue: true, grossValue: true, purchases: true, netOrders: true,
+      },
+    });
+
+    const lifetimeByAd = new Map<string, CreativeTotals>();
+    for (const row of lifetime) {
+      lifetimeByAd.set(row.adCreativeId, {
+        spend: row._sum.spend ?? 0,
+        impressions: row._sum.impressions ?? 0,
+        clicks: row._sum.clicks ?? 0,
+        riskApprovedValue: row._sum.riskApprovedValue ?? 0,
+        grossValue: row._sum.grossValue ?? 0,
+        purchases: row._sum.purchases ?? 0,
+        netOrders: row._sum.netOrders ?? 0,
+      });
+    }
+
     // Calcular as métricas agregadas de cada anúncio (Agrupando por nome para evitar triplicações do exato mesmo criativo em campanhas diferentes)
     const uniqueAdsMap = new Map<string, any>();
     
@@ -81,11 +120,23 @@ export async function GET(req: NextRequest) {
         existing.cpm = existing.impressions > 0 ? (existing.spend / existing.impressions) * 1000 : 0;
         existing.campaignName = "Várias campanhas (Multi-AdSet)";
       } else {
+        const category = matchCategory(
+          lifetimeByAd.get(ad.id) ?? EMPTY_TOTALS,
+          ad.platform,
+          categories
+        );
+
         uniqueAdsMap.set(groupKey, {
           id: ad.id,
           adName: ad.adName,
           campaignName: ad.campaignName,
+          designer: ad.designer,
           platform: (ad.platform || "META").toUpperCase(),
+          mediaType: ad.mediaType,
+          videoUrl: ad.videoUrl,
+          categoryName: category?.name ?? null,
+          categoryColor: category?.color ?? null,
+          categoryIndex: category?.index ?? null,
           imageUrl: ad.imageUrl || ad.thumbnailUrl,
           tags: extractTags(ad.adName),
           spend,

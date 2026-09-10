@@ -34,13 +34,15 @@ export default function InsightsPage() {
   return (
     <main style={{ minHeight: "100vh", display: "flex", flexDirection: "column" }}>
       <TopBar />
-      <div style={{ padding: "2rem", display: "flex", flexDirection: "column", flex: 1, maxWidth: 1200, margin: "0 auto", width: "100%" }}>
+      {/* Mesma medida das outras telas: a largura do container é da classe
+          `dashboard-container`, não de um número solto por página. */}
+      <div className="dashboard-container" style={{ flexDirection: "column" }}>
         
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "2rem", flexWrap: "wrap", gap: "1rem" }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "1rem" }}>
           <div>
-            <h1 style={{ display: "flex", alignItems: "center", gap: "0.5rem", fontSize: "2rem" }} className="gradient-text">
-              <Lightbulb size={28} color="var(--primary)" />
-              Insights de Mercado & Criativos
+            <h1 style={{ fontSize: "2.5rem", fontWeight: 800, marginBottom: "0.25rem", display: "flex", alignItems: "center", gap: "0.5rem", flexWrap: "wrap" }} className="lowercase-title">
+              <Lightbulb size={32} color="var(--primary)" />
+              insights de mercado &amp; criativos<span className="dot-green">.</span>
             </h1>
             <p style={{ opacity: 0.7, marginTop: "0.5rem" }}>
               Acompanhe as últimas tendências, estudos de caso e novidades de alta performance para o time criativo.
@@ -82,7 +84,7 @@ export default function InsightsPage() {
 
         {/* Loading Sutil de Busca Ativa */}
         {isSearching && !loading && (
-          <div className="glass-panel" style={{ display: "flex", alignItems: "center", justifyContent: "center", padding: "1rem", marginBottom: "2rem", gap: "1rem", border: "1px solid var(--primary)" }}>
+          <div className="glass-panel" style={{ display: "flex", alignItems: "center", justifyContent: "center", padding: "1rem", gap: "1rem", border: "1px solid var(--primary)" }}>
             <Loader2 size={24} color="var(--primary)" className="spin" style={{ animation: "spin 2s linear infinite" }} />
             <span style={{ fontWeight: 500 }}>{loadingText}</span>
           </div>

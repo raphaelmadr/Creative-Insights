@@ -46,6 +46,25 @@ const MEDIA_UPLOAD_CONCURRENCY = 4;
 /** Margem de tempo reservada para as escritas no banco no fim da execução. */
 const DB_WRITE_RESERVE_MS = 25000;
 
+/**
+ * Piso de tempo reservado para o upload das artes.
+ *
+ * A fase de mídia é a última antes das escritas e só perguntava "sobrou
+ * tempo?". Como as fases anteriores — enumeração da conta inteira, busca de
+ * criativos, resolução de hashes e vídeos — consomem o orçamento todo, ela
+ * encontrava zero e TODA tarefa de upload retornava sem fazer nada. Era por
+ * isso que 179 criativos ativos seguiam sem arte por meses: o passo nunca
+ * rodava de fato, em nenhuma execução.
+ *
+ * Com o piso, as fases de leitura param mais cedo e devolvem o chão para o
+ * upload. Ler menos criativos numa execução é recuperável no ciclo seguinte;
+ * anúncio ativo sem imagem no painel, não.
+ */
+const MEDIA_BUDGET_MS = 60000;
+
+/** Tempo mínimo que as fases de leitura devem deixar para trás. */
+const READ_PHASE_FLOOR_MS = MEDIA_BUDGET_MS + DB_WRITE_RESERVE_MS;
+
 const BATCH_SIZE = 25;
 
 /** Escritas simultâneas no banco. Abaixo do pool padrão do Prisma. */
@@ -99,6 +118,51 @@ const ALL_EFFECTIVE_STATUSES = [
   "PENDING_BILLING_INFO", "CAMPAIGN_PAUSED", "ARCHIVED", "ADSET_PAUSED",
   "IN_PROCESS", "WITH_ISSUES",
 ];
+
+/**
+ * O hash da imagem de um criativo estático, em ordem de preferência.
+ *
+ * Carrossel foi o furo: suas imagens vivem em
+ * `object_story_spec.link_data.child_attachments[]`, e nem o campo era pedido à
+ * API — `image_hash` e `asset_feed_spec` vêm vazios num carrossel, então a peça
+ * terminava sem URL de origem e era descartada em silêncio a cada sync. Eram
+ * criativos ativos, com entrega e gasto, invisíveis no painel para sempre.
+ */
+function staticImageHash(creative: any): string | null {
+  const linkData = creative?.object_story_spec?.link_data;
+
+  return (
+    creative?.image_hash ||
+    creative?.asset_feed_spec?.images?.[0]?.hash ||
+    linkData?.image_hash ||
+    // A primeira carta do carrossel representa a peça na listagem.
+    linkData?.child_attachments?.find((c: any) => c?.image_hash)?.image_hash ||
+    null
+  );
+}
+
+/**
+ * A URL de origem da imagem de um criativo estático.
+ *
+ * `thumbnail_url` do criativo NÃO entra aqui, apesar de estar sempre presente:
+ * medido, ele é 64x64 e 2KB. Subi-lo resolveria a aparência do painel e criaria
+ * dois problemas piores — uma URL nossa conta como permanente, então
+ * `needsMediaRefresh` nunca mais buscaria a arte de verdade, e a leitura visual
+ * da IA passaria a analisar uma miniatura ilegível. Peça sem arte é um problema
+ * visível; peça congelada em 64px é um problema silencioso.
+ */
+function staticImageSource(creative: any, hashToUrlMap: Record<string, string>): string {
+  const hash = staticImageHash(creative);
+  const linkData = creative?.object_story_spec?.link_data;
+
+  return (
+    (hash && hashToUrlMap[hash]) ||
+    creative?.image_url ||
+    linkData?.picture ||
+    linkData?.child_attachments?.find((c: any) => c?.picture)?.picture ||
+    ""
+  );
+}
 
 export async function runMetaSync(
   mode: "full" | "metrics" = "full",
@@ -285,6 +349,9 @@ export async function runMetaSync(
       let pages = 0;
 
       while (adsUrl && pages < 60) {
+        // Cede o chão reservado para o upload das artes.
+        if (wallClockRemainingMs() < READ_PHASE_FLOOR_MS) { reachedWallClock = true; break; }
+
         const page = await throttledFetch(adsUrl);
         if (!page) break;
 
@@ -339,19 +406,38 @@ export async function runMetaSync(
   // execução, para a fila convergir em alguns ciclos em vez de estourar o tempo.
   const NEW_WITHOUT_INSIGHTS_BUDGET = 500;
 
+  const isActiveInApi = (id: string) =>
+    normalizeMetaStatus(adMetaMap[id]?.status, adMetaMap[id]?.effective_status) === "ACTIVE";
+
+  /*
+   * A fila de mídia, em três origens — e sem repetição.
+   *
+   * A terceira origem existia como furo: um criativo JÁ GRAVADO, ativo e sem
+   * entrega na janela não entrava em lista nenhuma. Não estava em
+   * `adIdsWithInsights` (não tem insights) e a segunda origem exige
+   * `!existingById.has(id)`. Anúncio ativo, sem arte no painel, que nenhum sync
+   * jamais tentava buscar.
+   */
   const refreshAdIds = mode === "full"
-    ? [
-        ...adIdsWithInsights.filter(id => needsMediaRefresh(existingById.get(id))),
-        // Sem entrega na janela, só vale buscar mídia dos que estão no ar —
-        // são os únicos que viram registro novo.
-        ...Object.keys(adMetaMap)
-          .filter(id =>
-            !existingById.has(id) &&
-            !rowsByAdId[id] &&
-            normalizeMetaStatus(adMetaMap[id]?.status, adMetaMap[id]?.effective_status) === "ACTIVE"
-          )
-          .slice(0, NEW_WITHOUT_INSIGHTS_BUDGET),
-      ]
+    ? Array.from(
+        new Set([
+          // 1. Teve entrega na janela e a mídia precisa de renovação.
+          ...adIdsWithInsights.filter(id => needsMediaRefresh(existingById.get(id))),
+          // 2. Descoberto pela enumeração e ainda não existe no banco.
+          ...Object.keys(adMetaMap)
+            .filter(id => !existingById.has(id) && !rowsByAdId[id] && isActiveInApi(id))
+            .slice(0, NEW_WITHOUT_INSIGHTS_BUDGET),
+          // 3. Já existe, está no ar, mas segue sem mídia utilizável.
+          ...Object.keys(adMetaMap)
+            .filter(id =>
+              existingById.has(id) &&
+              !rowsByAdId[id] &&
+              isActiveInApi(id) &&
+              needsMediaRefresh(existingById.get(id))
+            )
+            .slice(0, NEW_WITHOUT_INSIGHTS_BUDGET),
+        ])
+      )
     : [];
 
   if (!reachedWallClock && mode === "full" && refreshAdIds.length > 0) {
@@ -359,9 +445,12 @@ export async function runMetaSync(
 
     try {
       for (let i = 0; i < refreshAdIds.length; i += BATCH_SIZE) {
+        // Cede o chão reservado para o upload das artes.
+        if (wallClockRemainingMs() < READ_PHASE_FLOOR_MS) { reachedWallClock = true; break; }
+
         const batchIds = refreshAdIds.slice(i, i + BATCH_SIZE);
         const data = await fetchWithBisection(batchIds, (ids) =>
-          `https://graph.facebook.com/v19.0/?ids=${ids}&fields=adcreatives{image_url,thumbnail_url,image_hash,object_story_spec{video_data{video_id,image_url}},asset_feed_spec{images{hash},videos{video_id,thumbnail_url}}}&access_token=${metaToken}`
+          `https://graph.facebook.com/v19.0/?ids=${ids}&fields=adcreatives{image_url,thumbnail_url,image_hash,object_story_spec{video_data{video_id,image_url},link_data{picture,image_hash,child_attachments{image_hash,picture}}},asset_feed_spec{images{hash},videos{video_id,thumbnail_url}}}&access_token=${metaToken}`
         );
         if (data) {
           for (const adId of batchIds) {
@@ -420,8 +509,10 @@ export async function runMetaSync(
       if (!creative) return;
       const videoId = creative.object_story_spec?.video_data?.video_id || creative.asset_feed_spec?.videos?.[0]?.video_id;
       if (videoId) videoIds.add(videoId);
-      else if (creative.image_hash) imageHashes.add(creative.image_hash);
-      else if (creative.asset_feed_spec?.images?.length > 0) imageHashes.add(creative.asset_feed_spec.images[0].hash);
+      else {
+        const hash = staticImageHash(creative);
+        if (hash) imageHashes.add(hash);
+      }
     });
 
     if (!reachedWallClock && imageHashes.size > 0) {
@@ -429,6 +520,9 @@ export async function runMetaSync(
       const hashesArray = Array.from(imageHashes);
       try {
         for (let i = 0; i < hashesArray.length; i += BATCH_SIZE) {
+        // Cede o chão reservado para o upload das artes.
+        if (wallClockRemainingMs() < READ_PHASE_FLOOR_MS) { reachedWallClock = true; break; }
+
           const batchHashes = hashesArray.slice(i, i + BATCH_SIZE);
           const hashesParam = encodeURIComponent(JSON.stringify(batchHashes));
           const imagesUrl = `https://graph.facebook.com/v19.0/${metaAccountId}/adimages?hashes=${hashesParam}&fields=url,original_image_url&access_token=${metaToken}`;
@@ -452,6 +546,9 @@ export async function runMetaSync(
       const videoIdsArray = Array.from(videoIds);
       try {
         for (let i = 0; i < videoIdsArray.length; i += BATCH_SIZE) {
+          // Cede o chão reservado para o upload das artes.
+          if (wallClockRemainingMs() < READ_PHASE_FLOOR_MS) { reachedWallClock = true; break; }
+
           const batchIds = videoIdsArray.slice(i, i + BATCH_SIZE);
           const data = await fetchWithBisection(batchIds, (ids) =>
             `https://graph.facebook.com/v19.0/?ids=${ids}&fields=picture,source&access_token=${metaToken}`
@@ -534,17 +631,21 @@ export async function runMetaSync(
 
         if (videoId) {
           videoUrl = videoSourceMap[videoId] || "";
+          /*
+           * A capa do vídeo, em ordem de tamanho real. `creative.thumbnail_url`
+           * saiu da lista: é 64x64, e estava na segunda posição — bastava a
+           * resolução do vídeo falhar para a capa da peça virar uma miniatura
+           * de 2KB, gravada como permanente e nunca mais renovada.
+           */
           sourceImageUrl =
             videoPictureMap[videoId] ||
-            creative.thumbnail_url ||
             creative.object_story_spec?.video_data?.image_url ||
             creative.asset_feed_spec?.videos?.[0]?.thumbnail_url ||
             "";
           imageBaseName = `${adId}-${videoId}`;
         } else {
-          const hash = creative.image_hash || creative.asset_feed_spec?.images?.[0]?.hash;
-          sourceImageUrl = hashToUrlMap[hash] || creative.image_url || "";
-          imageBaseName = `${adId}-${hash || "image"}`;
+          sourceImageUrl = staticImageSource(creative, hashToUrlMap);
+          imageBaseName = `${adId}-${staticImageHash(creative) || "image"}`;
         }
       }
     }
@@ -568,11 +669,24 @@ export async function runMetaSync(
 
   // --- 6. Persistência das mídias estáticas ---
   //
+  // O painel precisa saber o que aconteceu com as artes: uma sync "concluída"
+  // que deixou 150 peças sem imagem não é uma sync bem-sucedida.
+  let mediaReport = { uploaded: 0, failed: 0, withoutSource: 0, pending: 0 };
+
+  //
   // Fase própria e paralela: antes o download+upload acontecia em série dentro do
   // laço principal, e a fila de pendências nunca cabia no teto de tempo.
   if (mode === "full" && isStorageConfigured(storage)) {
+    // Sem URL de origem não há o que subir. Contado e reportado em vez de
+    // descartado em silêncio: era assim que os carrosséis desapareciam.
+    const withoutSource: string[] = [];
+
     const uploadTargets = pending.filter(item => {
-      if (!item.sourceImageUrl) return false;
+      if (!item.sourceImageUrl) {
+        // Só conta quem a API respondeu: sem creative não houve o que resolver.
+        if (creativeDataMap[item.adId]) withoutSource.push(item.adId);
+        return false;
+      }
       // Já é uma URL nossa (pode acontecer em reprocessamentos) — nada a fazer.
       if (isPermanentMediaUrl(item.sourceImageUrl, storage)) {
         item.persistedImageUrl = item.sourceImageUrl;
@@ -580,6 +694,35 @@ export async function runMetaSync(
       }
       return true;
     });
+
+    if (withoutSource.length > 0) {
+      console.warn(
+        `[Meta Sync] ${withoutSource.length} criativo(s) sem URL de imagem resolvível — ficarão sem arte no painel. ` +
+        `Primeiros: ${withoutSource.slice(0, 10).join(", ")}`
+      );
+    }
+
+    /*
+     * Ordem da fila por urgência, e não pela ordem em que os anúncios apareceram.
+     *
+     * O orçamento de tempo interrompe a fila no meio, e antes o corte caía
+     * sempre nos anúncios novos: eles entram no fim da lista de pendentes,
+     * depois de todo o passivo de renovação. Resultado: peça recém-lançada,
+     * ativa e gastando, sem arte nenhuma no painel — enquanto o tempo era gasto
+     * renovando a URL de quem já estava visível.
+     *
+     * Quem não tem imagem alguma no banco está invisível AGORA; quem tem uma
+     * URL de plataforma ainda aparece e só expira depois; quem já está no nosso
+     * servidor é o menos urgente de todos.
+     */
+    const uploadPriority = (adId: string): number => {
+      const existing = existingById.get(adId);
+      if (!existing?.imageUrl) return 0;
+      if (!isPermanentMediaUrl(existing.imageUrl, storage)) return 1;
+      return 2;
+    };
+
+    uploadTargets.sort((a, b) => uploadPriority(a.adId) - uploadPriority(b.adId));
 
     if (uploadTargets.length > 0) {
       if (onProgress) onProgress(`Salvando ${uploadTargets.length} criativos estáticos no servidor externo...`, 62);
@@ -614,11 +757,28 @@ export async function runMetaSync(
 
       if (budgetExhausted) {
         reachedWallClock = true;
-        console.log(`[Meta Sync] Orçamento de tempo esgotado nos uploads. ${completed}/${uploadTargets.length} processados; o restante continua na próxima execução.`);
+        // Quantas das que ficaram para trás estão invisíveis no painel: é o
+        // número que diz se o corte doeu ou se só adiou uma renovação.
+        const pendingInvisible = uploadTargets
+          .slice(completed)
+          .filter(item => uploadPriority(item.adId) === 0).length;
+
+        console.warn(
+          `[Meta Sync] Orçamento de tempo esgotado nos uploads: ${completed}/${uploadTargets.length} processados. ` +
+          `${pendingInvisible} criativo(s) ainda sem arte alguma continuam na fila da próxima execução ` +
+          `(as prioridades vão primeiro, então este número cai a cada ciclo).`
+        );
       }
       if (failed > 0) {
         console.warn(`[Meta Sync] ${failed} mídia(s) não puderam ser persistidas; os valores atuais no banco foram preservados.`);
       }
+
+      mediaReport = {
+        uploaded: completed - failed,
+        failed,
+        withoutSource: withoutSource.length,
+        pending: budgetExhausted ? uploadTargets.length - completed : 0,
+      };
     }
   }
 
@@ -868,5 +1028,5 @@ export async function runMetaSync(
     if (onProgress) onProgress("Meta: teto de tempo/taxa atingido. O progresso foi salvo; rode novamente para continuar.", 100);
   }
 
-  return { syncedAds, syncedMetrics, reachedLimit: reachedWallClock };
+  return { syncedAds, syncedMetrics, reachedLimit: reachedWallClock, media: mediaReport };
 }

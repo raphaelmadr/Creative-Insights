@@ -14,7 +14,6 @@ import {
   Loader2, 
   Tag, 
   ShieldAlert,
-  Ghost,
   Sparkles,
   Calendar,
   ChevronDown,
@@ -22,6 +21,7 @@ import {
 } from "lucide-react";
 import { Skeleton } from "@/components/Skeleton";
 import { useCacheFetch } from "@/hooks/useCacheFetch";
+import { SimilarityCreativeCard } from "@/components/SimilarityCreativeCard";
 import styles from "./Similaridade.module.css";
 
 function toDateInputValue(date: Date): string {
@@ -37,6 +37,56 @@ function daysAgoUTC(days: number): Date {
   const d = todayUTC();
   d.setUTCDate(d.getUTCDate() - days);
   return d;
+}
+
+/**
+ * As peças do grupo separadas pela categoria de performance em que estão.
+ *
+ * Os baldes saem na hierarquia declarada no painel — Prime Winners primeiro,
+ * Testando por último —, e não na ordem em que as peças aparecem no grupo: é a
+ * escala de resultado que a equipe lê, e ela precisa ser a mesma toda vez.
+ * Peça sem categoria vai para o fim, porque é ausência de dado e não um degrau
+ * da escala.
+ */
+function groupByCategory(creatives: SimilarCreative[]) {
+  const SEM_CATEGORIA = "Sem categoria";
+  const buckets = new Map<
+    string,
+    { name: string; color: string | null; order: number; creatives: SimilarCreative[] }
+  >();
+
+  for (const creative of creatives) {
+    const name = creative.categoryName || SEM_CATEGORIA;
+    if (!buckets.has(name)) {
+      buckets.set(name, {
+        name,
+        color: creative.categoryColor ?? null,
+        order: creative.categoryName ? creative.categoryIndex ?? Number.MAX_SAFE_INTEGER : Number.MAX_SAFE_INTEGER,
+        creatives: [],
+      });
+    }
+    buckets.get(name)!.creatives.push(creative);
+  }
+
+  const ordered = Array.from(buckets.values());
+  // Dentro de cada balde, quem recebeu mais verba primeiro.
+  ordered.forEach(b => b.creatives.sort((a, c) => c.spend - a.spend));
+
+  return ordered.sort(
+    (a, b) =>
+      a.order - b.order ||
+      Number(a.name === SEM_CATEGORIA) - Number(b.name === SEM_CATEGORIA) ||
+      a.name.localeCompare(b.name)
+  );
+}
+
+/** A peça que ficou com a maior fatia da verba do grupo. */
+function leaderId(group: Group): string | null {
+  let leader: SimilarCreative | null = null;
+  for (const creative of group.creatives) {
+    if (!leader || creative.spend > leader.spend) leader = creative;
+  }
+  return leader?.id ?? null;
 }
 
 /** O algoritmo por trás da entrega do grupo, escrito como a equipe fala dele. */
@@ -67,11 +117,22 @@ type SimilarCreative = {
   adName: string;
   campaignName: string;
   imageUrl: string;
+  videoUrl?: string | null;
+  mediaType?: string | null;
+  designer?: string | null;
+  platform?: string | null;
+  /** Categoria de performance da peça, decidida pelos mesmos critérios da home. */
+  categoryName?: string | null;
+  categoryColor?: string | null;
+  /** Posição da categoria na hierarquia do painel: 0 é a de melhor resultado. */
+  categoryIndex?: number | null;
   spend: number;
   roas: number;
   ctr: number;
   cpm: number;
   purchases: number;
+  reach?: number;
+  frequency?: number;
 };
 
 type Group = {
@@ -160,13 +221,15 @@ export default function SimilaridadePage() {
   return (
     <main style={{ minHeight: "100vh", display: "flex", flexDirection: "column" }}>
       <TopBar />
-      <div style={{ padding: "2rem", display: "flex", flexDirection: "column", flex: 1, maxWidth: 1000, margin: "0 auto", width: "100%" }}>
+      {/* Mesma medida das outras telas: a largura do container é da classe
+          `dashboard-container`, não de um número solto por página. */}
+      <div className="dashboard-container" style={{ flexDirection: "column" }}>
         
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "2rem", flexWrap: "wrap", gap: "1rem" }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "1rem" }}>
           <div>
-            <h1 style={{ display: "flex", alignItems: "center", gap: "0.5rem", fontSize: "2rem" }} className="gradient-text">
-              <Network size={28} color="var(--primary)" />
-              Análise de Similaridade de Criativos
+            <h1 style={{ fontSize: "2.5rem", fontWeight: 800, marginBottom: "0.25rem", display: "flex", alignItems: "center", gap: "0.5rem", flexWrap: "wrap" }} className="lowercase-title">
+              <Network size={32} color="var(--primary)" />
+              análise de similaridade de criativos<span className="dot-green">.</span>
             </h1>
             <p style={{ opacity: 0.7, marginTop: "0.5rem", maxWidth: 800, lineHeight: 1.6 }}>
               Entenda como o algoritmo de cada canal escolheu entre seus anúncios parecidos. Meta (Andromeda) e TikTok concentram a entrega em uma peça e preterem as demais quando as considera variações da mesma coisa — aqui você vê onde isso aconteceu e por quê.
@@ -215,7 +278,7 @@ export default function SimilaridadePage() {
           </div>
         </div>
 
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))", gap: "1rem", marginBottom: "2rem" }}>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))", gap: "1rem" }}>
           <div className="glass-panel" style={{ padding: "1.25rem", display: "flex", gap: "0.75rem", alignItems: "flex-start", borderLeft: "4px solid var(--danger)" }}>
             <EyeOff color="var(--danger)" style={{ flexShrink: 0, marginTop: "0.2rem" }} />
             <div>
@@ -367,87 +430,71 @@ export default function SimilaridadePage() {
                     </div>
                   )}
 
-                  <div className={styles.grid}>
-                    {group.creatives.map((creative, index) => {
-                      const isWinner = index === 0 && group.isCannibalized;
-                      const shareOfSpend = group.totalSpend > 0 ? (creative.spend / group.totalSpend) : 0;
-                      const isKilledAtSource = !isWinner && shareOfSpend < 0.05 && group.isCannibalized;
-                      
-                      return (
-                        <div key={creative.id} className={styles.creativeCard} style={{ borderColor: isWinner ? "rgba(39, 174, 96, 0.4)" : (isKilledAtSource ? "rgba(239, 68, 68, 0.4)" : "var(--card-border)"), position: "relative" }}>
-                          
-                          {isWinner && (
-                            <div style={{ position: "absolute", top: "0.5rem", right: "0.5rem", background: "var(--primary)", color: "#fff", padding: "0.25rem 0.75rem", borderRadius: "100px", fontSize: "0.7rem", fontWeight: "bold", zIndex: 10, boxShadow: "0 2px 10px rgba(0,0,0,0.2)" }}>
-                              SUGOU A VERBA
-                            </div>
-                          )}
+                  {/*
+                    Dentro do grupo, as peças saem separadas pela categoria de
+                    performance em que estão. É a leitura que a página devia
+                    entregar: ver que quem sugou a verba é um Prime Winner, e
+                    que a peça preterida está em Testando, diz muito mais do que
+                    ver as duas lado a lado sem contexto de resultado.
+                  */}
+                  {groupByCategory(group.creatives).map(bucket => {
+                    // O líder é do grupo, não do balde: calculado uma vez aqui.
+                    const groupLeaderId = leaderId(group);
 
-                          {isKilledAtSource && (
-                            <div style={{ position: "absolute", top: "0.5rem", left: "0.5rem", background: "var(--danger)", color: "#fff", padding: "0.25rem 0.5rem", borderRadius: "100px", fontSize: "0.65rem", fontWeight: "bold", zIndex: 10, boxShadow: "0 2px 10px rgba(239,68,68,0.3)", display: "flex", alignItems: "center", gap: "0.2rem" }}>
-                              <Ghost size={12} /> IGNORADO PELO {platformShort(group.platform)}
-                            </div>
-                          )}
+                    return (
+                    <div key={bucket.name} style={{ marginBottom: "1.75rem" }}>
+                      <div
+                        style={{
+                          display: "flex", alignItems: "center", gap: "0.6rem",
+                          marginBottom: "0.75rem", paddingBottom: "0.4rem",
+                          borderBottom: "1px solid var(--card-border)"
+                        }}
+                      >
+                        <span
+                          style={{
+                            width: "8px", height: "8px", borderRadius: "100px", flexShrink: 0,
+                            background: bucket.color || "var(--muted)"
+                          }}
+                        />
+                        <strong style={{ fontSize: "0.85rem", color: bucket.color || "var(--foreground)" }}>
+                          {bucket.name}
+                        </strong>
+                        <span style={{ fontSize: "0.72rem", opacity: 0.6 }}>
+                          {bucket.creatives.length} {bucket.creatives.length === 1 ? "peça" : "peças"} ·{" "}
+                          {formatCurrency(bucket.creatives.reduce((acc, c) => acc + c.spend, 0))}
+                        </span>
+                      </div>
 
-                          <div className={styles.imageContainer}>
-                            {creative.imageUrl ? (
-                              // eslint-disable-next-line @next/next/no-img-element
-                              <img 
-                                src={creative.imageUrl} 
-                                alt={creative.adName} 
-                                style={{ 
-                                  width: "100%", 
-                                  height: "180px", 
-                                  objectFit: "cover", 
-                                  display: "block", 
-                                  opacity: isKilledAtSource ? 0.4 : (isWinner ? 1 : 0.7),
-                                  filter: isKilledAtSource ? "grayscale(100%)" : "none"
-                                }}
-                              />
-                            ) : (
-                              <div style={{ width: "100%", height: "180px", background: "rgba(0,0,0,0.05)", display: "flex", alignItems: "center", justifyContent: "center", color: "var(--muted)" }}>
-                                Sem imagem
-                              </div>
-                            )}
-                            
-                            {/* Share of Spend Progress Bar */}
-                            <div style={{ position: "absolute", bottom: 0, left: 0, right: 0, height: "4px", background: "rgba(0,0,0,0.5)" }}>
-                              <div style={{ height: "100%", background: isWinner ? "var(--primary)" : (isKilledAtSource ? "var(--danger)" : "var(--warning)"), width: `${shareOfSpend * 100}%` }} />
-                            </div>
-                          </div>
-                          
-                          <div style={{ padding: "1.25rem", opacity: isKilledAtSource ? 0.6 : 1 }}>
-                            <p style={{ fontSize: "0.75rem", color: "var(--primary)", fontWeight: 600, margin: "0 0 0.5rem 0", textOverflow: "ellipsis", whiteSpace: "nowrap", overflow: "hidden", textTransform: "uppercase", letterSpacing: "0.05em" }} title={creative.campaignName}>
-                              {creative.campaignName}
-                            </p>
-                            <h4 style={{ margin: "0 0 1.25rem 0", fontSize: "0.95rem", lineHeight: 1.4, color: "var(--foreground)" }} title={creative.adName}>
-                              {creative.adName}
-                            </h4>
-                            
-                            <div className={styles.metricsGrid}>
-                              <div>
-                                <span className={styles.metricLabel}>Fatia de Gasto</span>
-                                <span className={styles.metricValue} style={{ color: isWinner ? "var(--primary)" : (isKilledAtSource ? "var(--danger)" : "inherit") }}>
-                                  {(shareOfSpend * 100).toFixed(1)}%
-                                </span>
-                              </div>
-                              <div>
-                                <span className={styles.metricLabel}>Gasto Real</span>
-                                <span className={styles.metricValue}>{formatCurrency(creative.spend)}</span>
-                              </div>
-                              <div>
-                                <span className={styles.metricLabel}>ROAS</span>
-                                <span className={styles.metricValue}>{creative.roas.toFixed(2)}x</span>
-                              </div>
-                              <div>
-                                <span className={styles.metricLabel}>Compras</span>
-                                <span className={styles.metricValue}>{creative.purchases}</span>
-                              </div>
-                            </div>
-                          </div>
-                        </div>
-                      )
-                    })}
-                  </div>
+                      <div className={styles.grid}>
+                        {bucket.creatives.map(creative => {
+                          const shareOfSpend = group.totalSpend > 0 ? creative.spend / group.totalSpend : 0;
+                          const isLeader = creative.id === groupLeaderId;
+
+                          /*
+                           * Os dois selos só fazem sentido onde houve
+                           * canibalização: num grupo de verba bem repartida, a
+                           * peça de maior fatia não "sugou" nada, e a de menor
+                           * não foi ignorada.
+                           */
+                          const sucked = isLeader && group.isCannibalized;
+                          const isIgnored = !isLeader && group.isCannibalized && shareOfSpend < 0.05;
+
+                          return (
+                            <SimilarityCreativeCard
+                              key={creative.id}
+                              creative={creative}
+                              shareOfSpend={shareOfSpend}
+                              isLeader={sucked}
+                              isIgnored={isIgnored}
+                              platformShort={platformShort(group.platform)}
+                            />
+                          );
+                        })}
+                      </div>
+                    </div>
+                    );
+                  })}
+
                 </div>
               </div>
             ))}
