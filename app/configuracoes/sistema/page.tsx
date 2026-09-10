@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect } from "react";
 import { Save, Loader2, Copy, Check, AlertTriangle, RefreshCw, Eye, EyeOff, ShieldCheck, ShieldAlert } from "lucide-react";
+import { FieldGrid, SettingsField, SettingsModal, SettingsSection } from "@/components/SettingsUI";
 
 /** Cadência do disparador externo: bate sempre, o painel filtra. */
 const RECOMMENDED_CRON_EXPRESSION = "*/15 * * * *";
@@ -49,11 +50,30 @@ export default function SistemaPage() {
   const [revealUrl, setRevealUrl] = useState(false);
   const [format, setFormat] = useState<TriggerFormat>("command");
 
+  /*
+   * Um estado só para tudo o que esta tela salva.
+   *
+   * As credenciais viviam numa segunda página, "Integrações (API)", com o
+   * próprio fetch, o próprio estado e o próprio botão de salvar — enquanto o
+   * "Status das Integrações", que só lê esses mesmos campos, ficava aqui. Quem
+   * descobria uma credencial faltando num lugar tinha que navegar para outro
+   * para preenchê-la, e o sistema carregava duas vezes as mesmas configurações.
+   */
   const [settings, setSettings] = useState({
     cronSyncEnabled: true,
     cronSyncInterval: 120,
     cpanelUploadUrl: "",
     cpanelUploadSecret: "",
+    metaAdAccountId: "",
+    metaAccessToken: "",
+    metaRiskApprovedConversionId: "",
+    metaPaymentApprovedConversionId: "",
+    tiktokAdvertiserId: "",
+    tiktokAccessToken: "",
+    googleClientId: "",
+    googleClientSecret: "",
+    slackBotToken: "",
+    slackChannelId: "",
   });
 
   // Informação só de leitura: estado da automação e fontes com credenciais.
@@ -67,6 +87,11 @@ export default function SistemaPage() {
   const [storage, setStorage] = useState<MediaStorageState | null>(null);
   const [integrations, setIntegrations] = useState<IntegrationStatus[]>([]);
   const [revealUploadSecret, setRevealUploadSecret] = useState(false);
+  const [statusOpen, setStatusOpen] = useState(false);
+
+  // O resumo do status: o número que fica à vista no lugar das sete caixas.
+  const configuredIntegrations = integrations.filter(item => item.configured).length;
+  const pendingIntegrations = integrations.length - configuredIntegrations;
 
   const loadAll = React.useCallback(() => {
     return Promise.all([
@@ -85,6 +110,16 @@ export default function SistemaPage() {
           // ambiente, o campo mostra o que está de fato em vigor.
           cpanelUploadUrl: media?.uploadUrl ?? data.cpanelUploadUrl ?? "",
           cpanelUploadSecret: media?.uploadSecret ?? data.cpanelUploadSecret ?? "",
+          metaAdAccountId: data.metaAdAccountId ?? "",
+          metaAccessToken: data.metaAccessToken ?? "",
+          metaRiskApprovedConversionId: data.metaRiskApprovedConversionId ?? "",
+          metaPaymentApprovedConversionId: data.metaPaymentApprovedConversionId ?? "",
+          tiktokAdvertiserId: data.tiktokAdvertiserId ?? "",
+          tiktokAccessToken: data.tiktokAccessToken ?? "",
+          googleClientId: data.googleClientId ?? "",
+          googleClientSecret: data.googleClientSecret ?? "",
+          slackBotToken: data.slackBotToken ?? "",
+          slackChannelId: data.slackChannelId ?? "",
         });
         setStatus({
           lastSyncAt: data.lastSyncAt,
@@ -115,7 +150,10 @@ export default function SistemaPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(settings)
       });
-      alert(res.ok ? "Configurações do sistema salvas com sucesso!" : "Erro ao salvar configurações do sistema.");
+      alert(res.ok ? "Configurações salvas com sucesso!" : "Erro ao salvar as configurações.");
+      // Recarrega para o "Status das Integrações" refletir a credencial que
+      // acabou de ser salva — antes era preciso trocar de página para isso.
+      if (res.ok) await loadAll();
     } catch (err) {
       alert("Erro ao salvar configurações do sistema.");
     }
@@ -214,28 +252,77 @@ export default function SistemaPage() {
     padding: "0.8rem",
   });
 
+  /*
+   * Uma coluna de cartões, e não um painel único com `<hr>` entre tudo.
+   * A tela tem oito assuntos independentes; separá-los em cartões deixa cada um
+   * com o seu cabeçalho, o seu estado e o seu link — e permite achar o assunto
+   * pela varredura, sem ler o que vem antes.
+   */
   return (
-    <div className="glass-panel" style={{ padding: "2rem", borderRadius: "16px" }}>
-      <form onSubmit={handleSaveSettings} style={{ display: "flex", flexDirection: "column", gap: "2rem" }}>
+    <form onSubmit={handleSaveSettings} style={{ display: "flex", flexDirection: "column", gap: "1.1rem" }}>
 
+        {/*
+          O status como resumo de uma linha, e não como sete caixas abertas.
+          É informação de consulta — lida de vez em quando —, e ocupava a
+          primeira dobra inteira empurrando para baixo os campos que a pessoa
+          veio editar. O número fica à vista; o detalhe, a um clique.
+        */}
         {integrations.length > 0 && (
-          <div style={{ display: "flex", flexDirection: "column", gap: "0.9rem" }}>
-            <h3 style={{ fontSize: "1.1rem", fontWeight: 600, color: "var(--foreground)", margin: 0 }}>Status das Integrações</h3>
-            <p style={{ fontSize: "0.85rem", color: "var(--muted)", margin: 0, lineHeight: 1.6 }}>
-              Uma credencial ausente desabilita apenas o recurso dela — o resto do sistema segue funcionando.
-              Abaixo, o que está ativo e o que está indisponível agora.
-            </p>
+          <div
+            style={{
+              display: "flex", alignItems: "center", justifyContent: "space-between",
+              gap: "1rem", flexWrap: "wrap",
+              padding: "0.85rem 1.1rem", borderRadius: "12px",
+              border: "1px solid var(--card-border)",
+              background: pendingIntegrations === 0 ? "rgba(34,197,94,0.06)" : "rgba(245,158,11,0.08)",
+            }}
+          >
+            <span style={{ display: "flex", alignItems: "center", gap: "0.55rem", fontSize: "0.86rem" }}>
+              {pendingIntegrations === 0
+                ? <ShieldCheck size={16} color="#16a34a" style={{ flexShrink: 0 }} />
+                : <ShieldAlert size={16} color="#b45309" style={{ flexShrink: 0 }} />}
+              <span>
+                <strong>{configuredIntegrations} de {integrations.length}</strong> integrações ativas
+                {pendingIntegrations > 0 && (
+                  <span style={{ color: "var(--muted)" }}>
+                    {" "}— {pendingIntegrations} {pendingIntegrations === 1 ? "recurso indisponível" : "recursos indisponíveis"}
+                  </span>
+                )}
+              </span>
+            </span>
+
+            <button
+              type="button"
+              onClick={() => setStatusOpen(true)}
+              style={{
+                background: "var(--card-bg)", color: "var(--foreground)",
+                border: "1px solid var(--card-border)", borderRadius: "10px",
+                padding: "0.45rem 0.9rem", fontSize: "0.8rem", fontWeight: 600,
+                cursor: "pointer", whiteSpace: "nowrap",
+              }}
+            >
+              Ver status detalhado
+            </button>
+          </div>
+        )}
+
+        {statusOpen && (
+          <SettingsModal
+            title="Status das integrações"
+            description="Uma credencial ausente desabilita apenas o recurso dela — o resto do sistema segue funcionando."
+            onClose={() => setStatusOpen(false)}
+          >
             <div style={{ display: "flex", flexDirection: "column", gap: "0.5rem" }}>
               {integrations.map(item => (
-                <div key={item.id} style={{ display: "flex", gap: "0.7rem", alignItems: "flex-start", padding: "0.7rem 0.9rem", borderRadius: "8px", border: "1px solid var(--card-border)", background: item.configured ? "rgba(34,197,94,0.06)" : "rgba(245,158,11,0.08)" }}>
+                <div key={item.id} style={{ display: "flex", gap: "0.7rem", alignItems: "flex-start", padding: "0.7rem 0.9rem", borderRadius: "10px", border: "1px solid var(--card-border)", background: item.configured ? "rgba(34,197,94,0.06)" : "rgba(245,158,11,0.08)" }}>
                   {item.configured
                     ? <ShieldCheck size={16} color="#16a34a" style={{ flexShrink: 0, marginTop: "0.15rem" }} />
                     : <ShieldAlert size={16} color="#b45309" style={{ flexShrink: 0, marginTop: "0.15rem" }} />}
-                  <div style={{ display: "flex", flexDirection: "column", gap: "0.15rem", fontSize: "0.85rem" }}>
+                  <div style={{ display: "flex", flexDirection: "column", gap: "0.15rem", fontSize: "0.84rem" }}>
                     <span style={{ fontWeight: 600, color: "var(--foreground)" }}>
                       {item.label}
                       {item.fromEnv && (
-                        <span style={{ marginLeft: "0.5rem", fontSize: "0.7rem", fontWeight: 600, color: "#b45309", background: "rgba(245,158,11,0.14)", border: "1px solid rgba(245,158,11,0.3)", borderRadius: "999px", padding: "0.1rem 0.45rem" }}>
+                        <span style={{ marginLeft: "0.5rem", fontSize: "0.68rem", fontWeight: 600, color: "#b45309", background: "rgba(245,158,11,0.14)", border: "1px solid rgba(245,158,11,0.3)", borderRadius: "999px", padding: "0.1rem 0.45rem" }}>
                           via .env — mover para o painel
                         </span>
                       )}
@@ -249,26 +336,124 @@ export default function SistemaPage() {
                 </div>
               ))}
             </div>
-          </div>
+          </SettingsModal>
         )}
 
-        <hr style={{ border: "none", borderTop: "1px solid var(--card-border)" }} />
+        {/*
+          As credenciais de cada canal, com a marca, o estado e o link do passo
+          a passo do próprio fornecedor. Quem abre esta tela uma vez por mês não
+          lembra onde se gera um token do TikTok — e ir procurar fora do produto
+          era parte do trabalho.
+        */}
+        <SettingsSection
+          brand="meta"
+          description="Conta de anúncios e token da Marketing API. É a fonte dos criativos, das métricas e das conversões que definem CPA e receita."
+          status={!!(settings.metaAdAccountId && settings.metaAccessToken)}
+        >
+          <FieldGrid>
+            <SettingsField
+              label="Ad Account ID"
+              placeholder="act_1234567890"
+              value={settings.metaAdAccountId}
+              onChange={v => setSettings({ ...settings, metaAdAccountId: v })}
+              hint="O prefixo act_ é opcional: o sistema o adiciona se faltar."
+            />
+            <SettingsField
+              label="Access Token"
+              secret
+              value={settings.metaAccessToken}
+              onChange={v => setSettings({ ...settings, metaAccessToken: v })}
+              hint="Token de sistema, de longa duração. Tokens de usuário expiram e derrubam a sincronização."
+            />
+            <SettingsField
+              label={'Conversão "aprovado no risco" (ID)'}
+              value={settings.metaRiskApprovedConversionId}
+              onChange={v => setSettings({ ...settings, metaRiskApprovedConversionId: v })}
+              placeholder="padrão: 2105075753380751"
+              hint="Define CPA, Receita Líquida e as categorias de winner. Trocar aqui muda o número em todo o produto — recalibre a meta de CPA em Metas & KPIs."
+            />
+            <SettingsField
+              label={'Conversão "pagamento aprovado" (ID)'}
+              value={settings.metaPaymentApprovedConversionId}
+              onChange={v => setSettings({ ...settings, metaPaymentApprovedConversionId: v })}
+              placeholder="padrão: 27308373288832722"
+              hint="Define a Receita Bruta exibida ao lado da líquida. Em branco usa o padrão da conta."
+            />
+          </FieldGrid>
+        </SettingsSection>
 
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-          <h3 style={{ fontSize: "1.1rem", fontWeight: 600, color: "var(--foreground)", margin: 0 }}>Sincronização Automática</h3>
-          <button type="submit" disabled={savingSettings} style={{ background: "var(--primary)", color: "#fff", border: "none", padding: "0.6rem 1.5rem", borderRadius: "6px", fontWeight: 600, cursor: "pointer", display: "flex", alignItems: "center", gap: "0.5rem" }}>
-            {savingSettings ? <Loader2 size={16} className="spin" /> : <Save size={16} />}
-            Salvar Alterações
-          </button>
-        </div>
+        <SettingsSection
+          brand="tiktok"
+          description="Advertiser ID e token do TikTok Business. Alimenta a mesma base de criativos e métricas do Meta, com o algoritmo de entrega próprio do canal."
+          status={!!(settings.tiktokAdvertiserId && settings.tiktokAccessToken)}
+        >
+          <FieldGrid>
+            <SettingsField
+              label="Advertiser ID"
+              value={settings.tiktokAdvertiserId}
+              onChange={v => setSettings({ ...settings, tiktokAdvertiserId: v })}
+            />
+            <SettingsField
+              label="Access Token"
+              secret
+              value={settings.tiktokAccessToken}
+              onChange={v => setSettings({ ...settings, tiktokAccessToken: v })}
+            />
+          </FieldGrid>
+        </SettingsSection>
 
-        <p style={{ fontSize: "0.85rem", color: "var(--muted)", margin: 0, lineHeight: 1.6 }}>
-          Existem duas sincronizações no sistema, e as duas fazem exatamente a mesma coisa: percorrem
-          todas as fontes configuradas, no mês corrente. A <strong>manual</strong> é o botão
-          &quot;Sincronizar Redes&quot; no topo, a qualquer momento. A <strong>automática</strong> é esta,
-          no intervalo definido abaixo.
-        </p>
+        <SettingsSection
+          brand="slack"
+          title="Slack — entregas do time"
+          description="Lê o canal de entregas para contar as peças produzidas por cada criador. Sem isso, o dashboard da equipe fica sem o volume entregue."
+          status={!!(settings.slackBotToken && settings.slackChannelId)}
+        >
+          <FieldGrid>
+            <SettingsField
+              label="Bot User OAuth Token"
+              secret
+              placeholder="xoxb-..."
+              value={settings.slackBotToken}
+              onChange={v => setSettings({ ...settings, slackBotToken: v })}
+              hint="O app precisa do escopo channels:history e estar convidado no canal."
+            />
+            <SettingsField
+              label="Channel ID"
+              placeholder="C0123456789"
+              value={settings.slackChannelId}
+              onChange={v => setSettings({ ...settings, slackChannelId: v })}
+              hint="No Slack: clique no nome do canal › no rodapé do painel aparece o ID."
+            />
+          </FieldGrid>
+        </SettingsSection>
 
+        <SettingsSection
+          brand="google"
+          title="Google OAuth — login no painel"
+          description="Define quem entra no sistema. A URL de callback autorizada deve ser o endereço do painel seguido de /api/auth/callback/google."
+          status={!!(settings.googleClientId && settings.googleClientSecret)}
+        >
+          <FieldGrid>
+            <SettingsField
+              label="Client ID"
+              value={settings.googleClientId}
+              onChange={v => setSettings({ ...settings, googleClientId: v })}
+            />
+            <SettingsField
+              label="Client Secret"
+              secret
+              value={settings.googleClientSecret}
+              onChange={v => setSettings({ ...settings, googleClientSecret: v })}
+            />
+          </FieldGrid>
+        </SettingsSection>
+
+        <SettingsSection
+          title="Sincronização automática"
+          description='Existem duas sincronizações, e as duas fazem a mesma coisa: percorrem todas as fontes configuradas no mês corrente. A manual é o botão "Sincronizar Redes" no topo; a automática é esta, no intervalo abaixo.'
+          status={settings.cronSyncEnabled}
+          
+        >
         <label style={{ display: "flex", alignItems: "flex-start", gap: "1rem", cursor: "pointer" }}>
           <input type="checkbox" checked={settings.cronSyncEnabled} onChange={e => setSettings({...settings, cronSyncEnabled: e.target.checked})} style={{ width: "1.2rem", height: "1.2rem", marginTop: "0.2rem", cursor: "pointer", accentColor: "var(--primary)" }} />
           <div style={{ display: "flex", flexDirection: "column", gap: "0.25rem" }}>
@@ -309,27 +494,19 @@ export default function SistemaPage() {
             {noSourceConfigured && (
               <div style={noticeStyle("warn")}>
                 <AlertTriangle size={16} style={{ flexShrink: 0, marginTop: "0.1rem" }} />
-                <span>Nenhuma fonte tem credenciais cadastradas — não há o que sincronizar. Preencha as chaves em Configurações › API.</span>
+                <span>Nenhuma fonte tem credenciais cadastradas — não há o que sincronizar. Preencha as chaves nos cartões acima.</span>
               </div>
             )}
           </div>
         )}
+        </SettingsSection>
 
-        <hr style={{ border: "none", borderTop: "1px solid var(--card-border)" }} />
-
-        <div style={{ display: "flex", flexDirection: "column", gap: "1.2rem" }}>
-          <h3 style={{ display: "flex", alignItems: "center", gap: "0.6rem", fontSize: "1.1rem", fontWeight: 600, color: "var(--foreground)", margin: 0 }}>
-            Disparador Externo (Cron Job do cPanel)
-            {urlUsable ? (
-              <span style={{ display: "inline-flex", alignItems: "center", gap: "0.3rem", fontSize: "0.72rem", fontWeight: 600, color: "#16a34a", background: "rgba(34,197,94,0.12)", border: "1px solid rgba(34,197,94,0.3)", borderRadius: "999px", padding: "0.15rem 0.55rem" }}>
-                <ShieldCheck size={12} /> Autenticada
-              </span>
-            ) : (
-              <span style={{ display: "inline-flex", alignItems: "center", gap: "0.3rem", fontSize: "0.72rem", fontWeight: 600, color: "#b45309", background: "rgba(245,158,11,0.12)", border: "1px solid rgba(245,158,11,0.3)", borderRadius: "999px", padding: "0.15rem 0.55rem" }}>
-                <ShieldAlert size={12} /> Pendente
-              </span>
-            )}
-          </h3>
+        <SettingsSection
+          brand="cpanel"
+          title="Disparador externo (Cron Job do cPanel)"
+          description="O cPanel bate nesta URL; a cadência de verdade é a definida acima. Configure o cron para cada 15 minutos e deixe o painel decidir."
+          status={urlUsable}
+        >
 
           <p style={{ fontSize: "0.85rem", color: "var(--muted)", margin: 0, lineHeight: 1.6 }}>
             Cole o valor abaixo no Cron Job do cPanel com a frequência <code>{RECOMMENDED_CRON_EXPRESSION}</code> (a cada 15 min).
@@ -422,30 +599,15 @@ export default function SistemaPage() {
               </span>
             </div>
           )}
-        </div>
+        </SettingsSection>
 
-        <hr style={{ border: "none", borderTop: "1px solid var(--card-border)" }} />
-
-        <div style={{ display: "flex", flexDirection: "column", gap: "1.2rem" }}>
-          <h3 style={{ display: "flex", alignItems: "center", gap: "0.6rem", fontSize: "1.1rem", fontWeight: 600, color: "var(--foreground)", margin: 0 }}>
-            Hospedagem de Imagens (cPanel)
-            {storage?.configured ? (
-              <span style={{ display: "inline-flex", alignItems: "center", gap: "0.3rem", fontSize: "0.72rem", fontWeight: 600, color: "#16a34a", background: "rgba(34,197,94,0.12)", border: "1px solid rgba(34,197,94,0.3)", borderRadius: "999px", padding: "0.15rem 0.55rem" }}>
-                <ShieldCheck size={12} /> Configurada
-              </span>
-            ) : (
-              <span style={{ display: "inline-flex", alignItems: "center", gap: "0.3rem", fontSize: "0.72rem", fontWeight: 600, color: "#b45309", background: "rgba(245,158,11,0.12)", border: "1px solid rgba(245,158,11,0.3)", borderRadius: "999px", padding: "0.15rem 0.55rem" }}>
-                <ShieldAlert size={12} /> Não configurada
-              </span>
-            )}
-          </h3>
-
-          <p style={{ fontSize: "0.85rem", color: "var(--muted)", margin: 0, lineHeight: 1.6 }}>
-            Meta e TikTok entregam URLs de vida curta; as mídias são copiadas para cá para não expirarem.
-            Os campos mostram o que está <strong>em vigor</strong> — o painel tem precedência sobre a variável de ambiente.
-          </p>
-
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "1.5rem" }}>
+        <SettingsSection
+          brand="cpanel"
+          title="Hospedagem de imagens (cPanel)"
+          description="Meta e TikTok entregam URLs de vida curta; as artes são copiadas para cá para não expirarem. Os campos mostram o que está em vigor — o painel tem precedência sobre a variável de ambiente."
+          status={!!storage?.configured}
+        >
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(15rem, 1fr))", gap: "1.1rem" }}>
             <label style={{ display: "flex", flexDirection: "column", gap: "0.5rem", fontSize: "0.9rem" }}>
               <span style={{ fontWeight: 600 }}>URL de Upload (Webhook)</span>
               <input type="url" value={settings.cpanelUploadUrl} onChange={e => setSettings({...settings, cpanelUploadUrl: e.target.value})} placeholder="https://..." style={{ ...inputStyle, fontFamily: "monospace" }} />
@@ -472,10 +634,41 @@ export default function SistemaPage() {
               </span>
             </div>
           )}
+        </SettingsSection>
 
-
+        {/*
+          Barra de salvar fixa no rodapé.
+          A tela ficou longa, e o único botão vivia no cabeçalho da segunda
+          seção: quem editava o token do TikTok no meio da página tinha que
+          rolar de volta ao topo para gravar, ou não achava o botão.
+        */}
+        <div
+          style={{
+            position: "sticky", bottom: "1rem", zIndex: 5,
+            display: "flex", alignItems: "center", justifyContent: "space-between",
+            gap: "1rem", flexWrap: "wrap",
+            padding: "0.85rem 1.1rem", borderRadius: "12px",
+            background: "var(--card-bg)", border: "1px solid var(--card-border)",
+            boxShadow: "0 6px 24px rgba(0,0,0,0.12)",
+          }}
+        >
+          <span style={{ fontSize: "0.8rem", color: "var(--muted)" }}>
+            As alterações de todos os cartões acima são gravadas juntas.
+          </span>
+          <button
+            type="submit"
+            disabled={savingSettings}
+            style={{
+              background: "var(--primary)", color: "#fff", border: "none",
+              padding: "0.6rem 1.4rem", borderRadius: "10px", fontWeight: 600, fontSize: "0.86rem",
+              cursor: savingSettings ? "default" : "pointer", opacity: savingSettings ? 0.6 : 1,
+              display: "inline-flex", alignItems: "center", gap: "0.5rem", whiteSpace: "nowrap",
+            }}
+          >
+            {savingSettings ? <Loader2 size={16} className="spin" /> : <Save size={16} />}
+            {savingSettings ? "Salvando..." : "Salvar alterações"}
+          </button>
         </div>
-      </form>
-    </div>
+    </form>
   );
 }

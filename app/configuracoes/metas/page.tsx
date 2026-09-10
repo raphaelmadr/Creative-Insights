@@ -227,8 +227,12 @@ export default function MetasPage() {
   }
 
   return (
-    <div className="glass-panel" style={{ padding: "2rem", borderRadius: "16px" }}>
-      <div style={{ display: "flex", flexDirection: "column", gap: "2rem" }}>
+    /*
+     * Sem painel externo: os blocos internos já são cartões com borda, e o
+     * envoltório criava moldura dentro de moldura. Igual às outras telas de
+     * configuração.
+     */
+    <div style={{ display: "flex", flexDirection: "column", gap: "1.1rem" }}>
         
         {/* Metas Mensais */}
         <div style={{ padding: "1.5rem", borderRadius: "12px", border: "1px solid var(--card-border)", background: "rgba(0,0,0,0.02)" }}>
@@ -382,7 +386,6 @@ export default function MetasPage() {
           </div>
 
         </div>
-      </div>
     </div>
   );
 }

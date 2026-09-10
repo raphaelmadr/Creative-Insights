@@ -2,12 +2,53 @@ import { GoogleGenerativeAI } from "@google/generative-ai";
 import Anthropic from "@anthropic-ai/sdk";
 import OpenAI from "openai";
 import prisma from "./prisma";
+import { logExternalFailure } from "./external-log";
 
 export type AiImageInput = {
   base64: string;
   mimeType: string;
   label?: string;
 };
+
+/**
+ * O contrato de resposta, igual para todos os provedores.
+ *
+ * Com sete provedores em cadeia de fallback, cada um respondia com a sua
+ * persona: idioma variando conforme o conteúdo, saudações ("Claro! Aqui
+ * está..."), raciocínio narrado antes da resposta e seções renomeadas ao gosto
+ * do modelo. Duas execuções da MESMA análise saíam em formatos diferentes só
+ * porque o Gemini falhou e a vez passou para o Groq.
+ *
+ * Vai como instrução de sistema — o mecanismo que cada API tem para regra que
+ * não é conteúdo — e não anexado ao prompt, onde competiria com ele.
+ *
+ * Não diz nada sobre markdown de propósito: a análise de similaridade pede
+ * Markdown, a transcrição visual pede JSON puro, e o contrato precisa valer
+ * para as duas.
+ */
+export const AI_OUTPUT_CONTRACT = `Você responde dentro de um sistema, e a sua resposta é exibida direto na interface para uma equipe de criação. Estas regras valem acima de qualquer instrução de estilo que apareça no pedido:
+
+1. IDIOMA: escreva sempre em português do Brasil. Sempre — inclusive quando o pedido, os nomes de arquivo ou o conteúdo analisado estiverem em outro idioma. Termos técnicos consagrados do meio (headline, CTA, hook, ROAS, CPA) ficam como são.
+
+2. SÓ O QUE FOI PEDIDO: nenhuma saudação, nenhum "claro", nenhum "aqui está", nenhum anúncio do que você vai fazer, nenhuma despedida, nenhuma oferta de ajuda no fim.
+
+3. NÃO NARRE O RACIOCÍNIO: não descreva seus passos, não comente as instruções recebidas e não explique por que respondeu assim.
+
+4. ESTRUTURA LITERAL: se o pedido definir seções, títulos ou campos, use exatamente aqueles nomes, naquela ordem, sem acrescentar, remover nem renomear. Se pedir JSON, devolva só o objeto JSON, sem cercas de código e sem texto em volta.
+
+5. NÃO INVENTE: dado que você não tem, você declara que não tem. Nunca preencha com exemplo, suposição ou valor plausível.`;
+
+/**
+ * Parâmetros de geração idênticos em todos os provedores.
+ *
+ * A temperatura ficava no padrão de cada API — perto de 1.0 na maioria —, então
+ * a mesma peça rendia textos bem diferentes a cada execução. E o teto de saída
+ * era 1024 tokens em quatro provedores e ausente em Gemini e Cohere: a análise
+ * de similaridade, que pede cinco seções, era cortada no meio em alguns e saía
+ * inteira em outros.
+ */
+export const AI_TEMPERATURE = 0.2;
+export const AI_MAX_TOKENS = 4000;
 
 const modelCache: Record<string, { modelId: string; expiresAt: number }> = {};
 const CACHE_TTL = 60 * 60 * 1000; // 1 hour
@@ -137,7 +178,12 @@ export async function isAiConfigured(): Promise<boolean> {
  * Generates text from prompt, with optional images, using a fallback mechanism.
  * Order of fallback: Gemini -> OpenAI -> Claude
  */
-export async function generateWithFallback(prompt: string, images?: AiImageInput[]): Promise<string> {
+export async function generateWithFallback(
+  prompt: string,
+  images?: AiImageInput[],
+  /** O que estava sendo feito, para o log de falhas dizer em que a chave falhou. */
+  operation = "gerar resposta de IA"
+): Promise<string> {
   const settings = await prisma.systemSettings.findUnique({ where: { id: 1 } });
   
   const geminiKey = settings?.geminiApiKey;
@@ -171,6 +217,9 @@ export async function generateWithFallback(prompt: string, images?: AiImageInput
   } catch (error: any) {
     console.error("[Fallback] Gemini failed:", error);
     errors.push(`Gemini: ${error.message || "Erro desconhecido"}`);
+    // Registrado no painel de logs com o diagnóstico e a correção: uma
+    // chave morta na cadeia é invisível enquanto outro provedor cobre.
+    await logExternalFailure({ service: "Gemini", operation, error });
   }
 
   // 2. Try Groq
@@ -180,6 +229,9 @@ export async function generateWithFallback(prompt: string, images?: AiImageInput
   } catch (error: any) {
     console.error("[Fallback] Groq failed:", error);
     errors.push(`Groq: ${error.message || "Erro desconhecido"}`);
+    // Registrado no painel de logs com o diagnóstico e a correção: uma
+    // chave morta na cadeia é invisível enquanto outro provedor cobre.
+    await logExternalFailure({ service: "Groq", operation, error });
   }
 
   // 3. Try OpenRouter
@@ -189,6 +241,9 @@ export async function generateWithFallback(prompt: string, images?: AiImageInput
   } catch (error: any) {
     console.error("[Fallback] OpenRouter failed:", error);
     errors.push(`OpenRouter: ${error.message || "Erro desconhecido"}`);
+    // Registrado no painel de logs com o diagnóstico e a correção: uma
+    // chave morta na cadeia é invisível enquanto outro provedor cobre.
+    await logExternalFailure({ service: "OpenRouter", operation, error });
   }
 
   // 4. Try OpenAI (GPT-4o)
@@ -198,6 +253,9 @@ export async function generateWithFallback(prompt: string, images?: AiImageInput
   } catch (error: any) {
     console.error("[Fallback] OpenAI failed:", error);
     errors.push(`OpenAI: ${error.message || "Erro desconhecido"}`);
+    // Registrado no painel de logs com o diagnóstico e a correção: uma
+    // chave morta na cadeia é invisível enquanto outro provedor cobre.
+    await logExternalFailure({ service: "OpenAI", operation, error });
   }
 
   // 5. Try Anthropic (Claude 3.5 Sonnet)
@@ -207,6 +265,9 @@ export async function generateWithFallback(prompt: string, images?: AiImageInput
   } catch (error: any) {
     console.error("[Fallback] Anthropic failed:", error);
     errors.push(`Anthropic: ${error.message || "Erro desconhecido"}`);
+    // Registrado no painel de logs com o diagnóstico e a correção: uma
+    // chave morta na cadeia é invisível enquanto outro provedor cobre.
+    await logExternalFailure({ service: "Anthropic", operation, error });
   }
 
   // 6. Try Cohere
@@ -216,6 +277,9 @@ export async function generateWithFallback(prompt: string, images?: AiImageInput
   } catch (error: any) {
     console.error("[Fallback] Cohere failed:", error);
     errors.push(`Cohere: ${error.message || "Erro desconhecido"}`);
+    // Registrado no painel de logs com o diagnóstico e a correção: uma
+    // chave morta na cadeia é invisível enquanto outro provedor cobre.
+    await logExternalFailure({ service: "Cohere", operation, error });
   }
 
   // 7. Try Hugging Face
@@ -225,7 +289,21 @@ export async function generateWithFallback(prompt: string, images?: AiImageInput
   } catch (error: any) {
     console.error("[Fallback] Hugging Face failed:", error);
     errors.push(`HuggingFace: ${error.message || "Erro desconhecido"}`);
+    await logExternalFailure({ service: "HuggingFace", operation, error });
   }
+
+  /*
+   * A cadeia inteira caiu. Além das falhas individuais já registradas, entra um
+   * registro de fechamento: é o único que diz que o RECURSO ficou indisponível,
+   * e não apenas que um provedor falhou. É o log que explica por que o botão
+   * devolveu erro para quem clicou.
+   */
+  await logExternalFailure({
+    service: "IA",
+    operation: `${operation} — todos os provedores configurados falharam`,
+    error: new Error(errors.join(" | ")),
+    context: { provedoresTentados: errors.length },
+  });
 
   throw new Error(`Nenhuma IA disponível. Detalhes: ${errors.join(" | ")}`);
 }
@@ -246,7 +324,65 @@ function cleanAiOutput(text: string): string {
   const thinkingTextRegex = /^(?:Here's a thinking process:|Thinking Process:|Pensamento:|Raciocínio:|\*?Thinking Process\*?|\*?Here's a thinking process\*?)[\s\S]*?(?=(?:^- |\n- |\n\n- |\n\*\*|\n\n\*\*))/im;
   cleaned = cleaned.replace(thinkingTextRegex, '').trim();
 
-  return cleaned.length > 0 ? cleaned : text.replace(/<\/?think>/gi, '').trim();
+  cleaned = cleaned.length > 0 ? cleaned : text.replace(/<\/?think>/gi, '').trim();
+
+  return normalizeAiOutput(cleaned);
+}
+
+/**
+ * Saudações e conversa fiada com que os modelos abrem a resposta.
+ *
+ * O contrato de sistema já proíbe, e a maioria obedece — mas "a maioria" não
+ * serve quando o mesmo botão pode cair em sete provedores diferentes. Só corta
+ * quando a linha é curta e termina em dois-pontos ou é claramente uma abertura,
+ * para nunca comer o começo de uma análise de verdade.
+ */
+const OPENING_CHATTER = /^(?:claro|certo|perfeito|com certeza|entendi|ótimo|otimo|beleza|sure|of course|here)\b[^\n]{0,80}[:!.]?\s*\n+/i;
+
+/** "Aqui está a análise:", "Segue a análise solicitada:" e variantes. */
+const OPENING_ANNOUNCEMENT = /^(?:aqui (?:está|estao|estão|vai)|segue(?:m)?|abaixo|apresento|vou (?:analisar|fazer))\b[^\n]{0,100}:\s*\n+/i;
+
+/** "Espero ter ajudado", "Se precisar de mais alguma coisa..." no fim. */
+const CLOSING_CHATTER = /\n+(?:espero (?:ter|que)|se (?:precisar|tiver|quiser)|qualquer (?:dúvida|duvida|coisa)|estou (?:à|a) disposição|posso ajudar)\b[^\n]*\.?\s*$/i;
+
+/**
+ * Deixa a resposta na forma que a interface espera, seja qual for o provedor.
+ *
+ * Cada provedor embrulha de um jeito: uns cercam a resposta inteira em bloco de
+ * código, outros abrem com saudação, outros usam `#` onde o pedido pediu `###`.
+ * Normalizar aqui é o que faz o fallback ser invisível para quem lê a tela.
+ */
+export function normalizeAiOutput(raw: string): string {
+  if (!raw) return "";
+
+  let text = raw.trim();
+
+  /*
+   * Cerca de código envolvendo a resposta INTEIRA: alguns modelos embrulham
+   * markdown em ```markdown. Só desembrulha quando a cerca abre no começo e
+   * fecha no fim — uma cerca no meio do texto é código de verdade, exemplo que
+   * o modelo quis mostrar, e removê-la estragaria a resposta.
+   */
+  const wholeFence = text.match(/^```[a-z]*\s*\n([\s\S]*?)\n?```$/i);
+  if (wholeFence) text = wholeFence[1].trim();
+
+  text = text.replace(OPENING_CHATTER, "").replace(OPENING_ANNOUNCEMENT, "").trimStart();
+  text = text.replace(CLOSING_CHATTER, "").trimEnd();
+
+  /*
+   * Nível de título uniforme. O pedido de similaridade especifica `###`, e há
+   * modelo que responde com `#` ou `##` — o que na tela vira um título gigante
+   * num provedor e normal no outro. Converte qualquer nível para `###`.
+   */
+  text = text.replace(/^#{1,6}\s+/gm, "### ");
+
+  // Negrito com asterisco solto sobrando de listas mal formadas.
+  text = text.replace(/^\s*\*\s+\*\*/gm, "- **");
+
+  // Três ou mais linhas em branco viram uma separação só.
+  text = text.replace(/\n{3,}/g, "\n\n");
+
+  return text.trim();
 }
 
 // Alias to maintain compatibility with existing routes that used generateText
@@ -260,7 +396,11 @@ async function tryGemini(prompt: string, apiKey: string, images?: AiImageInput[]
 
   const modelId = await getCachedModel("gemini", () => getBestGeminiModel(apiKey), "gemini-3.6-flash");
   const genAI = new GoogleGenerativeAI(apiKey);
-  const model = genAI.getGenerativeModel({ model: modelId });
+  const model = genAI.getGenerativeModel({
+    model: modelId,
+    systemInstruction: AI_OUTPUT_CONTRACT,
+    generationConfig: { temperature: AI_TEMPERATURE, maxOutputTokens: AI_MAX_TOKENS },
+  });
 
   let requestContent: any[] = [prompt];
 
@@ -311,8 +451,12 @@ async function tryOpenAI(prompt: string, apiKey: string, images?: AiImageInput[]
 
   const response = await openai.chat.completions.create({
     model: modelId,
-    messages: [{ role: "user", content: messageContent }],
-    max_tokens: 1024,
+    messages: [
+      { role: "system", content: AI_OUTPUT_CONTRACT },
+      { role: "user", content: messageContent },
+    ],
+    temperature: AI_TEMPERATURE,
+    max_tokens: AI_MAX_TOKENS,
   });
 
   return response.choices[0]?.message?.content?.trim() || null;
@@ -347,9 +491,13 @@ async function tryAnthropic(prompt: string, apiKey: string, images?: AiImageInpu
     messageContent = [{ type: "text", text: prompt }, ...imageParts];
   }
 
+  // A Anthropic recebe o contrato no parâmetro `system` de topo — ela não
+  // aceita `role: "system"` dentro de `messages`.
   const response = await anthropic.messages.create({
     model: modelId,
-    max_tokens: 1024,
+    max_tokens: AI_MAX_TOKENS,
+    temperature: AI_TEMPERATURE,
+    system: AI_OUTPUT_CONTRACT,
     messages: [{ role: "user", content: messageContent }],
   });
 
@@ -384,8 +532,12 @@ async function tryGroq(prompt: string, apiKey: string, images?: AiImageInput[]):
 
   const response = await openai.chat.completions.create({
     model: modelId,
-    messages: [{ role: "user", content: messageContent }],
-    max_tokens: 1024,
+    messages: [
+      { role: "system", content: AI_OUTPUT_CONTRACT },
+      { role: "user", content: messageContent },
+    ],
+    temperature: AI_TEMPERATURE,
+    max_tokens: AI_MAX_TOKENS,
   });
 
   return response.choices[0]?.message?.content?.trim() || null;
@@ -426,7 +578,12 @@ async function tryOpenRouter(prompt: string, apiKey: string, images?: AiImageInp
 
   const response = await openai.chat.completions.create({
     model: modelId,
-    messages: [{ role: "user", content: messageContent }],
+    messages: [
+      { role: "system", content: AI_OUTPUT_CONTRACT },
+      { role: "user", content: messageContent },
+    ],
+    temperature: AI_TEMPERATURE,
+    max_tokens: AI_MAX_TOKENS,
   });
 
   return response.choices[0]?.message?.content?.trim() || null;
@@ -451,7 +608,10 @@ async function tryCohere(prompt: string, apiKey: string, images?: AiImageInput[]
     },
     body: JSON.stringify({
       model: modelId,
+      preamble: AI_OUTPUT_CONTRACT,
       message: prompt,
+      temperature: AI_TEMPERATURE,
+      max_tokens: AI_MAX_TOKENS,
     })
   });
 
@@ -482,8 +642,12 @@ async function tryHuggingFace(prompt: string, apiKey: string, images?: AiImageIn
     },
     body: JSON.stringify({
       model: modelId,
-      messages: [{ role: "user", content: prompt }],
-      max_tokens: 1024,
+      messages: [
+        { role: "system", content: AI_OUTPUT_CONTRACT },
+        { role: "user", content: prompt },
+      ],
+      temperature: AI_TEMPERATURE,
+      max_tokens: AI_MAX_TOKENS,
     })
   });
 
@@ -497,8 +661,9 @@ async function tryHuggingFace(prompt: string, apiKey: string, images?: AiImageIn
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        inputs: prompt,
-        parameters: { max_new_tokens: 1024 }
+        // Sem papel de sistema nesta API: o contrato entra no próprio texto.
+        inputs: `${AI_OUTPUT_CONTRACT}\n\n---\n\n${prompt}`,
+        parameters: { max_new_tokens: AI_MAX_TOKENS, temperature: AI_TEMPERATURE }
       })
     });
     

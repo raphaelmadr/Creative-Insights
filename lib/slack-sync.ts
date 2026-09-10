@@ -8,6 +8,7 @@
  */
 
 import prisma from "./prisma";
+import { logExternalFailure } from "./external-log";
 
 type SettingsRow = Awaited<ReturnType<typeof prisma.systemSettings.findUnique>>;
 
@@ -214,6 +215,11 @@ export async function runSlackSync(
           }
         } catch (e) {
           console.error("Error upserting delivery", e);
+          await logExternalFailure({
+            service: "Slack",
+            operation: "gravar entrega lida do canal",
+            error: e,
+          });
         }
       })
     );

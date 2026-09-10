@@ -2,6 +2,35 @@
 
 import React, { useState, useEffect } from "react";
 import { Save, Loader2, Sparkles } from "lucide-react";
+import { BrandIcon, brandOf, type BrandId } from "@/components/BrandIcon";
+import { DocsLink, SettingsSection, StatusPill } from "@/components/SettingsUI";
+
+type ProviderKey =
+  | "geminiApiKey"
+  | "groqApiKey"
+  | "openRouterApiKey"
+  | "openaiApiKey"
+  | "anthropicApiKey"
+  | "cohereApiKey"
+  | "huggingFaceApiKey"
+  | "tavilyApiKey";
+
+/**
+ * A cadeia de provedores, na ordem em que `lib/ai.ts` os tenta.
+ *
+ * A ordem aqui e a de lá precisam bater: esta tela é onde alguém entende por
+ * que uma análise veio do Groq e não do Gemini.
+ */
+const PROVIDERS: { key: ProviderKey; brand: BrandId; role: string; order: boolean }[] = [
+  { key: "geminiApiKey", brand: "gemini", role: "Primeiro da fila; lê imagens", order: true },
+  { key: "groqApiKey", brand: "groq", role: "Rápido e barato", order: true },
+  { key: "openRouterApiKey", brand: "openrouter", role: "Roteia para vários modelos", order: true },
+  { key: "openaiApiKey", brand: "openai", role: "Lê imagens", order: true },
+  { key: "anthropicApiKey", brand: "anthropic", role: "Lê imagens", order: true },
+  { key: "cohereApiKey", brand: "cohere", role: "Só texto", order: true },
+  { key: "huggingFaceApiKey", brand: "huggingface", role: "Último recurso; só texto", order: true },
+  { key: "tavilyApiKey", brand: "tavily", role: "Pesquisa web dos insights de mercado", order: false },
+];
 
 export default function IAPage() {
   const [fetching, setFetching] = useState(true);
@@ -39,6 +68,20 @@ export default function IAPage() {
     andromedaPrompt: "",
     tavilySearchQuery: "",
     marketInsightsPrompt: "",
+    /*
+     * As chaves dos provedores vivem aqui, ao lado dos prompts que elas
+     * executam. Antes moravam na página "Integrações (API)" — e três da cadeia
+     * de fallback (OpenRouter, Cohere, HuggingFace) mais a Tavily não tinham
+     * campo em lugar nenhum, apesar de o código as ler.
+     */
+    geminiApiKey: "",
+    groqApiKey: "",
+    openRouterApiKey: "",
+    openaiApiKey: "",
+    anthropicApiKey: "",
+    cohereApiKey: "",
+    huggingFaceApiKey: "",
+    tavilyApiKey: "",
   });
 
   useEffect(() => {
@@ -53,6 +96,14 @@ export default function IAPage() {
             andromedaPrompt: settingsRes.data.andromedaPrompt ?? "",
             tavilySearchQuery: settingsRes.data.tavilySearchQuery ?? "",
             marketInsightsPrompt: settingsRes.data.marketInsightsPrompt ?? "",
+            geminiApiKey: settingsRes.data.geminiApiKey ?? "",
+            groqApiKey: settingsRes.data.groqApiKey ?? "",
+            openRouterApiKey: settingsRes.data.openRouterApiKey ?? "",
+            openaiApiKey: settingsRes.data.openaiApiKey ?? "",
+            anthropicApiKey: settingsRes.data.anthropicApiKey ?? "",
+            cohereApiKey: settingsRes.data.cohereApiKey ?? "",
+            huggingFaceApiKey: settingsRes.data.huggingFaceApiKey ?? "",
+            tavilyApiKey: settingsRes.data.tavilyApiKey ?? "",
           });
         }
       })
@@ -88,17 +139,12 @@ export default function IAPage() {
   }
 
   return (
-    <div className="glass-panel" style={{ padding: "2rem", borderRadius: "16px" }}>
-      <form onSubmit={handleSaveSettings} style={{ display: "flex", flexDirection: "column", gap: "2rem" }}>
-        
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-          <h3 style={{ fontSize: "1.1rem", fontWeight: 600, color: "var(--foreground)", margin: 0 }}>Análises de Plataforma (Prompts)</h3>
-          <button type="submit" disabled={savingSettings} style={{ background: "var(--primary)", color: "#fff", border: "none", padding: "0.6rem 1.5rem", borderRadius: "6px", fontWeight: 600, cursor: "pointer", display: "flex", alignItems: "center", gap: "0.5rem" }}>
-            {savingSettings ? <Loader2 size={16} className="spin" /> : <Save size={16} />}
-            Salvar Prompts
-          </button>
-        </div>
+    <form onSubmit={handleSaveSettings} style={{ display: "flex", flexDirection: "column", gap: "1.1rem" }}>
 
+        <SettingsSection
+          title="Prompts das análises"
+          description="O que cada função pede ao modelo. O idioma, o formato e a proibição de saudação são garantidos em código para toda resposta, em qualquer provedor — estes textos definem o conteúdo, não a forma."
+        >
         <div style={{ display: "flex", flexDirection: "column", gap: "1.5rem" }}>
           <label style={{ display: "flex", flexDirection: "column", gap: "0.5rem", fontSize: "0.9rem" }}>
             <span style={{ fontWeight: 600 }}>Transcrição Visual do Criativo</span>
@@ -140,11 +186,76 @@ export default function IAPage() {
             <textarea value={settings.andromedaPrompt} onChange={e => setSettings({...settings, andromedaPrompt: e.target.value})} style={{ padding: "1rem", borderRadius: "8px", border: "1px solid var(--card-border)", background: "var(--card-bg)", color: "var(--foreground)", minHeight: "120px", fontFamily: "monospace", fontSize: "0.85rem", resize: "vertical" }} />
           </label>
         </div>
-        
-        <hr style={{ border: "none", borderTop: "1px solid var(--card-border)" }} />
-        
+        </SettingsSection>
+
+        {/*
+          As chaves, na ORDEM DA CADEIA DE FALLBACK — a sequência que
+          `generateWithFallback` tenta. Ver a ordem na tela é o que explica por
+          que uma análise saiu de um provedor e não de outro. Cada linha traz a
+          marca, o estado e o link direto de onde se gera a chave: quem revisa
+          isso todo mês não deveria precisar procurar fora do produto.
+        */}
+        <SettingsSection
+          title="Provedores de IA"
+          description="São tentados nesta ordem: o primeiro que responder produz a análise, e uma chave em branco é simplesmente pulada. Toda falha — chave inválida, cota esgotada, limite de taxa — fica registrada em Configurações › Logs, com o motivo e a correção."
+        >
+          <div style={{ display: "flex", flexDirection: "column", gap: "0.6rem" }}>
+            {PROVIDERS.map((provider, index) => {
+              const info = brandOf(provider.brand);
+              const filled = !!settings[provider.key];
+
+              return (
+                <div
+                  key={provider.key}
+                  style={{
+                    display: "flex", alignItems: "center", gap: "0.85rem", flexWrap: "wrap",
+                    padding: "0.75rem 0.9rem", borderRadius: "12px",
+                    border: "1px solid var(--card-border)",
+                    background: filled ? "rgba(34,197,94,0.04)" : "var(--background-main)",
+                  }}
+                >
+                  {/* A posição na cadeia, para a ordem ficar explícita. */}
+                  <span style={{ width: "1.4rem", flexShrink: 0, fontSize: "0.75rem", fontWeight: 700, color: "var(--muted)", textAlign: "right" }}>
+                    {provider.order ? `${index + 1}º` : "—"}
+                  </span>
+
+                  <BrandIcon id={provider.brand} size={30} />
+
+                  <div style={{ flex: "1 1 9rem", minWidth: 0, display: "flex", flexDirection: "column", gap: "0.15rem" }}>
+                    <span style={{ fontWeight: 600, fontSize: "0.86rem" }}>{info.label}</span>
+                    <span style={{ fontSize: "0.74rem", color: "var(--muted)" }}>{provider.role}</span>
+                  </div>
+
+                  <input
+                    type="password"
+                    value={settings[provider.key]}
+                    onChange={e => setSettings({ ...settings, [provider.key]: e.target.value })}
+                    placeholder={filled ? "" : "sem chave — este provedor é pulado"}
+                    style={{
+                      flex: "2 1 14rem", minWidth: 0,
+                      padding: "0.6rem 0.7rem", borderRadius: "10px",
+                      border: "1px solid var(--card-border)", background: "var(--card-bg)",
+                      color: "var(--foreground)", fontFamily: "monospace", fontSize: "0.82rem",
+                    }}
+                  />
+
+                  <div style={{ display: "flex", alignItems: "center", gap: "0.7rem", flexShrink: 0 }}>
+                    <StatusPill ok={filled} okLabel="Com chave" pendingLabel="Sem chave" />
+                    {info.docsUrl && <DocsLink href={info.docsUrl} label="Obter chave" />}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </SettingsSection>
+
+        <SettingsSection
+          brand="tavily"
+          title="Pesquisa web automática"
+          description="Alimenta a página de Insights de Mercado: a Tavily busca o conteúdo e a IA o curadoria segundo o prompt abaixo."
+          status={!!settings.tavilyApiKey}
+        >
         <div style={{ display: "flex", flexDirection: "column", gap: "1.5rem" }}>
-          <h3 style={{ fontSize: "1.1rem", fontWeight: 600, color: "var(--foreground)", margin: 0 }}>Pesquisa Web Automática (Tavily)</h3>
           <label style={{ display: "flex", flexDirection: "column", gap: "0.5rem", fontSize: "0.9rem" }}>
             <span style={{ fontWeight: 600 }}>Termos de Pesquisa Base (Query)</span>
             <textarea value={settings.tavilySearchQuery} onChange={e => setSettings({...settings, tavilySearchQuery: e.target.value})} style={{ padding: "1rem", borderRadius: "8px", border: "1px solid var(--card-border)", background: "var(--card-bg)", color: "var(--foreground)", minHeight: "80px", fontFamily: "monospace", fontSize: "0.85rem", resize: "vertical" }} />
@@ -154,7 +265,36 @@ export default function IAPage() {
             <textarea value={settings.marketInsightsPrompt} onChange={e => setSettings({...settings, marketInsightsPrompt: e.target.value})} style={{ padding: "1rem", borderRadius: "8px", border: "1px solid var(--card-border)", background: "var(--card-bg)", color: "var(--foreground)", minHeight: "120px", fontFamily: "monospace", fontSize: "0.85rem", resize: "vertical" }} />
           </label>
         </div>
-      </form>
-    </div>
+        </SettingsSection>
+
+        {/* Mesma barra fixa da tela de Sistema: a página é longa. */}
+        <div
+          style={{
+            position: "sticky", bottom: "1rem", zIndex: 5,
+            display: "flex", alignItems: "center", justifyContent: "space-between",
+            gap: "1rem", flexWrap: "wrap",
+            padding: "0.85rem 1.1rem", borderRadius: "12px",
+            background: "var(--card-bg)", border: "1px solid var(--card-border)",
+            boxShadow: "0 6px 24px rgba(0,0,0,0.12)",
+          }}
+        >
+          <span style={{ fontSize: "0.8rem", color: "var(--muted)" }}>
+            Prompts e chaves são gravados juntos.
+          </span>
+          <button
+            type="submit"
+            disabled={savingSettings}
+            style={{
+              background: "var(--primary)", color: "#fff", border: "none",
+              padding: "0.6rem 1.4rem", borderRadius: "10px", fontWeight: 600, fontSize: "0.86rem",
+              cursor: savingSettings ? "default" : "pointer", opacity: savingSettings ? 0.6 : 1,
+              display: "inline-flex", alignItems: "center", gap: "0.5rem", whiteSpace: "nowrap",
+            }}
+          >
+            {savingSettings ? <Loader2 size={16} className="spin" /> : <Save size={16} />}
+            {savingSettings ? "Salvando..." : "Salvar alterações"}
+          </button>
+        </div>
+    </form>
   );
 }

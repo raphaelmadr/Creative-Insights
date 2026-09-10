@@ -7,7 +7,8 @@ export default function ConfiguracoesLayout({ children }: { children: React.Reac
   return (
     <main style={{ minHeight: "100vh", display: "flex", flexDirection: "column" }}>
       <TopBar />
-      <div className="dashboard-container" style={{ flexDirection: "column" }}>
+      {/* `config-shell` desliga as animações dos cartões nesta área — ver globals.css. */}
+      <div className="dashboard-container config-shell" style={{ flexDirection: "column" }}>
         
         <div style={{ marginBottom: "2rem" }}>
           <h1 style={{ fontSize: "2.5rem", fontWeight: 800, marginBottom: "0.25rem", display: "flex", alignItems: "center", gap: "0.5rem" }} className="lowercase-title">

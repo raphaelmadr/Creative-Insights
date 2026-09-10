@@ -7,6 +7,8 @@
  * copiado com sucesso NÃO pode ser gravado no banco como se fosse permanente.
  */
 
+import { logExternalFailure } from "./external-log";
+
 export interface MediaStorageSettings {
   cpanelUploadUrl?: string | null;
   cpanelUploadSecret?: string | null;
@@ -140,6 +142,18 @@ export async function persistRemoteMedia(
   const response = await fetchWithRetry(sourceUrl, 3);
   if (!response) {
     console.warn(`[media-upload] Falha ao baixar mídia de origem: ${sourceUrl.slice(0, 120)}`);
+    /*
+     * Origem é a plataforma, não o nosso servidor: link assinado que expirou,
+     * ou mídia removida. O log precisa dizer isso, senão a leitura fica sendo
+     * "o cPanel está com problema" quando o cPanel nem foi chamado.
+     */
+    await logExternalFailure({
+      service: "Meta Ads",
+      operation: "baixar a mídia de origem do criativo para copiar ao servidor",
+      error: new Error("A plataforma não devolveu a mídia depois de 3 tentativas — link assinado expirado, mídia removida ou formato recusado."),
+      endpoint: sourceUrl,
+      context: { arquivo: baseFilename },
+    });
     return null;
   }
 
@@ -178,12 +192,26 @@ export async function persistRemoteMedia(
           const result = await uploadRes.json();
           if (result?.success && result?.url) return result.url as string;
           console.warn(`[media-upload] Upload recusado pelo servidor: ${JSON.stringify(result).slice(0, 200)}`);
+          await logExternalFailure({
+            service: "cPanel",
+            operation: "subir a arte do criativo",
+            error: new Error(result?.error || result?.message || JSON.stringify(result).slice(0, 300)),
+            endpoint: config.uploadUrl,
+            context: { arquivo: filename },
+          });
           return null;
         }
 
         // 401/400 são de configuração — insistir não resolve.
         if (uploadRes.status === 401 || uploadRes.status === 400) {
           console.warn(`[media-upload] Upload rejeitado (HTTP ${uploadRes.status}). Verifique cpanelUploadSecret.`);
+          await logExternalFailure({
+            service: "cPanel",
+            operation: "subir a arte do criativo",
+            error: Object.assign(new Error(`HTTP ${uploadRes.status} ${uploadRes.statusText}`), { status: uploadRes.status }),
+            endpoint: config.uploadUrl,
+            context: { arquivo: filename },
+          });
           return null;
         }
       } catch (error) {

@@ -8,16 +8,15 @@ import {
   Users, 
   Settings2, 
   BrainCircuit, 
-  Webhook, 
   TerminalSquare 
 } from "lucide-react";
 
 const navItems = [
   { name: "Metas & KPIs", href: "/configuracoes/metas", icon: Target },
   { name: "Equipe", href: "/configuracoes/equipe", icon: Users },
-  { name: "Sistema", href: "/configuracoes/sistema", icon: Settings2 },
+  // Sistema e Integrações eram duas entradas para a mesma infraestrutura.
+  { name: "Sistema & Integrações", href: "/configuracoes/sistema", icon: Settings2 },
   { name: "Inteligência Artificial", href: "/configuracoes/ia", icon: BrainCircuit },
-  { name: "Integrações (API)", href: "/configuracoes/api", icon: Webhook },
   { name: "Logs", href: "/configuracoes/logs", icon: TerminalSquare },
 ];
 

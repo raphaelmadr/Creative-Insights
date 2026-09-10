@@ -407,3 +407,25 @@ h1, h2, h3, h4, h5, h6 {
   }
 }
 
+
+/*
+ * Configurações é formulário, não painel.
+ *
+ * O `.glass-panel` global carrega `transition: all 0.2s ease` e um `:hover` que
+ * acende a borda e levanta a sombra. Num dashboard isso dá vida; numa tela de
+ * campos, cada cartão animando na entrada e reagindo à passagem do mouse atrasa
+ * a leitura de quem só quer achar um campo e preenchê-lo.
+ */
+.config-shell .glass-panel,
+.config-shell .allu-card {
+  transition: none;
+}
+
+.config-shell .glass-panel:hover {
+  border-color: var(--card-border);
+  box-shadow: none;
+}
+
+[data-theme='dark'] .config-shell .glass-panel:hover {
+  box-shadow: none;
+}

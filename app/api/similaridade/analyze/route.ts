@@ -111,7 +111,13 @@ Todas as peças abaixo rodaram no mesmo canal, e quem decidiu a entrega entre el
 
 [COMO O GRUPO FOI FORMADO]
 Motivo do agrupamento: ${group.reason || "peças concorrentes"}
-${group.sharedTags?.length > 0 ? `Tags compartilhadas na nomenclatura: ${group.sharedTags.join(", ")}` : "Sem tags compartilhadas: o agrupamento veio da mídia em si."}
+${
+  group.sharedTags?.length > 0
+    ? `Tags compartilhadas na nomenclatura: ${group.sharedTags.join(", ")}`
+    : group.reason === "Imagens Idênticas"
+      ? "Sem tags compartilhadas: o agrupamento veio da mídia em si — são a mesma arte."
+      : "Sem uma tag comum a todas: o grupo se formou por semelhança com a primeira peça, em cadeia. Confie na leitura das artes, não na nomenclatura."
+}
 Verba total do grupo no período: R$ ${(group.totalSpend || 0).toFixed(2)}
 Concentração no líder: ${((group.cannibalizationRate || 0) * 100).toFixed(0)}% da verba do grupo
 Peças nesta análise: ${analyzed.length} de ${group.creatives.length} — entram as que ficaram com ao menos ${(MIN_SHARE_FOR_ANALYSIS * 100).toFixed(0)}% da verba; as demais o algoritmo praticamente não entregou.

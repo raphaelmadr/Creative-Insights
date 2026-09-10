@@ -1,4 +1,5 @@
 import prisma from "./prisma";
+import { logExternalFailure } from "./external-log";
 import { loadAliasIndex, resolveDesigner } from "./designer-match";
 import { normalizeTikTokStatus } from "./ad-status";
 import {
@@ -213,6 +214,12 @@ export async function runTikTokSync(
       } while (page <= totalPages);
     } catch (error: any) {
       console.error(`[TikTok Sync] Falha ao buscar info do lote ${i / AD_ID_BATCH}: ${error.message}`);
+      await logExternalFailure({
+        service: "TikTok Ads",
+        operation: "buscar informações dos anúncios",
+        error,
+        context: { lote: Math.floor(i / AD_ID_BATCH) },
+      });
       if (error instanceof TikTokApiError && error.isRateLimit) { reachedWallClock = true; break; }
     }
   }
@@ -320,6 +327,11 @@ export async function runTikTokSync(
           }
         } catch (error: any) {
           console.error(`[TikTok Sync] Falha no lote de ${label}: ${error.message}`);
+          await logExternalFailure({
+            service: "TikTok Ads",
+            operation: `buscar ${label}`,
+            error,
+          });
           if (error instanceof TikTokApiError && error.isRateLimit) { reachedWallClock = true; return; }
         }
 

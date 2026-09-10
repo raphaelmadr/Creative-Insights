@@ -1,4 +1,5 @@
 import prisma from "./prisma";
+import { logExternalFailure } from "./external-log";
 import {
   throttledFetch,
   fetchWithBisection,
@@ -357,6 +358,13 @@ export async function runMetaSync(
 
         if (page.error) {
           console.warn(`[Meta Sync] Enumeração de anúncios indisponível: ${page.error.message}`);
+          await logExternalFailure({
+            service: "Meta Ads",
+            operation: "enumerar anúncios da conta",
+            error: page.error,
+            endpoint: adsUrl,
+            context: { conta: metaAccountId, paginasLidas: pages },
+          });
           break;
         }
 
@@ -369,6 +377,19 @@ export async function runMetaSync(
         if (onProgress) onProgress(`Enumerando anúncios (${Object.keys(adMetaMap).length})...`, 28);
       }
     } catch (err: any) {
+      /*
+       * Limite de taxa também é declarado — como WARNING, porque a próxima
+       * execução resolve. Antes ele só marcava `reachedWallClock` em silêncio,
+       * e uma sync que parou no meio por rate limit ficava indistinguível de
+       * uma que terminou.
+       */
+      await logExternalFailure({
+        service: "Meta Ads",
+        operation: "enumerar anúncios da conta",
+        error: err,
+        context: { conta: metaAccountId, anunciosLidos: Object.keys(adMetaMap).length },
+      });
+
       if (isRateOrTimeLimit(err)) {
         reachedWallClock = true;
       } else {

@@ -150,8 +150,8 @@ export default function EquipePage() {
   }
 
   return (
-    <div className="glass-panel" style={{ padding: "2rem", borderRadius: "16px" }}>
-      <div style={{ display: "flex", flexDirection: "column", gap: "2rem" }}>
+    /* Mesma razão da tela de Metas: os blocos internos já são cartões. */
+    <div style={{ display: "flex", flexDirection: "column", gap: "1.1rem" }}>
         
         {/* Meta Global do Time */}
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end", marginBottom: "1rem" }}>
@@ -227,7 +227,6 @@ export default function EquipePage() {
             </div>
           )}
         </div>
-      </div>
     </div>
   );
 }

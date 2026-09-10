@@ -1,14 +1,89 @@
 import { NextRequest, NextResponse } from "next/server";
 import prisma from "@/lib/prisma";
 import { hasDistributionToExplain } from "@/lib/similarity";
+import { buildFinding } from "@/lib/similarity-findings";
 import { matchCategory, resolveCategories } from "@/lib/creative-categories";
 import { EMPTY_TOTALS, type CreativeTotals } from "@/lib/creative-metrics";
 
-// Quebra o nome em tags usando delimitadores comuns
+/**
+ * As tags de um nome de anúncio, sem repetição.
+ *
+ * O `Set` é o ponto: sem ele, `..._interno_..._interno_...` rendia a mesma tag
+ * duas vezes, e o limite de "3 tags em comum" podia ser satisfeito por UM token
+ * repetido. Grupos de 12 peças se formavam sobre `interno, interno` — o limite
+ * não media o que dizia medir.
+ */
 function extractTags(name: string): string[] {
   if (!name) return [];
   // Divide por _, -, |, . ou múltiplos espaços, e limpa
-  return name.split(/[_\\-|\\.]+/).map(t => t.trim().toLowerCase()).filter(t => t.length > 2);
+  // Espaço e travessão entram nos separadores: sem eles, `arquivo.png — Cópia`
+  // virava o token `png — cópia`, que nenhuma lista de formato reconhece.
+  const tokens = name
+    .split(/[_\\-|\\.\\s\u2013\u2014]+/)
+    .map(t => t.trim().toLowerCase())
+    .filter(t => t.length > 2);
+  return Array.from(new Set(tokens));
+}
+
+/**
+ * Tokens de formato, mídia, praça e versão — nunca descrevem o CONCEITO da peça.
+ *
+ * Ficam numa lista fixa, e não no corte por frequência, porque num período
+ * curto a piscina é pequena e um `mp4` pode aparecer em poucas peças — aí ele
+ * passaria o corte e voltaria a colar criativos que só têm a extensão em comum.
+ */
+const FORMAT_TOKENS = new Set([
+  "img", "vid", "video", "vídeo", "crs", "car", "carrossel",
+  "mp4", "mov", "png", "jpg", "jpeg", "gif", "webp", "psd",
+  "feed", "stories", "story", "reels", "reel",
+  "copy", "copia", "cópia", "final", "novo", "nova", "teste", "test",
+  "peca", "peça", "pecas", "peças",
+]);
+
+/** Versão, sequência, data: `v01`, `#001`, `h1`, `ad1`, `2025`, `1peça`. */
+const SEQUENCE_TOKEN = /^(?:#?\d+|v\d+|h\d+|ad\d+|20\d{2}|\d+pe[çc]as?)$/i;
+
+/** Abaixo disso a frequência não é evidência de nada — a piscina é pequena. */
+const MIN_POOL_FOR_FREQUENCY_CUT = 30;
+
+/** Um token presente em mais peças que isto não distingue peça alguma. */
+const GENERIC_TOKEN_SHARE = 0.2;
+
+/**
+ * Os tokens que não servem para agrupar, derivados da própria piscina.
+ *
+ * O agrupamento por taxonomia juntava 130 peças e R$ 257 mil porque bastavam 3
+ * tags iguais quaisquer — e `allu` (74% das peças), `ads` (75%), `perene` (44%)
+ * e `v01` (40%) são convenção de nomenclatura do time, presentes em quase todo
+ * nome. Um grupo formado por elas não é concorrência, é coincidência.
+ *
+ * Derivar da piscina em vez de fixar a lista mantém a regra viva: quando o time
+ * mudar a convenção, o corte acompanha sem ninguém editar código.
+ */
+function buildStopTokens(pool: { tags: string[] }[]): Set<string> {
+  const stop = new Set<string>();
+
+  if (pool.length < MIN_POOL_FOR_FREQUENCY_CUT) return stop;
+
+  const documentFrequency = new Map<string, number>();
+  for (const item of pool) {
+    for (const tag of new Set(item.tags)) {
+      documentFrequency.set(tag, (documentFrequency.get(tag) || 0) + 1);
+    }
+  }
+
+  for (const [tag, count] of documentFrequency) {
+    if (count / pool.length > GENERIC_TOKEN_SHARE) stop.add(tag);
+  }
+
+  return stop;
+}
+
+/** As tags que de fato descrevem a peça: sem formato, versão nem genéricos. */
+function meaningfulTags(tags: string[], stopTokens: Set<string>): string[] {
+  return tags.filter(
+    tag => !FORMAT_TOKENS.has(tag) && !SEQUENCE_TOKEN.test(tag) && !stopTokens.has(tag)
+  );
 }
 
 // Verifica se há intersecção significativa de tags (ex: compartilham a mesma estrutura principal)
@@ -155,6 +230,18 @@ export async function GET(req: NextRequest) {
     
     const aggregatedAds = Array.from(uniqueAdsMap.values());
 
+    /*
+     * As tags de cada peça, reduzidas ao que descreve o conceito.
+     *
+     * `tags` continua sendo o que o passe de taxonomia compara; o cru fica em
+     * `rawTags` para quem precisar depurar por que duas peças caíram juntas.
+     */
+    const stopTokens = buildStopTokens(aggregatedAds);
+    for (const ad of aggregatedAds) {
+      ad.rawTags = ad.tags;
+      ad.tags = meaningfulTags(ad.tags, stopTokens);
+    }
+
     const groups: Array<{ 
       reason: string, 
       sharedTags: string[], 
@@ -259,19 +346,39 @@ export async function GET(req: NextRequest) {
      */
     const analyzableGroups = groups.filter(group => hasDistributionToExplain(group.creatives));
 
-    // Ordenar os grupos pelo gasto total do grupo e por quem tem canibalização ativa
-    analyzableGroups.sort((a, b) => {
-      if (a.isCannibalized && !b.isCannibalized) return -1;
-      if (!a.isCannibalized && b.isCannibalized) return 1;
-      return b.totalSpend - a.totalSpend;
+    /*
+     * O achado de cada grupo: o diagnóstico, o porquê e a ação, calculados dos
+     * números. É o que a página passou a exibir — antes ela listava grupos
+     * rotulados pelo sintoma ("Concorrência Alta") e deixava a equipe inferir
+     * o que estava acontecendo e o que fazer.
+     */
+    const withFindings = analyzableGroups.map(group => ({
+      ...group,
+      finding: buildFinding(group),
+    }));
+
+    /*
+     * Ordem por dinheiro em jogo, não por gasto total do grupo.
+     *
+     * Ordenar por `isCannibalized` primeiro empurrava para o topo os sete
+     * grupos de imagem idêntica — todos do TikTok, todos com 80% a 89% de
+     * concentração — e os grupos do Meta caíam abaixo da primeira tela, dando a
+     * impressão de que a página só puxava um canal. O que decide a ordem agora
+     * é a verba fragmentada: quanto está espalhado entre peças concorrentes.
+     */
+    withFindings.sort((a, b) => {
+      const urgencyA = a.finding?.urgent ? 1 : 0;
+      const urgencyB = b.finding?.urgent ? 1 : 0;
+      if (urgencyA !== urgencyB) return urgencyB - urgencyA;
+      return (b.finding?.fragmentedSpend ?? 0) - (a.finding?.fragmentedSpend ?? 0);
     });
 
     // AI Insight is no longer fetched automatically
-    analyzableGroups.forEach((group: any) => {
+    withFindings.forEach((group: any) => {
       group.aiInsight = ""; // Will be fetched on demand
     });
 
-    return NextResponse.json({ success: true, groups: analyzableGroups });
+    return NextResponse.json({ success: true, groups: withFindings });
   } catch (error: any) {
     console.error("Erro em Similaridade API:", error);
     return NextResponse.json({ success: false, error: error.message }, { status: 500 });
