@@ -4,11 +4,55 @@ import { useState, useEffect } from "react";
 import { signIn } from "next-auth/react";
 import { motion } from "framer-motion";
 
+interface AuthConfigCheck {
+  redirectUri: string | null;
+  baseUrl: string | null;
+  sourceLabel: string | null;
+  googleClientId: string | null;
+  problems: string[];
+  howToFix: string[];
+}
+
 export default function LoginPage() {
   const [loading, setLoading] = useState(false);
   const [success, setSuccess] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  
+
+  /*
+   * O erro `redirect_uri_mismatch` acontece do lado do Google: a pessoa nunca
+   * volta para cá, então não adianta esperar por um parâmetro de erro na URL.
+   * O diagnóstico fica disponível ANTES da tentativa, e diz qual endereço este
+   * ambiente vai enviar — que é exatamente o que precisa estar autorizado lá.
+   */
+  const [config, setConfig] = useState<AuthConfigCheck | null>(null);
+  const [configLoading, setConfigLoading] = useState(false);
+  const [copied, setCopied] = useState(false);
+
+  const loadConfig = async () => {
+    if (config || configLoading) return;
+    setConfigLoading(true);
+    try {
+      const res = await fetch("/api/auth/config-check");
+      const json = await res.json();
+      if (json.success) setConfig(json);
+    } catch {
+      // Sem diagnóstico: a tela continua utilizável para quem só quer entrar.
+    } finally {
+      setConfigLoading(false);
+    }
+  };
+
+  const copyRedirectUri = async () => {
+    if (!config?.redirectUri) return;
+    try {
+      await navigator.clipboard.writeText(config.redirectUri);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      setCopied(false);
+    }
+  };
+
   useEffect(() => {
     if (typeof window !== "undefined") {
       const params = new URLSearchParams(window.location.search);
@@ -154,6 +198,60 @@ export default function LoginPage() {
           </div>
         )}
         
+        {/* Diagnóstico de configuração — para quando o Google recusa o login. */}
+        <details
+          onToggle={(e) => { if ((e.currentTarget as HTMLDetailsElement).open) loadConfig(); }}
+          style={{ marginTop: "1.5rem", textAlign: "left" }}
+        >
+          <summary style={{ cursor: "pointer", fontSize: "0.8rem", color: "var(--muted)", textAlign: "center", listStyle: "none" }}>
+            Problemas para entrar?
+          </summary>
+
+          <div style={{ marginTop: "1rem", fontSize: "0.8rem", color: "var(--muted)", lineHeight: 1.6 }}>
+            {configLoading && <p style={{ margin: 0 }}>Verificando a configuração...</p>}
+
+            {config && (
+              <>
+                <p style={{ margin: "0 0 0.75rem" }}>
+                  Se o Google respondeu <strong>Erro 400: redirect_uri_mismatch</strong>, é porque o
+                  endereço de retorno abaixo não está autorizado no cliente OAuth. Copie-o e
+                  cadastre-o em <em>Google Cloud Console › APIs e Serviços › Credenciais › URIs de
+                  redirecionamento autorizados</em>.
+                </p>
+
+                <div style={{ background: "rgba(127,127,127,0.12)", border: "1px solid var(--card-border)", borderRadius: "8px", padding: "0.75rem", display: "flex", alignItems: "center", gap: "0.5rem", flexWrap: "wrap" }}>
+                  <code style={{ flex: 1, minWidth: 0, fontSize: "0.75rem", wordBreak: "break-all", color: "var(--foreground)" }}>
+                    {config.redirectUri || "endereço público não configurado"}
+                  </code>
+                  {config.redirectUri && (
+                    <button
+                      onClick={copyRedirectUri}
+                      style={{ background: "transparent", border: "1px solid var(--card-border)", color: "var(--foreground)", borderRadius: "6px", padding: "0.3rem 0.6rem", fontSize: "0.7rem", fontWeight: 600, cursor: "pointer", whiteSpace: "nowrap" }}
+                    >
+                      {copied ? "Copiado" : "Copiar"}
+                    </button>
+                  )}
+                </div>
+
+                <p style={{ margin: "0.75rem 0 0", fontSize: "0.72rem", opacity: 0.85 }}>
+                  Origem deste endereço: {config.sourceLabel || "nenhuma"}.
+                  {config.googleClientId && (
+                    <> Cliente OAuth: <code style={{ fontSize: "0.7rem", wordBreak: "break-all" }}>{config.googleClientId}</code></>
+                  )}
+                </p>
+
+                {config.problems.length > 0 && (
+                  <ul style={{ margin: "0.75rem 0 0", paddingLeft: "1.1rem", display: "flex", flexDirection: "column", gap: "0.35rem" }}>
+                    {config.problems.map((problem, i) => (
+                      <li key={i} style={{ fontSize: "0.75rem", color: "var(--warning)" }}>{problem}</li>
+                    ))}
+                  </ul>
+                )}
+              </>
+            )}
+          </div>
+        </details>
+
         <div style={{ marginTop: "2rem", fontSize: "0.8rem", color: "var(--muted)" }}>
           &copy; {new Date().getFullYear()} Allugator. Todos os direitos reservados.
         </div>

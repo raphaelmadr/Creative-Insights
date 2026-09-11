@@ -12,6 +12,7 @@ import GoogleProvider from "next-auth/providers/google";
 import CredentialsProvider from "next-auth/providers/credentials";
 import { PrismaAdapter } from "@next-auth/prisma-adapter";
 import prisma from "@/lib/prisma";
+import { ensureAuthUrlEnv } from "@/lib/auth-url";
 
 export type UserRole = "ADMIN" | "MEMBER";
 
@@ -31,6 +32,13 @@ export function isAdminRole(role: string | null | undefined): boolean {
 }
 
 export async function getAuthOptions(): Promise<NextAuthOptions> {
+  /*
+   * Antes de qualquer coisa: fixar o endereço público de retorno. Sem isso o
+   * NextAuth monta o `redirect_uri` com o domínio do deploy, que muda a cada
+   * publicação, e o Google recusa com `redirect_uri_mismatch`.
+   */
+  await ensureAuthUrlEnv();
+
   const settings = await prisma.systemSettings.findUnique({ where: { id: 1 } });
 
   return {
