@@ -157,7 +157,6 @@ export default function TopBar() {
           <nav className={styles.desktopNav} style={{ display: "flex", gap: "1.5rem", alignItems: "center", marginLeft: "2rem" }}>
             <Link href="/" className={`${styles.navLink} ${pathname === "/" ? styles.active : ""}`}>Início</Link>
             <Link href="/insights" className={`${styles.navLink} ${pathname.startsWith("/insights") ? styles.active : ""}`}>Insights</Link>
-            <Link href="/similaridade" className={`${styles.navLink} ${pathname.startsWith("/similaridade") ? styles.active : ""}`}>Análise de Similaridade</Link>
             <Link href="/equipe" className={`${styles.navLink} ${pathname.startsWith("/equipe") ? styles.active : ""}`}>Equipe</Link>
           </nav>
         </div>
@@ -175,7 +174,6 @@ export default function TopBar() {
             <nav style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
               <Link href="/" className={`${styles.navLink} ${pathname === "/" ? styles.active : ""}`}>Início</Link>
               <Link href="/insights" className={`${styles.navLink} ${pathname.startsWith("/insights") ? styles.active : ""}`}>Insights</Link>
-              <Link href="/similaridade" className={styles.navLink} onClick={() => setIsMobileMenuOpen(false)}>Análise de Similaridade</Link>
               <Link href="/equipe" className={styles.navLink} onClick={() => setIsMobileMenuOpen(false)}>Equipe</Link>
             </nav>
             

@@ -30,11 +30,16 @@ NÃO fale de mídia, verba, público, campanha ou métricas: o assunto é o cria
 /**
  * O que a equipe aprendeu sobre a distribuição de verba entre anúncios.
  *
- * É a base das hipóteses da análise de similaridade: sem esse conhecimento a IA
- * responde com generalidade sobre "ranqueamento de anúncios", que é exatamente
- * o texto vago que a página existe para substituir. Vive no código, e não no
- * prompt editável do painel, porque é o critério da análise — não um ajuste de
- * tom que possa ser reescrito sem intenção.
+ * Era a base das hipóteses da análise de similaridade: sem esse conhecimento a
+ * IA responde com generalidade sobre "ranqueamento de anúncios", que é
+ * exatamente o texto vago que a página existia para substituir. Vive no código,
+ * e não no prompt editável do painel, porque é o critério da análise — não um
+ * ajuste de tom que possa ser reescrito sem intenção.
+ *
+ * SEM CONSUMIDOR HOJE: a página de similaridade foi removida para ser refeita
+ * do zero, e este material foi deliberadamente preservado. Ele é o resultado do
+ * estudo do time sobre o Andromeda e não se reescreve de memória — é o insumo
+ * de partida da próxima versão, não código morto a ser limpo.
  *
  * Cada canal só entra depois que a equipe registrou o que sabe dele: canal com
  * texto vazio não recebe o bloco, e a análise roda sem essa fundamentação em
@@ -71,9 +76,14 @@ Contexto de operação de mídia (útil para entender a distribuição, mas FORA
  * Análise de similaridade: por que o algoritmo escolheu uma peça e preteriu as outras.
  *
  * O critério é fixo — investimento primeiro, imagens depois, hipóteses ao fim —
- * porque a página serve uma decisão recorrente da equipe: o que produzir em
+ * porque a página servia uma decisão recorrente da equipe: o que produzir em
  * seguida. Uma análise que muda de forma a cada execução não se compara com a
  * anterior, e é a comparação que ensina.
+ *
+ * SEM CONSUMIDOR HOJE, preservado junto com o conhecimento acima: a próxima
+ * versão da página redesenha o formato de saída, mas o scorecard (Scaler,
+ * Niche Winner, Attention Winner, False Positive) é critério do time e vale
+ * como ponto de partida.
  */
 export const DEFAULT_ANDROMEDA_PROMPT = `Você é um Estrategista Sênior de Criativos de Performance. Analise um grupo de anúncios concorrentes do mesmo canal e explique como o algoritmo distribuiu a verba entre eles.
 

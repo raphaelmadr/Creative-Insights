@@ -9,7 +9,7 @@ import SafeImage from "./SafeImage";
 /**
  * Os primitivos visuais dos cartões de criativo.
  *
- * Moram fora do cartão da home porque a análise de similaridade passou a usar a
+ * Moram fora do cartão da home porque a análise de similaridade passava a usar a
  * mesma linguagem — pílulas de métrica com o mesmo tom, os mesmos ícones de
  * canal, o mesmo formato de moeda. Duplicá-los faria as duas telas divergirem
  * na primeira mudança de estilo.

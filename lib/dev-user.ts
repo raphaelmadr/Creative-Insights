@@ -5,15 +5,17 @@
  * preferências são lidos da tabela `User`: sem linha, o painel local ficaria
  * trancado para quem está justamente desenvolvendo-o.
  *
- * Só que o `.env` de desenvolvimento aponta para o MESMO banco de produção.
- * A linha criada na máquina de alguém aparecia, então, na lista de usuários do
- * sistema no ar, entrava na contagem de administradores e podia sustentar
- * sozinha a trava do último admin — um administrador que ninguém consegue usar,
- * já que o provedor de atalho não é registrado fora de desenvolvimento.
+ * O banco é UM SÓ, e isso é decisão do projeto, não descuido: os criativos e as
+ * métricas custaram milhares de chamadas às APIs do Meta e do TikTok, sob
+ * limites de taxa apertados, e manter uma segunda base significaria ou
+ * ressincronizar tudo, ou conviver com duas verdades divergindo. Não separe.
  *
- * A correção de verdade é um banco separado para desenvolvimento. Enquanto o
- * banco for o mesmo, esta conta é filtrada de tudo que é visível ou contável
- * em produção, e continua funcionando normalmente na máquina local.
+ * A consequência é que a linha criada na máquina de alguém aparece no sistema
+ * no ar: ela entrava na lista de usuários, contava como administrador e chegou
+ * a sustentar sozinha a trava do último admin — um administrador que ninguém
+ * consegue usar, já que o provedor de atalho não é registrado fora de
+ * desenvolvimento. Este módulo é a resposta a isso: a conta é filtrada de tudo
+ * que é visível ou contável em produção, e segue normal na máquina local.
  */
 
 export const DEV_USER_EMAIL = "dev@allugator.com";
