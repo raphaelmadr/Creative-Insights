@@ -3,6 +3,15 @@ import { v4 as uuidv4 } from "uuid";
 import prisma from "./prisma";
 import { throttledFetch, fetchWithBisection, MetaApiError, WallClockLimitError, resetWallClock } from "./throttled-fetch";
 import { loadAliasIndex, resolveDesigner } from "./designer-match";
+import {
+  META_CREATIVE_MEDIA_FIELDS,
+  META_VIDEO_MEDIA_FIELDS,
+  creativeVideoId,
+  pickVideoCover,
+  staticImageHash,
+  staticImageSource,
+  videoCoverFallback,
+} from "./meta-media-source";
 
 function escapeSql(str: string | null | undefined): string {
   if (str === null || str === undefined) return "NULL";
@@ -173,7 +182,7 @@ export async function runMetaSyncSql(
   const creativeDataMap: Record<string, any> = {};
   const adStatusMap: Record<string, any> = {};
   const hashToUrlMap: Record<string, string> = {};
-  const videoPictureMap: Record<string, string> = {};
+  const videoCoverMap: Record<string, string> = {};
   const videoSourceMap: Record<string, string> = {};
   const adsetTargetingMap: Record<string, any> = {};
 
@@ -232,7 +241,7 @@ export async function runMetaSyncSql(
       for (let i = 0; i < refreshAdIds.length; i += BATCH_SIZE) {
         const batchIds = refreshAdIds.slice(i, i + BATCH_SIZE);
         const data = await fetchWithBisection(batchIds, (ids) => 
-          `https://graph.facebook.com/v19.0/?ids=${ids}&fields=adcreatives{image_url,thumbnail_url,image_hash,object_story_spec{video_data{video_id,image_url}},asset_feed_spec{images{hash},videos{video_id,thumbnail_url}}}&access_token=${metaToken}`
+          `https://graph.facebook.com/v19.0/?ids=${ids}&fields=${META_CREATIVE_MEDIA_FIELDS}&access_token=${metaToken}`
         );
         if (data) {
           for (const adId of batchIds) {
@@ -252,10 +261,12 @@ export async function runMetaSyncSql(
     refreshAdIds.forEach((adId: string) => {
       const creative = creativeDataMap[adId]?.adcreatives?.data?.[0];
       if (!creative) return;
-      const videoId = creative.object_story_spec?.video_data?.video_id || creative.asset_feed_spec?.videos?.[0]?.video_id;
+      const videoId = creativeVideoId(creative);
       if (videoId) videoIds.add(videoId);
-      else if (creative.image_hash) imageHashes.add(creative.image_hash);
-      else if (creative.asset_feed_spec?.images && creative.asset_feed_spec.images.length > 0) imageHashes.add(creative.asset_feed_spec.images[0].hash);
+      else {
+        const hash = staticImageHash(creative);
+        if (hash) imageHashes.add(hash);
+      }
     });
 
     if (!reachedWallClock && imageHashes.size > 0) {
@@ -290,11 +301,12 @@ export async function runMetaSyncSql(
         for (let i = 0; i < videoIdsArray.length; i += BATCH_SIZE) {
           const batchIds = videoIdsArray.slice(i, i + BATCH_SIZE);
           const data = await fetchWithBisection(batchIds, (ids) => 
-            `https://graph.facebook.com/v19.0/?ids=${ids}&fields=picture,source&access_token=${metaToken}`
+            `https://graph.facebook.com/v19.0/?ids=${ids}&fields=${META_VIDEO_MEDIA_FIELDS}&access_token=${metaToken}`
           );
           if (data) {
             for (const videoId of batchIds) {
-              if (data[videoId]?.picture) videoPictureMap[videoId] = data[videoId].picture;
+              const cover = pickVideoCover(data[videoId]?.thumbnails?.data);
+              if (cover) videoCoverMap[videoId] = cover;
               if (data[videoId]?.source) videoSourceMap[videoId] = data[videoId].source;
             }
           }
@@ -357,18 +369,16 @@ export async function runMetaSyncSql(
     if (mode === "full") {
       const creative = creativeDataMap[adId]?.adcreatives?.data?.[0];
       if (creative) {
-        const videoId = creative.object_story_spec?.video_data?.video_id || creative.asset_feed_spec?.videos?.[0]?.video_id;
-        
+        const videoId = creativeVideoId(creative);
+
+        // Mesma regra de `lib/meta-media-source`: `thumbnail_url` e o `picture`
+        // do vídeo são miniaturas e não entram na cadeia.
         let fbImageUrl = "";
         if (videoId) {
           videoUrl = videoSourceMap[videoId] || "";
-          fbImageUrl = videoPictureMap[videoId] || creative.thumbnail_url || creative.object_story_spec?.video_data?.image_url || creative.asset_feed_spec?.videos?.[0]?.thumbnail_url || "";
+          fbImageUrl = videoCoverMap[videoId] || videoCoverFallback(creative);
         } else {
-          let hash = creative.image_hash;
-          if (!hash && creative.asset_feed_spec?.images && creative.asset_feed_spec.images.length > 0) {
-            hash = creative.asset_feed_spec.images[0].hash;
-          }
-          fbImageUrl = hashToUrlMap[hash] || creative.image_url || "";
+          fbImageUrl = staticImageSource(creative, hashToUrlMap);
         }
 
         if (fbImageUrl) {
@@ -381,7 +391,7 @@ export async function runMetaSyncSql(
               
               if (imgRes.ok) {
                 const blob = await imgRes.blob();
-                const filename = `${adId}-${videoId || creative.image_hash || 'image'}.jpg`;
+                const filename = `${adId}-${videoId || staticImageHash(creative) || 'image'}.jpg`;
                 
                 const uploadUrl = settingsData?.cpanelUploadUrl || undefined;
                 const uploadSecret = settingsData?.cpanelUploadSecret || undefined;

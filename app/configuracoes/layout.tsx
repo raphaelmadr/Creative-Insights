@@ -1,9 +1,18 @@
 import React from "react";
 import TopBar from "@/components/TopBar";
 import ConfigSidebar from "./ConfigSidebar";
+import AccessDenied from "./AccessDenied";
+import { getCurrentAdmin } from "@/lib/auth";
 import { Settings } from "lucide-react";
 
-export default function ConfiguracoesLayout({ children }: { children: React.ReactNode }) {
+/*
+ * A permissão é verificada aqui, no servidor, e não no middleware: o middleware
+ * roda no edge, sem acesso ao banco, e o papel precisa vir do banco a cada
+ * visita. Carimbá-lo no token faria uma promoção — ou uma remoção de acesso —
+ * só valer no login seguinte.
+ */
+export default async function ConfiguracoesLayout({ children }: { children: React.ReactNode }) {
+  const admin = await getCurrentAdmin();
   return (
     <main style={{ minHeight: "100vh", display: "flex", flexDirection: "column" }}>
       <TopBar />
@@ -20,13 +29,17 @@ export default function ConfiguracoesLayout({ children }: { children: React.Reac
           </p>
         </div>
 
-        <div style={{ display: "flex", alignItems: "flex-start", gap: "2rem", width: "100%" }}>
-          <ConfigSidebar />
-          
-          <div style={{ flex: 1, minWidth: 0, paddingBottom: "4rem" }}>
-            {children}
+        {admin ? (
+          <div style={{ display: "flex", alignItems: "flex-start", gap: "2rem", width: "100%" }}>
+            <ConfigSidebar />
+
+            <div style={{ flex: 1, minWidth: 0, paddingBottom: "4rem" }}>
+              {children}
+            </div>
           </div>
-        </div>
+        ) : (
+          <AccessDenied />
+        )}
 
       </div>
     </main>

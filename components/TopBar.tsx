@@ -4,13 +4,18 @@ import React, { useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { Moon, Sun, Bell, Settings, RefreshCw, Image as ImageIcon, Sparkles, Menu, X } from "lucide-react";
+import { useSession } from "next-auth/react";
 import { useTheme } from "./ThemeProvider";
 import { useNotifications } from "./NotificationProvider";
+import OnlineUsers from "./OnlineUsers";
+import UserMenu from "./UserMenu";
 import styles from "./TopBar.module.css";
 
 export default function TopBar() {
   const pathname = usePathname();
   const { theme, toggleTheme } = useTheme();
+  const { data: session } = useSession();
+  const isAdmin = session?.user?.role === "ADMIN";
   const { unreadCount, isSyncingAll, lastSyncAt, nextAutoSyncAt, syncAll, updates, isSyncingMeta, syncMessage, syncProgress, isSearching, loadingText } = useNotifications();
 
   const formatSyncStamp = (value: string) =>
@@ -28,13 +33,21 @@ export default function TopBar() {
   const [integrations, setIntegrations] = useState({ meta: true, tiktok: false, google: false });
 
   React.useEffect(() => {
+    /*
+     * O estado vem de `integrations`, que são booleanos, e não dos tokens em
+     * `data`: o cabeçalho só precisa saber se o canal está conectado, e as
+     * credenciais agora só saem do servidor para quem administra.
+     */
     fetch('/api/settings')
       .then(res => res.json())
       .then(res => {
-        if (res.success && res.data) {
+        if (res.success && Array.isArray(res.integrations)) {
+          const configured = (id: string) =>
+            !!res.integrations.find((i: { id: string; configured: boolean }) => i.id === id)?.configured;
+
           setIntegrations({
-            meta: !!res.data.metaAccessToken,
-            tiktok: !!res.data.tiktokAccessToken,
+            meta: configured('META'),
+            tiktok: configured('TIKTOK'),
             google: false
           });
         }
@@ -203,6 +216,12 @@ export default function TopBar() {
           </>
         )}
         <div className={styles.actions} style={{ display: 'flex', alignItems: 'center', gap: '1rem', marginLeft: 'auto' }}>
+          {/* Quem está com o painel aberto agora. Some sozinho quando não há
+              ninguém — ver OnlineUsers. */}
+          <div className={styles.desktopOnly} style={{ marginRight: '0.25rem', paddingRight: '1rem', borderRight: '1px solid var(--sidebar-border)' }}>
+            <OnlineUsers />
+          </div>
+
           {/* Integrações (Desktop) */}
           <div className={styles.desktopOnly} style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginRight: '0.5rem', paddingRight: '1.25rem', borderRight: '1px solid var(--sidebar-border)' }}>
             {integrationsIcons}
@@ -262,13 +281,19 @@ export default function TopBar() {
             )}
           </div>
 
-          <Link href="/configuracoes" className={styles.iconButton} title="Configurações" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-            <Settings size={20} />
-          </Link>
+          {/* A engrenagem só aparece para quem pode abrir o painel: sem permissão
+              ela levaria direto a uma tela de acesso negado. */}
+          {isAdmin && (
+            <Link href="/configuracoes" className={styles.iconButton} title="Configurações" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+              <Settings size={20} />
+            </Link>
+          )}
 
           <button className={styles.iconButton} onClick={toggleTheme} title="Alternar Tema">
             {theme === "light" ? <Moon size={20} /> : <Sun size={20} />}
           </button>
+
+          <UserMenu />
         </div>
       </header>
 

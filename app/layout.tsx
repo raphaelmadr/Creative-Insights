@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import { Inter, Bricolage_Grotesque } from "next/font/google";
 import "./globals.css";
 import SessionProvider from "@/components/SessionProvider";
-import { ThemeProvider } from "@/components/ThemeProvider";
+import { UserPreferencesProvider } from "@/components/UserPreferencesProvider";
 import NotificationProvider from "@/components/NotificationProvider";
 import MuiProvider from "@/components/MuiProvider";
 
@@ -34,13 +34,13 @@ export default function RootLayout({
     >
       <body className={inter.className}>
         <SessionProvider>
-          <ThemeProvider>
+          <UserPreferencesProvider>
             <MuiProvider>
               <NotificationProvider>
                 {children}
               </NotificationProvider>
             </MuiProvider>
-          </ThemeProvider>
+          </UserPreferencesProvider>
         </SessionProvider>
       </body>
     </html>

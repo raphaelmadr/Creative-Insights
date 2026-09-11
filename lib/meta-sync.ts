@@ -22,6 +22,15 @@ import {
   runWithConcurrency,
 } from "./media-upload";
 import {
+  META_CREATIVE_MEDIA_FIELDS,
+  META_VIDEO_MEDIA_FIELDS,
+  creativeVideoId,
+  pickVideoCover,
+  staticImageHash,
+  staticImageSource,
+  videoCoverFallback,
+} from "./meta-media-source";
+import {
   resolveSyncWindow,
   eachDayYmd,
   ymdToUtcDate,
@@ -119,51 +128,6 @@ const ALL_EFFECTIVE_STATUSES = [
   "PENDING_BILLING_INFO", "CAMPAIGN_PAUSED", "ARCHIVED", "ADSET_PAUSED",
   "IN_PROCESS", "WITH_ISSUES",
 ];
-
-/**
- * O hash da imagem de um criativo estático, em ordem de preferência.
- *
- * Carrossel foi o furo: suas imagens vivem em
- * `object_story_spec.link_data.child_attachments[]`, e nem o campo era pedido à
- * API — `image_hash` e `asset_feed_spec` vêm vazios num carrossel, então a peça
- * terminava sem URL de origem e era descartada em silêncio a cada sync. Eram
- * criativos ativos, com entrega e gasto, invisíveis no painel para sempre.
- */
-function staticImageHash(creative: any): string | null {
-  const linkData = creative?.object_story_spec?.link_data;
-
-  return (
-    creative?.image_hash ||
-    creative?.asset_feed_spec?.images?.[0]?.hash ||
-    linkData?.image_hash ||
-    // A primeira carta do carrossel representa a peça na listagem.
-    linkData?.child_attachments?.find((c: any) => c?.image_hash)?.image_hash ||
-    null
-  );
-}
-
-/**
- * A URL de origem da imagem de um criativo estático.
- *
- * `thumbnail_url` do criativo NÃO entra aqui, apesar de estar sempre presente:
- * medido, ele é 64x64 e 2KB. Subi-lo resolveria a aparência do painel e criaria
- * dois problemas piores — uma URL nossa conta como permanente, então
- * `needsMediaRefresh` nunca mais buscaria a arte de verdade, e a leitura visual
- * da IA passaria a analisar uma miniatura ilegível. Peça sem arte é um problema
- * visível; peça congelada em 64px é um problema silencioso.
- */
-function staticImageSource(creative: any, hashToUrlMap: Record<string, string>): string {
-  const hash = staticImageHash(creative);
-  const linkData = creative?.object_story_spec?.link_data;
-
-  return (
-    (hash && hashToUrlMap[hash]) ||
-    creative?.image_url ||
-    linkData?.picture ||
-    linkData?.child_attachments?.find((c: any) => c?.picture)?.picture ||
-    ""
-  );
-}
 
 export async function runMetaSync(
   mode: "full" | "metrics" = "full",
@@ -329,7 +293,7 @@ export async function runMetaSync(
   const creativeDataMap: Record<string, any> = {};
   const adMetaMap: Record<string, any> = {};
   const hashToUrlMap: Record<string, string> = {};
-  const videoPictureMap: Record<string, string> = {};
+  const videoCoverMap: Record<string, string> = {};
   const videoSourceMap: Record<string, string> = {};
   const adsetPlatformsMap: Record<string, string> = {};
 
@@ -471,7 +435,7 @@ export async function runMetaSync(
 
         const batchIds = refreshAdIds.slice(i, i + BATCH_SIZE);
         const data = await fetchWithBisection(batchIds, (ids) =>
-          `https://graph.facebook.com/v19.0/?ids=${ids}&fields=adcreatives{image_url,thumbnail_url,image_hash,object_story_spec{video_data{video_id,image_url},link_data{picture,image_hash,child_attachments{image_hash,picture}}},asset_feed_spec{images{hash},videos{video_id,thumbnail_url}}}&access_token=${metaToken}`
+          `https://graph.facebook.com/v19.0/?ids=${ids}&fields=${META_CREATIVE_MEDIA_FIELDS}&access_token=${metaToken}`
         );
         if (data) {
           for (const adId of batchIds) {
@@ -528,7 +492,7 @@ export async function runMetaSync(
     refreshAdIds.forEach((adId: string) => {
       const creative = creativeDataMap[adId]?.adcreatives?.data?.[0];
       if (!creative) return;
-      const videoId = creative.object_story_spec?.video_data?.video_id || creative.asset_feed_spec?.videos?.[0]?.video_id;
+      const videoId = creativeVideoId(creative);
       if (videoId) videoIds.add(videoId);
       else {
         const hash = staticImageHash(creative);
@@ -572,11 +536,12 @@ export async function runMetaSync(
 
           const batchIds = videoIdsArray.slice(i, i + BATCH_SIZE);
           const data = await fetchWithBisection(batchIds, (ids) =>
-            `https://graph.facebook.com/v19.0/?ids=${ids}&fields=picture,source&access_token=${metaToken}`
+            `https://graph.facebook.com/v19.0/?ids=${ids}&fields=${META_VIDEO_MEDIA_FIELDS}&access_token=${metaToken}`
           );
           if (data) {
             for (const videoId of batchIds) {
-              if (data[videoId]?.picture) videoPictureMap[videoId] = data[videoId].picture;
+              const cover = pickVideoCover(data[videoId]?.thumbnails?.data);
+              if (cover) videoCoverMap[videoId] = cover;
               if (data[videoId]?.source) videoSourceMap[videoId] = data[videoId].source;
             }
           }
@@ -648,21 +613,22 @@ export async function runMetaSync(
     if (mode === "full") {
       const creative = creativeDataMap[adId]?.adcreatives?.data?.[0];
       if (creative) {
-        const videoId = creative.object_story_spec?.video_data?.video_id || creative.asset_feed_spec?.videos?.[0]?.video_id;
+        const videoId = creativeVideoId(creative);
 
         if (videoId) {
           videoUrl = videoSourceMap[videoId] || "";
           /*
-           * A capa do vídeo, em ordem de tamanho real. `creative.thumbnail_url`
-           * saiu da lista: é 64x64, e estava na segunda posição — bastava a
-           * resolução do vídeo falhar para a capa da peça virar uma miniatura
-           * de 2KB, gravada como permanente e nunca mais renovada.
+           * A capa do vídeo, em ordem de tamanho real. Tanto `thumbnail_url` do
+           * criativo (64x64) quanto o campo `picture` do vídeo (160x284, medido)
+           * saíram da lista: os dois são miniaturas, e qualquer um deles na
+           * cadeia bastava para a capa da peça ser gravada como permanente e
+           * nunca mais renovada — ilegível para a leitura visual da IA.
+           *
+           * `thumbnails` é a única fonte que devolve o quadro em resolução
+           * cheia (1080x1920 na conta). O que sobra atrás dela é fallback, e
+           * `persistRemoteMedia` recusa o que ainda assim vier pequeno.
            */
-          sourceImageUrl =
-            videoPictureMap[videoId] ||
-            creative.object_story_spec?.video_data?.image_url ||
-            creative.asset_feed_spec?.videos?.[0]?.thumbnail_url ||
-            "";
+          sourceImageUrl = videoCoverMap[videoId] || videoCoverFallback(creative);
           imageBaseName = `${adId}-${videoId}`;
         } else {
           sourceImageUrl = staticImageSource(creative, hashToUrlMap);

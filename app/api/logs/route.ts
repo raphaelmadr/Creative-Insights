@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import prisma from '@/lib/prisma';
+import { getCurrentAdmin } from "@/lib/auth";
 
 export async function POST(req: NextRequest) {
   try {
@@ -42,6 +43,11 @@ export async function GET(req: NextRequest) {
 }
 
 export async function DELETE(req: NextRequest) {
+  // Ação do painel de configurações: restrita a administradores.
+  if (!(await getCurrentAdmin())) {
+    return NextResponse.json({ error: "Acesso restrito." }, { status: 403 });
+  }
+
   try {
     await prisma.systemLog.deleteMany({});
     return NextResponse.json({ success: true });

@@ -3,6 +3,8 @@ import prisma from "@/lib/prisma";
 import { isStorageConfigured, resolveStorageConfig } from "@/lib/media-upload";
 import { buildIntegrationStatuses } from "@/lib/integrations";
 import { DEFAULT_ANDROMEDA_PROMPT, DEFAULT_HYPOTHESIS_PROMPT } from "@/lib/ai-prompts";
+import { getCurrentAdmin, getCurrentUser } from "@/lib/auth";
+import { toPublicSettings } from "@/lib/settings-visibility";
 
 export const dynamic = 'force-dynamic';
 
@@ -42,6 +44,11 @@ REGRA CRÍTICA: Responda ESTRITAMENTE EM TEXTO PURO (MARKDOWN) e 100% EM PORTUGU
 
 export async function GET() {
   try {
+    const user = await getCurrentUser();
+    if (!user) {
+      return NextResponse.json({ success: false, error: 'Não autenticado' }, { status: 401 });
+    }
+
     let settings = await prisma.systemSettings.findUnique({
       where: { id: 1 }
     });
@@ -79,6 +86,23 @@ export async function GET() {
     // impressão de que o armazenamento de mídia não estava configurado.
     const storage = resolveStorageConfig(settings);
 
+    const isAdmin = user.role === "ADMIN";
+
+    /*
+     * Quem não administra recebe a configuração sem nenhuma credencial — ver
+     * `lib/settings-visibility.ts`. O estado das integrações continua vindo em
+     * `integrations`, como booleanos: é o que o cabeçalho precisa para acender
+     * os ícones, sem que token nenhum saia do servidor.
+     */
+    if (!isAdmin) {
+      return NextResponse.json({
+        success: true,
+        data: toPublicSettings(settings as unknown as Record<string, unknown>),
+        integrations: buildIntegrationStatuses(settings),
+        mediaStorage: { configured: isStorageConfigured(storage) },
+      });
+    }
+
     return NextResponse.json({
       success: true,
       data: settings,
@@ -99,6 +123,11 @@ export async function GET() {
 
 export async function POST(request: Request) {
   try {
+    // Gravar configuração é ação de admin: é aqui que entram as credenciais.
+    if (!(await getCurrentAdmin())) {
+      return NextResponse.json({ success: false, error: 'Acesso restrito.' }, { status: 403 });
+    }
+
     const body = await request.json();
     const { 
       superWinnerSpend, superWinnerReturn, superWinnerCpa, 

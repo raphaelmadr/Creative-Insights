@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { randomBytes } from "crypto";
 import prisma from "@/lib/prisma";
 import { buildTriggerCommand, buildTriggerUrl, resolveCronBaseUrl, CRON_PATH } from "@/lib/cron-url";
+import { getCurrentAdmin } from "@/lib/auth";
 
 export const dynamic = "force-dynamic";
 
@@ -49,6 +50,11 @@ async function buildState() {
 }
 
 export async function GET() {
+  // Ação do painel de configurações: restrita a administradores.
+  if (!(await getCurrentAdmin())) {
+    return NextResponse.json({ error: "Acesso restrito." }, { status: 403 });
+  }
+
   try {
     return NextResponse.json({ success: true, ...(await buildState()) });
   } catch (error: any) {
@@ -62,6 +68,11 @@ export async function GET() {
 
 /** Gera um novo segredo, grava e devolve a URL já pronta para o disparador. */
 export async function POST() {
+  // Ação do painel de configurações: restrita a administradores.
+  if (!(await getCurrentAdmin())) {
+    return NextResponse.json({ error: "Acesso restrito." }, { status: 403 });
+  }
+
   try {
     const secret = randomBytes(24).toString("hex");
 

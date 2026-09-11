@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import prisma from "@/lib/prisma";
+import { getCurrentAdmin } from "@/lib/auth";
 
 export async function GET() {
   try {
@@ -20,6 +21,11 @@ export async function GET() {
 }
 
 export async function POST(request: Request) {
+  // Ação do painel de configurações: restrita a administradores.
+  if (!(await getCurrentAdmin())) {
+    return NextResponse.json({ error: "Acesso restrito." }, { status: 403 });
+  }
+
   try {
     const body = await request.json();
     const { name, acronym, active, avatarUrl, monthlyGoal, monthlyVolumeGoal } = body;
@@ -52,6 +58,11 @@ export async function POST(request: Request) {
 }
 
 export async function PUT(request: Request) {
+  // Ação do painel de configurações: restrita a administradores.
+  if (!(await getCurrentAdmin())) {
+    return NextResponse.json({ error: "Acesso restrito." }, { status: 403 });
+  }
+
   try {
     const body = await request.json();
     const { id, name, acronym, active, avatarUrl, monthlyGoal, monthlyVolumeGoal } = body;
@@ -103,6 +114,11 @@ export async function PUT(request: Request) {
 }
 
 export async function DELETE(request: Request) {
+  // Ação do painel de configurações: restrita a administradores.
+  if (!(await getCurrentAdmin())) {
+    return NextResponse.json({ error: "Acesso restrito." }, { status: 403 });
+  }
+
   try {
     const { id } = await request.json();
 

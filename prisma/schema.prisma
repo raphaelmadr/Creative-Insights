@@ -15,24 +15,24 @@ model NewsInsight {
 }
 
 model Creator {
-  id        String   @id @default(cuid())
-  name      String
-  acronym   String   @unique
-  active    Boolean  @default(true)
-  avatarUrl String?  @db.Text
-  monthlyGoal Float  @default(50000)
-  monthlyVolumeGoal Int @default(30)
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-  reports     CreatorMonthlyReport[]
-  deliveries  Delivery[]
+  id                String                 @id @default(cuid())
+  name              String
+  acronym           String                 @unique
+  active            Boolean                @default(true)
+  avatarUrl         String?                @db.Text
+  monthlyGoal       Float                  @default(50000)
+  monthlyVolumeGoal Int                    @default(30)
+  createdAt         DateTime               @default(now())
+  updatedAt         DateTime               @updatedAt
+  reports           CreatorMonthlyReport[]
+  deliveries        Delivery[]
 }
 
 model CreatorMonthlyReport {
   id                String   @id @default(cuid())
   creatorId         String
-  month             Int      // 1 a 12
-  year              Int      // ex: 2026
+  month             Int // 1 a 12
+  year              Int // ex: 2026
   grossValue        Float    @default(0)
   riskApprovedValue Float    @default(0)
   spend             Float    @default(0)
@@ -56,8 +56,8 @@ model Delivery {
   date      DateTime
   text      String?  @db.Text // A mensagem original do Slack
   createdAt DateTime @default(now())
-  
-  creator   Creator  @relation(fields: [creatorId], references: [id], onDelete: Cascade)
+
+  creator Creator @relation(fields: [creatorId], references: [id], onDelete: Cascade)
 }
 
 model AlgorithmUpdate {
@@ -73,142 +73,142 @@ model AlgorithmUpdate {
 }
 
 model AdCreative {
-  id              String   @id
-  adName          String
-  adsetName       String
-  campaignName    String
-  designer        String?
-  imageUrl        String?  @db.Text
-  thumbnailUrl    String?  @db.Text
-  videoUrl        String?  @db.Text
-  mediaType       String   @default("image")
+  id                 String    @id
+  adName             String
+  adsetName          String
+  campaignName       String
+  designer           String?
+  imageUrl           String?   @db.Text
+  thumbnailUrl       String?   @db.Text
+  videoUrl           String?   @db.Text
+  mediaType          String    @default("image")
   publisherPlatforms String?
-  platform        String   @default("META") // "META", "TIKTOK", "GOOGLE"
-  status          String?
-  createdTime     DateTime?
+  platform           String    @default("META") // "META", "TIKTOK", "GOOGLE"
+  status             String?
+  createdTime        DateTime?
 
   /// Transcrição visual gerada pela IA a partir da própria imagem: textos,
   /// headline, CTA, cores e elementos. É a base das análises individuais e das
   /// comparações de similaridade — analisar pelo nome do arquivo não descreve
   /// o criativo. Gerada sob demanda e cacheada aqui.
-  visionTranscript String?  @db.Text
+  visionTranscript String?   @db.Text
   visionAnalyzedAt DateTime?
 
   /// Análise da peça escrita pela IA — transcrição, análise e melhorias —, o
   /// texto exato que o cartão mostra. Cacheada aqui porque cada clique em
   /// "Analisar" gastava uma chamada nova ao modelo para uma peça que não muda:
   /// caro e lento. Só é regerada quando alguém pede a refação explicitamente.
-  aiAnalysis       String?  @db.Text
-  aiAnalyzedAt     DateTime?
+  aiAnalysis   String?   @db.Text
+  aiAnalyzedAt DateTime?
 
-  metrics         AdDailyMetrics[]
+  metrics AdDailyMetrics[]
 }
 
 model AdDailyMetrics {
-  id              String   @id @default(uuid())
-  adCreativeId    String
-  date            DateTime
-  spend           Float
-  roas            Float
-  cpm             Float
-  ctr             Float
-  cpc             Float    @default(0)
-  impressions     Int      @default(0)
-  reach           Int      @default(0)
-  frequency       Float    @default(0)
-  clicks          Int      @default(0)
-  purchases       Int      @default(0)
-  netOrders       Int      @default(0)
-  riskApprovedValue Float  @default(0)
-  grossValue      Float    @default(0)
-  messages        Int      @default(0)
-  
+  id                String   @id @default(uuid())
+  adCreativeId      String
+  date              DateTime
+  spend             Float
+  roas              Float
+  cpm               Float
+  ctr               Float
+  cpc               Float    @default(0)
+  impressions       Int      @default(0)
+  reach             Int      @default(0)
+  frequency         Float    @default(0)
+  clicks            Int      @default(0)
+  purchases         Int      @default(0)
+  netOrders         Int      @default(0)
+  riskApprovedValue Float    @default(0)
+  grossValue        Float    @default(0)
+  messages          Int      @default(0)
+
   // Métricas Extras (Engajamento / Retenção)
-  likes           Int      @default(0)
-  comments        Int      @default(0)
-  shares          Int      @default(0)
-  videoViews      Int      @default(0)
-  videoViews25p   Int      @default(0)
-  videoViews50p   Int      @default(0)
-  videoViews75p   Int      @default(0)
-  videoViews100p  Int      @default(0)
-  creative        AdCreative @relation(fields: [adCreativeId], references: [id], onDelete: Cascade)
+  likes          Int        @default(0)
+  comments       Int        @default(0)
+  shares         Int        @default(0)
+  videoViews     Int        @default(0)
+  videoViews25p  Int        @default(0)
+  videoViews50p  Int        @default(0)
+  videoViews75p  Int        @default(0)
+  videoViews100p Int        @default(0)
+  creative       AdCreative @relation(fields: [adCreativeId], references: [id], onDelete: Cascade)
 
   @@unique([adCreativeId, date])
 }
 
 model SystemSettings {
-  id                Int      @id @default(1)
-  
+  id Int @id @default(1)
+
   // Metas Gerais
-  teamCreativeGoal  Int      @default(300)
-  
+  teamCreativeGoal Int @default(300)
+
   // Metas de Performance (ROAS / CPA)
-  superWinnerSpend  Float    @default(1000)
-  superWinnerReturn Float    @default(5000)
-  superWinnerCpa    Float    @default(50)
-  winnerSpend       Float    @default(1000)
-  winnerReturn      Float    @default(1000)
-  winnerCpa         Float    @default(60)
-  
+  superWinnerSpend  Float @default(1000)
+  superWinnerReturn Float @default(5000)
+  superWinnerCpa    Float @default(50)
+  winnerSpend       Float @default(1000)
+  winnerReturn      Float @default(1000)
+  winnerCpa         Float @default(60)
+
   creativeCategories String? @db.Text
-  
-  hypothesisPrompt  String?  @db.Text
-  visionPrompt      String?  @db.Text  // Instrução de transcrição da imagem
-  andromedaPrompt   String?  @db.Text
-  tavilySearchQuery String?  @db.Text
+
+  hypothesisPrompt     String? @db.Text
+  visionPrompt         String? @db.Text // Instrução de transcrição da imagem
+  andromedaPrompt      String? @db.Text
+  tavilySearchQuery    String? @db.Text
   marketInsightsPrompt String? @db.Text
-  
-  metaAdAccountId   String?
-  metaAppId         String?
-  metaAppSecret     String?  @db.Text
-  metaAccessToken   String?  @db.Text
+
+  metaAdAccountId String?
+  metaAppId       String?
+  metaAppSecret   String? @db.Text
+  metaAccessToken String? @db.Text
 
   // IDs das conversões personalizadas da conta. Ver lib/meta-conversions.ts:
   // definem CPA, Receita Líquida e as categorias de winner.
   metaRiskApprovedConversionId    String?
   metaPaymentApprovedConversionId String?
-  
+
   tiktokAdvertiserId String?
   tiktokAppId        String?
   tiktokAppSecret    String? @db.Text
   tiktokAccessToken  String? @db.Text
-  
-  googleClientId    String?  @db.Text
+
+  googleClientId     String? @db.Text
   googleClientSecret String? @db.Text
-  nextAuthSecret    String?  @db.Text
-  nextAuthUrl       String?
-  
-  geminiApiKey      String?  @db.Text
-  openaiApiKey      String?  @db.Text
-  anthropicApiKey   String?  @db.Text
-  tavilyApiKey      String?  @db.Text
-  groqApiKey        String?  @db.Text
-  openRouterApiKey  String?  @db.Text
-  cohereApiKey      String?  @db.Text
-  huggingFaceApiKey String?  @db.Text
+  nextAuthSecret     String? @db.Text
+  nextAuthUrl        String?
+
+  geminiApiKey      String? @db.Text
+  openaiApiKey      String? @db.Text
+  anthropicApiKey   String? @db.Text
+  tavilyApiKey      String? @db.Text
+  groqApiKey        String? @db.Text
+  openRouterApiKey  String? @db.Text
+  cohereApiKey      String? @db.Text
+  huggingFaceApiKey String? @db.Text
   slackBotToken     String?
   slackChannelId    String?
-  
-  cpanelUploadUrl   String?  @db.Text
-  cpanelUploadSecret String? @db.Text
-  
-  cronSyncEnabled   Boolean  @default(true)
-  cronSyncInterval  Int      @default(120)       // Intervalo em minutos
-  cronSecret        String?  @db.Text            // Gerado no painel; autoriza o disparador externo
 
-  lastSyncAt        DateTime?  // Fim da última sincronização, manual ou automática
-  lastCronSyncAt    DateTime?  // Início da última automática; base do portão de intervalo
-  updatedAt         DateTime @updatedAt
+  cpanelUploadUrl    String? @db.Text
+  cpanelUploadSecret String? @db.Text
+
+  cronSyncEnabled  Boolean @default(true)
+  cronSyncInterval Int     @default(120) // Intervalo em minutos
+  cronSecret       String? @db.Text // Gerado no painel; autoriza o disparador externo
+
+  lastSyncAt     DateTime? // Fim da última sincronização, manual ou automática
+  lastCronSyncAt DateTime? // Início da última automática; base do portão de intervalo
+  updatedAt      DateTime  @updatedAt
 }
 
 model SystemLog {
   id        String   @id @default(uuid())
-  level     String   // "INFO", "WARNING", "ERROR"
-  source    String   // "FRONTEND", "BACKEND", "CRON", "SYNC", etc.
+  level     String // "INFO", "WARNING", "ERROR"
+  source    String // "FRONTEND", "BACKEND", "CRON", "SYNC", etc.
   message   String   @db.Text
   stack     String?  @db.Text
-  url       String?  // A URL onde o erro ocorreu (se aplicável)
+  url       String? // A URL onde o erro ocorreu (se aplicável)
   createdAt DateTime @default(now())
 }
 
@@ -225,21 +225,20 @@ model MonthlyGoal {
   @@unique([month, year])
 }
 
-
 // --- NEXTAUTH MODELS ---
 model Account {
-  id                 String  @id @default(cuid())
-  userId             String
-  type               String
-  provider           String
-  providerAccountId  String
-  refresh_token      String?  @db.Text
-  access_token       String?  @db.Text
-  expires_at         Int?
-  token_type         String?
-  scope              String?
-  id_token           String?  @db.Text
-  session_state      String?
+  id                String  @id @default(cuid())
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String? @db.Text
+  access_token      String? @db.Text
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String? @db.Text
+  session_state     String?
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
@@ -260,8 +259,28 @@ model User {
   email         String?   @unique
   emailVerified DateTime?
   image         String?
-  accounts      Account[]
-  sessions      Session[]
+
+  /// "ADMIN" dá acesso ao painel de configurações — metas, credenciais das
+  /// APIs, prompts de IA e logs. "MEMBER" é todo o resto do produto.
+  /// Guardado como texto e não como enum porque o vocabulário do papel é lido
+  /// por middleware e por rotas que não carregam o client do Prisma.
+  role String @default("MEMBER")
+
+  /// Último sinal de vida da pessoa, atualizado pelo heartbeat de presença.
+  /// Quem aparece "online" no topo é quem tem este campo dentro da janela
+  /// definida em `lib/presence.ts` — não existe conexão aberta para consultar.
+  lastSeenAt DateTime?
+
+  /// Preferências da pessoa em JSON: tema e os filtros do painel. Em JSON, e
+  /// não em colunas, porque o conjunto de filtros muda junto com a interface e
+  /// cada mudança viraria uma migração — ver `lib/user-preferences.ts`, que é
+  /// quem define e valida a forma deste campo.
+  preferences String? @db.Text
+
+  accounts Account[]
+  sessions Session[]
+
+  @@index([lastSeenAt])
 }
 
 model VerificationToken {

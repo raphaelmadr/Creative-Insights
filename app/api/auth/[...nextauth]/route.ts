@@ -1,54 +1,11 @@
-import NextAuth, { NextAuthOptions } from "next-auth";
-import GoogleProvider from "next-auth/providers/google";
-import CredentialsProvider from "next-auth/providers/credentials";
-import { PrismaAdapter } from "@next-auth/prisma-adapter";
-import prisma from "@/lib/prisma";
+import NextAuth from "next-auth";
+import { NextRequest } from "next/server";
+import { getAuthOptions } from "@/lib/auth";
 
 export const dynamic = "force-dynamic";
 
-async function getAuthOptions(): Promise<NextAuthOptions> {
-  const settings = await prisma.systemSettings.findUnique({ where: { id: 1 } });
-
-  return {
-    adapter: PrismaAdapter(prisma),
-    providers: [
-      GoogleProvider({
-        clientId: settings?.googleClientId || process.env.GOOGLE_CLIENT_ID || "",
-        clientSecret: settings?.googleClientSecret || process.env.GOOGLE_CLIENT_SECRET || "",
-      }),
-      ...(process.env.NODE_ENV === "development"
-        ? [
-            CredentialsProvider({
-              name: "Bypass Local",
-              credentials: {},
-              async authorize() {
-                return { id: "dev-id", name: "Dev User", email: "dev@allugator.com" };
-              }
-            })
-          ]
-        : [])
-    ],
-    secret: settings?.nextAuthSecret || process.env.NEXTAUTH_SECRET || "fallback_secret_for_dev_only_12345",
-    session: {
-      strategy: "jwt",
-    },
-    callbacks: {
-      async signIn({ user }) {
-        if (user.email && user.email.endsWith("@allugator.com")) {
-          return true;
-        }
-        return "/login?error=AccessDenied"; // Redireciona de volta para login com erro
-      },
-    },
-    pages: {
-      signIn: "/login",
-      error: "/login"
-    }
-  };
-}
-
-import { NextRequest } from "next/server";
-
+// As opções vivem em `lib/auth.ts` porque o resto do sistema precisa delas para
+// saber quem está autenticado; um arquivo de rota não pode ser importado.
 const handler = async (req: NextRequest, context: any) => {
   const options = await getAuthOptions();
   return (NextAuth as any)(req, context, options);

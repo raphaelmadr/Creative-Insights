@@ -4,11 +4,12 @@ import TopBar from "@/components/TopBar";
 import FunnelsOverview from "@/components/FunnelsOverview";
 import DateRangePicker from "@/components/DateRangePicker";
 import { Avatar } from "@/components/Avatar";
-import { useEffect, useState, useMemo } from "react";
+import { useEffect, useState, useMemo, useRef } from "react";
 import { motion } from "framer-motion";
 import AnimatedNumber from "@/components/AnimatedNumber";
 import { useNotifications } from "@/components/NotificationProvider";
 import { Sparkles, Loader2, Calendar, ChevronDown, Users, Globe } from "lucide-react";
+import { useUserPreferences } from "@/components/UserPreferencesProvider";
 
 function toDateInputValue(date: Date): string {
   return date.toISOString().split("T")[0];
@@ -79,6 +80,45 @@ export default function Home() {
   const [selectedDesigner, setSelectedDesigner] = useState<string | null>(null);
   const [creators, setCreators] = useState<any[]>([]);
   const [hideOldAds, setHideOldAds] = useState(true);
+
+  /*
+   * Os filtros são da pessoa, não da aba: quem fecha o painel filtrando por um
+   * designer e um canal reencontra o mesmo recorte no próximo acesso, inclusive
+   * em outro aparelho. A hidratação acontece uma vez só — daí a trava —, porque
+   * depois dela quem manda são os controles da tela; sem a trava, a resposta do
+   * servidor chegando atrasada desfaria um filtro recém-escolhido.
+   */
+  const { preferences, isLoaded: preferencesLoaded, saveFilters } = useUserPreferences();
+  const hasHydratedFilters = useRef(false);
+
+  useEffect(() => {
+    if (!preferencesLoaded || hasHydratedFilters.current) return;
+    hasHydratedFilters.current = true;
+
+    const saved = preferences.filters;
+    // Datas ausentes mantêm o padrão da tela — o mês corrente.
+    if (saved.dateFrom) setDateFrom(saved.dateFrom);
+    if (saved.dateTo) setDateTo(saved.dateTo);
+    setStatusFilter(saved.status);
+    setChannelFilter(saved.channel);
+    setSelectedDesigner(saved.designer);
+    setHideOldAds(saved.hideOldAds);
+  }, [preferencesLoaded, preferences.filters]);
+
+  useEffect(() => {
+    // Só depois de hidratar: senão a primeira pintura gravaria os padrões por
+    // cima do que a pessoa havia deixado salvo.
+    if (!hasHydratedFilters.current) return;
+
+    saveFilters({
+      dateFrom,
+      dateTo,
+      status: statusFilter,
+      channel: channelFilter,
+      designer: selectedDesigner,
+      hideOldAds,
+    });
+  }, [dateFrom, dateTo, statusFilter, channelFilter, selectedDesigner, hideOldAds, saveFilters]);
 
   const selectedCreatorObj = useMemo(() => {
     if (!selectedDesigner) return null;

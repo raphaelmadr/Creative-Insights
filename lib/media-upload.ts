@@ -8,6 +8,12 @@
  */
 
 import { logExternalFailure } from "./external-log";
+import {
+  IMAGE_HEADER_BYTES,
+  MIN_CREATIVE_IMAGE_EDGE,
+  isUsableCreativeImage,
+  readImageDimensions,
+} from "./image-dimensions";
 
 export interface MediaStorageSettings {
   cpanelUploadUrl?: string | null;
@@ -124,20 +130,37 @@ async function fetchWithRetry(url: string, attempts: number): Promise<Response |
   return null;
 }
 
+export interface PersistMediaOptions {
+  /**
+   * Menor lado aceitável, em pixels. `0` desliga a checagem — use só para
+   * mídias que não são a arte de um criativo.
+   */
+  minEdge?: number;
+}
+
 /**
  * Baixa uma mídia da plataforma e a persiste no armazenamento próprio.
  *
  * Devolve a URL permanente, ou `null` se não foi possível persistir. O `null` é
  * significativo: o chamador deve preservar o valor que já está no banco em vez
  * de gravar a URL de origem, que expira.
+ *
+ * Miniaturas são recusadas aqui, e não no chamador, porque só depois do
+ * download se sabe o tamanho real: os mesmos campos da API devolvem tanto a
+ * peça de 1080x1920 quanto uma capa de 160x284, sem nada na URL que os separe.
+ * Copiada para o nosso domínio, a miniatura passaria a contar como permanente,
+ * o sync nunca mais voltaria nela e a IA analisaria uma imagem ilegível.
  */
 export async function persistRemoteMedia(
   sourceUrl: string,
   baseFilename: string,
-  config: ResolvedStorageConfig
+  config: ResolvedStorageConfig,
+  options: PersistMediaOptions = {}
 ): Promise<string | null> {
   if (!sourceUrl) return null;
   if (!isStorageConfigured(config)) return null;
+
+  const minEdge = options.minEdge ?? MIN_CREATIVE_IMAGE_EDGE;
 
   const response = await fetchWithRetry(sourceUrl, 3);
   if (!response) {
@@ -168,6 +191,21 @@ export async function persistRemoteMedia(
   if (blob.size === 0) {
     console.warn(`[media-upload] Mídia vazia descartada: ${sourceUrl.slice(0, 120)}`);
     return null;
+  }
+
+  if (minEdge > 0) {
+    const dimensions = readImageDimensions(
+      Buffer.from(await blob.slice(0, IMAGE_HEADER_BYTES).arrayBuffer())
+    );
+
+    if (!isUsableCreativeImage(dimensions, minEdge)) {
+      console.warn(
+        `[media-upload] Miniatura recusada (${dimensions!.width}x${dimensions!.height}, mínimo ${minEdge}px): ` +
+        `${baseFilename}. A peça fica sem arte até a origem devolver a resolução real — ` +
+        `gravar a miniatura a tornaria permanente e ilegível para a análise visual.`
+      );
+      return null;
+    }
   }
 
   const filename = safeFilename(

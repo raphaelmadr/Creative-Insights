@@ -18,6 +18,11 @@
 
 import prisma from "./prisma";
 import { generateWithFallback, isAiConfigured, type AiImageInput } from "./ai";
+import {
+  MIN_CREATIVE_IMAGE_EDGE,
+  isUsableCreativeImage,
+  readImageDimensions,
+} from "./image-dimensions";
 
 export interface TranscriptColor {
   hex: string | null;
@@ -174,21 +179,52 @@ function pickImageUrl(creative: { imageUrl?: string | null; thumbnailUrl?: strin
   return creative.imageUrl || creative.thumbnailUrl || null;
 }
 
-async function downloadAsAiImage(url: string, label: string): Promise<AiImageInput | null> {
+type ImageLoad =
+  | { image: AiImageInput; error?: undefined }
+  | { image: null; error: string };
+
+/**
+ * Baixa a mídia da peça para mandar ao modelo.
+ *
+ * O motivo da recusa volta junto porque um deles precisa aparecer em tela: uma
+ * peça cuja arte gravada é miniatura não pode ser transcrita, e chamar isso de
+ * "link expirado" mandaria alguém procurar o problema no lugar errado. Recusar
+ * é melhor do que transcrever: numa imagem de 64x64 o modelo não lê a headline,
+ * ele a inventa — e a transcrição inventada ficaria salva, alimentando depois a
+ * análise individual e a comparação de similaridade sem nenhum sinal de erro.
+ */
+async function downloadAsAiImage(url: string, label: string): Promise<ImageLoad> {
   try {
     const response = await fetch(url, { signal: AbortSignal.timeout(15000) });
-    if (!response.ok) return null;
+    if (!response.ok) {
+      return { image: null, error: `A mídia da peça respondeu HTTP ${response.status}.` };
+    }
 
     const buffer = Buffer.from(await response.arrayBuffer());
     // Peças acima de ~4MB estouram o limite de payload de alguns provedores.
-    if (buffer.byteLength > 4 * 1024 * 1024) return null;
+    if (buffer.byteLength > 4 * 1024 * 1024) {
+      return { image: null, error: "A mídia da peça passa de 4MB e não cabe no envio para a IA." };
+    }
 
     const mimeType = response.headers.get("content-type") || "image/jpeg";
-    if (!mimeType.startsWith("image/")) return null;
+    if (!mimeType.startsWith("image/")) {
+      return { image: null, error: `A URL da peça não devolveu uma imagem (${mimeType}).` };
+    }
 
-    return { base64: buffer.toString("base64"), mimeType, label };
-  } catch {
-    return null;
+    const dimensions = readImageDimensions(buffer);
+    if (!isUsableCreativeImage(dimensions)) {
+      return {
+        image: null,
+        error:
+          `A arte gravada é uma miniatura de ${dimensions!.width}x${dimensions!.height} ` +
+          `(mínimo ${MIN_CREATIVE_IMAGE_EDGE}px) — o modelo não conseguiria ler a peça. ` +
+          `Rode a sincronização completa para buscar a arte em resolução real.`,
+      };
+    }
+
+    return { image: { base64: buffer.toString("base64"), mimeType, label } };
+  } catch (error) {
+    return { image: null, error: `Falha ao baixar a mídia da peça: ${(error as Error).message}` };
   }
 }
 
@@ -251,15 +287,9 @@ export async function transcribeCreative(
     };
   }
 
-  const image = await downloadAsAiImage(imageUrl, creative.adName);
-  if (!image) {
-    return {
-      adId,
-      ok: false,
-      cached: false,
-      transcript: null,
-      error: "Não foi possível baixar a mídia (link expirado, formato não suportado ou muito grande).",
-    };
+  const loaded = await downloadAsAiImage(imageUrl, creative.adName);
+  if (!loaded.image) {
+    return { adId, ok: false, cached: false, transcript: null, error: loaded.error };
   }
 
   const settings = await prisma.systemSettings.findUnique({
@@ -267,7 +297,7 @@ export async function transcribeCreative(
     select: { visionPrompt: true },
   });
 
-  const raw = await generateWithFallback(settings?.visionPrompt || DEFAULT_VISION_PROMPT, [image]);
+  const raw = await generateWithFallback(settings?.visionPrompt || DEFAULT_VISION_PROMPT, [loaded.image]);
   const transcript = parseTranscriptJson(raw);
 
   if (!transcript) {

@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import prisma from "@/lib/prisma";
+import { getCurrentAdmin } from "@/lib/auth";
 
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
@@ -27,6 +28,11 @@ export async function GET(request: Request) {
 }
 
 export async function POST(request: Request) {
+  // Ação do painel de configurações: restrita a administradores.
+  if (!(await getCurrentAdmin())) {
+    return NextResponse.json({ error: "Acesso restrito." }, { status: 403 });
+  }
+
   try {
     const body = await request.json();
     const { month, year, spendGoal, revenueGoal, cpaGoal } = body;
