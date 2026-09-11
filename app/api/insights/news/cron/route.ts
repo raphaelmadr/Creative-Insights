@@ -3,30 +3,10 @@ import { generateText, isAiConfigured } from "@/lib/ai";
 import { isCronRequestAuthorized } from "@/lib/cron-endpoint";
 import prisma from "@/lib/prisma";
 import { tavily } from "@tavily/core";
-import * as cheerio from 'cheerio';
+import { extractArticleImage } from "@/lib/article-image";
 
 export const revalidate = 0;
 
-async function extractOpenGraphImage(url: string): Promise<string | null> {
-  try {
-    const res = await fetch(url, { 
-      headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36' },
-      signal: AbortSignal.timeout(5000)
-    });
-    if (!res.ok) return null;
-    const html = await res.text();
-    const $ = cheerio.load(html);
-    const ogImage = $('meta[property="og:image"]').attr('content') || $('meta[name="twitter:image"]').attr('content');
-    if (ogImage) {
-      if (ogImage.startsWith('http')) return ogImage;
-      const baseUrl = new URL(url);
-      return new URL(ogImage, baseUrl).toString();
-    }
-    return null;
-  } catch (err) {
-    return null;
-  }
-}
 
 export async function GET(request: Request) {
   // Mesmo segredo do painel que o cron de sincronização usa.
@@ -138,7 +118,7 @@ TÍTULO: [Insira o título traduzido aqui]
       try {
         const text = await generateText(prompt);
         if (text && text.trim().length > 10 && !text.toUpperCase().includes('IGNORAR')) {
-          const thumbnail = await extractOpenGraphImage(result.url);
+          const thumbnail = (await extractArticleImage(result.url)).url;
           
           let rawText = text.trim();
           let finalTitle = result.title || "Market Insights";

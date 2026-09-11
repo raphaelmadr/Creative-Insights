@@ -429,3 +429,147 @@ h1, h2, h3, h4, h5, h6 {
 [data-theme='dark'] .config-shell .glass-panel:hover {
   box-shadow: none;
 }
+
+/* ---------------------------------------------------------------------------
+   Botões
+
+   Não existia um padrão: cada tela montava o seu com estilos inline, e o
+   resultado é que dois botões da mesma importância tinham raio, altura e peso
+   diferentes — "Sincronizar Redes" no cabeçalho é uma pílula de 100px, e
+   "Forçar Busca Manual" nos insights era um `.glass-panel` retangular.
+
+   Três papéis, e só três, porque é o que a interface usa de fato:
+   `.btn-primary` para a ação principal da tela, `.btn-secondary` para ações de
+   apoio e `.btn-ghost` para o que não deve competir por atenção.
+   --------------------------------------------------------------------------- */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  padding: 0.625rem 1.1rem;
+  border-radius: 100px;
+  border: 1px solid transparent;
+  font-family: inherit;
+  font-size: 0.85rem;
+  font-weight: 600;
+  line-height: 1.2;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background-color 0.2s ease, border-color 0.2s ease, color 0.2s ease, opacity 0.2s ease;
+}
+
+.btn:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+}
+
+/* Um botão desabilitado precisa parecer desabilitado e recusar o clique. */
+.btn:disabled,
+.btn[aria-disabled="true"] {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.btn-primary {
+  background: var(--primary);
+  border-color: var(--primary);
+  color: #fff;
+}
+.btn-primary:hover:not(:disabled) {
+  background: var(--primary-hover);
+  border-color: var(--primary-hover);
+}
+
+.btn-secondary {
+  background: var(--card-bg);
+  border-color: var(--card-border);
+  color: var(--foreground);
+}
+.btn-secondary:hover:not(:disabled) {
+  border-color: var(--primary);
+  color: var(--primary);
+}
+
+.btn-ghost {
+  background: transparent;
+  border-color: transparent;
+  color: var(--muted);
+}
+.btn-ghost:hover:not(:disabled) {
+  background: var(--card-border);
+  color: var(--foreground);
+}
+
+/* Ocupa a linha inteira — usado por "carregar mais" no fim de uma lista. */
+.btn-block {
+  width: 100%;
+}
+
+/* O ícone que gira enquanto uma ação demora. */
+.btn .spin {
+  animation: spin 1.4s linear infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .btn .spin {
+    animation: none;
+  }
+}
+
+/* ---------------------------------------------------------------------------
+   Grade de insights
+
+   Cartões de 340px em vez de 320px: a capa 16:9 precisa de largura para a
+   imagem não virar uma faixa, e o título de duas linhas fica menos quebrado.
+   --------------------------------------------------------------------------- */
+.insight-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
+  gap: 1.5rem;
+}
+
+@media (max-width: 420px) {
+  .insight-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.insight-card {
+  display: flex;
+  flex-direction: column;
+  background: var(--card-bg);
+  border: 1px solid var(--card-border);
+  border-radius: 14px;
+  overflow: hidden;
+  cursor: pointer;
+  /* A elevação é do cartão inteiro, não uma faixa colorida na borda: com a
+     faixa, cada cartão não lido puxava a atenção para a lateral em vez da
+     capa, e a grade parecia um alarme. O que marca o não lido é o selo "Novo"
+     sobre a capa. */
+  transition: transform 0.22s ease, box-shadow 0.22s ease, border-color 0.22s ease;
+}
+
+.insight-card:hover {
+  transform: translateY(-3px);
+  border-color: var(--primary);
+  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.14);
+}
+
+.insight-card:hover .insight-card-cta {
+  text-decoration: underline;
+}
+
+.insight-card:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .insight-card {
+    transition: none;
+  }
+  .insight-card:hover {
+    transform: none;
+  }
+}

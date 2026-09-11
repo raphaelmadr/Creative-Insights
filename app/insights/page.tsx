@@ -3,7 +3,8 @@
 import React, { useState } from "react";
 import ReactMarkdown from "react-markdown";
 import TopBar from "@/components/TopBar";
-import { Sparkles, CheckCircle, Lightbulb, Loader2, ExternalLink, RefreshCcw, X, Image as ImageIcon } from "lucide-react";
+import { Sparkles, CheckCircle, Lightbulb, Loader2, ExternalLink, RefreshCcw, X } from "lucide-react";
+import { ArticleCover, sourceDomain } from "@/components/ArticleCover";
 import { Skeleton } from "@/components/Skeleton";
 import { useNotifications, UpdateItem } from "@/components/NotificationProvider";
 
@@ -49,34 +50,21 @@ export default function InsightsPage() {
             </p>
           </div>
           
-          <div style={{ display: "flex", gap: "1rem" }}>
-            <button 
+          <div style={{ display: "flex", gap: "0.65rem", flexWrap: "wrap" }}>
+            {/* Ação principal da tela: é ela que traz conteúdo novo. */}
+            <button
               onClick={searchForUpdates}
               disabled={isSearching || loading}
-              className="glass-panel"
-              style={{ 
-                padding: "0.75rem 1.25rem", 
-                display: "flex", 
-                alignItems: "center", 
-                gap: "0.5rem", 
-                color: (isSearching || loading) ? "var(--muted)" : "var(--foreground)",
-                fontWeight: 600,
-                cursor: (isSearching || loading) ? "not-allowed" : "pointer",
-                transition: "all 0.2s"
-              }}
+              className="btn btn-primary"
             >
-              <RefreshCcw size={18} color="var(--primary)" className={isSearching ? "spin" : ""} />
-              {isSearching ? "Buscando IA..." : "Forçar Busca Manual"}
+              <RefreshCcw size={16} className={isSearching ? "spin" : ""} />
+              {isSearching ? "Buscando..." : "Buscar novos insights"}
             </button>
-            
+
             {unreadCount > 0 && (
-              <button 
-                onClick={markAllAsRead}
-                className="glass-panel"
-                style={{ padding: "0.75rem 1.25rem", display: "flex", alignItems: "center", gap: "0.5rem", color: "var(--foreground)", fontWeight: 600 }}
-              >
-                <CheckCircle size={18} color="var(--success)" />
-                Limpar {unreadCount} Não Lidas
+              <button onClick={markAllAsRead} className="btn btn-secondary">
+                <CheckCircle size={16} />
+                Marcar {unreadCount} como {unreadCount === 1 ? "lido" : "lidos"}
               </button>
             )}
           </div>
@@ -91,11 +79,7 @@ export default function InsightsPage() {
         )}
 
         {loading ? (
-          <div style={{ 
-            display: "grid", 
-            gridTemplateColumns: "repeat(auto-fill, minmax(320px, 1fr))", 
-            gap: "1.5rem" 
-          }}>
+          <div className="insight-grid">
             {[1,2,3,4,5,6].map(i => (
               <div key={i} className="glass-panel" style={{ display: "flex", flexDirection: "column", border: "1px solid var(--card-border)", overflow: "hidden" }}>
                 <Skeleton width="100%" height="160px" borderRadius="0" />
@@ -123,95 +107,50 @@ export default function InsightsPage() {
               </div>
             ) : (
               <>
-                <div style={{ 
-                  display: "grid", 
-                  gridTemplateColumns: "repeat(auto-fill, minmax(320px, 1fr))", 
-                  gap: "1.5rem" 
-                }}>
+                <div className="insight-grid">
                   {updates.map((update) => {
                     const isUnread = lastReadDate ? new Date(update.timestamp) > lastReadDate : true;
                     return (
                     <div 
                       key={update.id} 
                       id={`update-${update.id}`} 
-                      className="glass-panel" 
+                      className="insight-card"
                       onClick={() => setSelectedUpdate(update)}
-                      style={{ 
-                        display: "flex", 
-                        flexDirection: "column", 
-                        border: isUnread ? `1px solid ${getUrgencyColor(update.urgency)}40` : "1px solid var(--card-border)",
-                        borderLeft: isUnread ? `4px solid ${getUrgencyColor(update.urgency)}` : "1px solid var(--card-border)", 
-                        boxShadow: isUnread ? `0 0 15px ${getUrgencyColor(update.urgency)}15` : undefined,
-                        cursor: "pointer",
-                        overflow: "hidden",
-                        transition: "transform 0.2s ease, box-shadow 0.2s ease",
-                      }}
-                      onMouseEnter={(e) => e.currentTarget.style.transform = "translateY(-4px)"}
-                      onMouseLeave={(e) => e.currentTarget.style.transform = "translateY(0)"}
                     >
-                      {/* Thumbnail Area */}
-                      <div style={{ 
-                        height: "160px", 
-                        width: "100%", 
-                        backgroundColor: "var(--hover-bg)", 
-                        display: "flex", 
-                        alignItems: "center", 
-                        justifyContent: "center",
-                        borderBottom: "1px solid var(--card-border)",
-                        position: "relative"
-                      }}>
-                        {update.thumbnailUrl ? (
-                          <img 
-                            src={update.thumbnailUrl} 
-                            alt={update.title} 
-                            style={{ width: "100%", height: "100%", objectFit: "cover" }} 
-                          />
-                        ) : (
-                          <div style={{ 
-                            width: "100%", 
-                            height: "100%", 
-                            background: `linear-gradient(45deg, ${getCategoryColor(update.category)}20, transparent)`,
-                            display: "flex",
-                            alignItems: "center",
-                            justifyContent: "center",
-                            opacity: 0.7
-                          }}>
-                            <ImageIcon size={48} color={getCategoryColor(update.category)} style={{ opacity: 0.5 }} />
-                          </div>
-                        )}
-                        
-                        {/* Overlay Tags na Imagem */}
-                        <div style={{ position: "absolute", top: "0.75rem", left: "0.75rem", display: "flex", gap: "0.5rem" }}>
-                          <span style={{ 
-                            padding: "0.25rem 0.5rem", 
-                            borderRadius: "0.25rem", 
-                            fontSize: "0.65rem", 
-                            fontWeight: 700, 
-                            textTransform: "uppercase",
-                            backgroundColor: "rgba(0,0,0,0.7)",
-                            color: getUrgencyColor(update.urgency),
-                            border: `1px solid ${getUrgencyColor(update.urgency)}40`,
-                            backdropFilter: "blur(4px)"
-                          }}>
-                            {update.urgency}
-                          </span>
-                          <span style={{ 
-                            padding: "0.25rem 0.5rem", 
-                            borderRadius: "0.25rem", 
-                            fontSize: "0.65rem", 
-                            fontWeight: 700, 
-                            textTransform: "uppercase",
-                            backgroundColor: "rgba(0,0,0,0.7)",
-                            color: getCategoryColor(update.category),
-                            border: `1px solid ${getCategoryColor(update.category)}40`,
-                            backdropFilter: "blur(4px)",
-                            WebkitBackdropFilter: "blur(4px)"
+                      {/* A capa: a imagem do artigo quando existe, uma capa
+                          desenhada com a cor da fonte quando o site bloqueia
+                          leitura — ver components/ArticleCover. */}
+                      <div style={{ position: "relative" }}>
+                        <ArticleCover
+                          thumbnailUrl={update.thumbnailUrl}
+                          sourceUrl={update.sourceUrl}
+                          title={update.title}
+                        />
+
+                        {/* Os selos ficam sobre um véu, e não soltos na foto:
+                            sobre imagem clara o texto sumia. */}
+                        <div style={{ position: "absolute", top: "0.7rem", left: "0.7rem", right: "0.7rem", display: "flex", gap: "0.4rem", flexWrap: "wrap" }}>
+                          <span style={{
+                            padding: "0.2rem 0.5rem", borderRadius: "100px",
+                            fontSize: "0.62rem", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.04em",
+                            background: "rgba(10,10,12,0.72)", color: getCategoryColor(update.category),
+                            backdropFilter: "blur(6px)", WebkitBackdropFilter: "blur(6px)",
                           }}>
                             {update.category}
                           </span>
+                          {isUnread && (
+                            <span style={{
+                              padding: "0.2rem 0.5rem", borderRadius: "100px",
+                              fontSize: "0.62rem", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.04em",
+                              background: "var(--primary)", color: "#fff",
+                              marginLeft: "auto",
+                            }}>
+                              Novo
+                            </span>
+                          )}
                         </div>
                       </div>
-                      
+
                       {/* Content Area */}
                       <div style={{ padding: "1.25rem", display: "flex", flexDirection: "column", gap: "0.75rem", flex: 1 }}>
                         <h3 style={{ fontSize: "1.1rem", color: "var(--foreground)", margin: 0, lineHeight: 1.3, display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden" }}>
@@ -228,11 +167,19 @@ export default function InsightsPage() {
                           <ReactMarkdown>{update.content}</ReactMarkdown>
                         </div>
 
-                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: "auto", paddingTop: "1rem", borderTop: "1px solid var(--card-border)" }}>
-                          <span style={{ fontSize: "0.75rem", opacity: 0.5 }}>
-                            {new Date(update.timestamp).toLocaleDateString("pt-BR", { day: '2-digit', month: 'short', year: 'numeric' })}
+                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: "0.75rem", marginTop: "auto", paddingTop: "0.9rem", borderTop: "1px solid var(--card-border)" }}>
+                          {/* De onde veio e quando: os dois dados que decidem
+                              se vale abrir, e que o cartão não mostrava. */}
+                          <span style={{ fontSize: "0.72rem", color: "var(--muted)", display: "flex", alignItems: "center", gap: "0.4rem", minWidth: 0 }}>
+                            <span style={{ whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                              {sourceDomain(update.sourceUrl) || "fonte não informada"}
+                            </span>
+                            <span style={{ opacity: 0.45 }}>·</span>
+                            <span style={{ whiteSpace: "nowrap" }}>
+                              {new Date(update.timestamp).toLocaleDateString("pt-BR", { day: "2-digit", month: "short" })}
+                            </span>
                           </span>
-                          <span style={{ fontSize: "0.75rem", color: "var(--primary)", fontWeight: 600 }}>Ler artigo &rarr;</span>
+                          <span className="insight-card-cta" style={{ fontSize: "0.75rem", color: "var(--primary)", fontWeight: 600, whiteSpace: "nowrap" }}>Ler &rarr;</span>
                         </div>
                       </div>
                     </div>
@@ -241,23 +188,11 @@ export default function InsightsPage() {
                 </div>
                 
                 {hasMore && (
-                  <button 
+                  <button
                     onClick={loadMoreUpdates}
                     disabled={isFetchingMore}
-                    className="glass-panel"
-                    style={{
-                      padding: "1rem",
-                      marginTop: "1rem",
-                      display: "flex",
-                      alignItems: "center",
-                      justifyContent: "center",
-                      gap: "0.5rem",
-                      color: isFetchingMore ? "gray" : "var(--foreground)",
-                      fontWeight: 600,
-                      cursor: isFetchingMore ? "not-allowed" : "pointer",
-                      transition: "all 0.2s",
-                      width: "100%"
-                    }}
+                    className="btn btn-secondary btn-block"
+                    style={{ marginTop: "0.5rem" }}
                   >
                     {isFetchingMore ? (
                       <>
@@ -311,11 +246,13 @@ export default function InsightsPage() {
               <X size={24} />
             </button>
 
-            {selectedUpdate.thumbnailUrl && (
-              <div style={{ width: "100%", height: "300px" }}>
-                <img src={selectedUpdate.thumbnailUrl} alt={selectedUpdate.title} style={{ width: "100%", height: "100%", objectFit: "cover" }} />
-              </div>
-            )}
+            {/* Mesma capa da grade: o modal também nunca abre sem imagem. */}
+            <ArticleCover
+              thumbnailUrl={selectedUpdate.thumbnailUrl}
+              sourceUrl={selectedUpdate.sourceUrl}
+              title={selectedUpdate.title}
+              height="260px"
+            />
 
             <div style={{ padding: "2.5rem", display: "flex", flexDirection: "column", gap: "1.5rem" }}>
               <div style={{ display: "flex", gap: "0.75rem", flexWrap: "wrap" }}>

@@ -4,6 +4,10 @@
  * A própria pessoa, no canto do cabeçalho: quem está logado, com que permissão,
  * e a saída.
  *
+ * A troca de tema NÃO entra aqui: o cabeçalho já tem um botão dedicado a ela,
+ * ao lado deste avatar. Duas portas para a mesma ação, a um centímetro uma da
+ * outra, só fazem o menu parecer maior do que é.
+ *
  * Antes não havia nenhum dos três. Não dava para saber com qual conta a aba
  * estava aberta — o que importa num painel que agora guarda preferências por
  * pessoa — e não havia como sair sem limpar os cookies à mão.
@@ -12,13 +16,11 @@
 import React, { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { signOut, useSession } from "next-auth/react";
-import { LogOut, Moon, Settings, Sun } from "lucide-react";
+import { LogOut, Settings } from "lucide-react";
 import { Avatar } from "./Avatar";
-import { useTheme } from "./ThemeProvider";
 
 export default function UserMenu() {
   const { data: session, status } = useSession();
-  const { theme, toggleTheme } = useTheme();
   const [isOpen, setIsOpen] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
 
@@ -156,11 +158,6 @@ export default function UserMenu() {
               </span>
             </div>
           </div>
-
-          <button style={itemStyle} onClick={toggleTheme} onMouseOver={hoverOn} onMouseOut={hoverOff}>
-            {theme === "light" ? <Moon size={16} /> : <Sun size={16} />}
-            Tema {theme === "light" ? "escuro" : "claro"}
-          </button>
 
           {/* Sem permissão o link só levaria a uma tela de acesso negado. */}
           {isAdmin && (

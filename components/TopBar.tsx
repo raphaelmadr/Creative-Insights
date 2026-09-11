@@ -3,7 +3,7 @@
 import React, { useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Moon, Sun, Bell, Settings, RefreshCw, Image as ImageIcon, Sparkles, Menu, X } from "lucide-react";
+import { Moon, Sun, Bell, Settings, RefreshCw, Image as ImageIcon, Sparkles, Menu, X, CheckCheck } from "lucide-react";
 import { useSession } from "next-auth/react";
 import { useTheme } from "./ThemeProvider";
 import { useNotifications } from "./NotificationProvider";
@@ -16,7 +16,7 @@ export default function TopBar() {
   const { theme, toggleTheme } = useTheme();
   const { data: session } = useSession();
   const isAdmin = session?.user?.role === "ADMIN";
-  const { unreadCount, isSyncingAll, lastSyncAt, nextAutoSyncAt, syncAll, updates, isSyncingMeta, syncMessage, syncProgress, isSearching, loadingText } = useNotifications();
+  const { unreadCount, isSyncingAll, lastSyncAt, nextAutoSyncAt, syncAll, updates, isSyncingMeta, syncMessage, syncProgress, isSearching, loadingText, markAllAsRead } = useNotifications();
 
   const formatSyncStamp = (value: string) =>
     new Date(value).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' });
@@ -57,9 +57,30 @@ export default function TopBar() {
 
   const notificationsContent = (
     <div className={styles.notificationsPopup}>
-      <div style={{ padding: '1rem', borderBottom: '1px solid var(--card-border)', fontWeight: 600, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-        <span>Notificações</span>
-        {unreadCount > 0 && <span style={{ fontSize: '0.75rem', background: 'var(--primary)', color: '#fff', padding: '0.1rem 0.5rem', borderRadius: '10px' }}>{unreadCount} novas</span>}
+      <div style={{ padding: '1rem', borderBottom: '1px solid var(--card-border)', fontWeight: 600, display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '0.5rem' }}>
+        <span style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+          Notificações
+          {unreadCount > 0 && <span style={{ fontSize: '0.75rem', background: 'var(--primary)', color: '#fff', padding: '0.1rem 0.5rem', borderRadius: '10px' }}>{unreadCount} novas</span>}
+        </span>
+
+        {/* Limpar aqui é marcar como lidas, não apagar: as novidades são as
+            mesmas para todo o time, e apagá-las tiraria de todo mundo. O que é
+            de cada pessoa é o ponto de leitura. */}
+        {unreadCount > 0 && (
+          <button
+            onClick={(e) => { e.stopPropagation(); markAllAsRead(); }}
+            title="Marcar todas as notificações como lidas"
+            style={{
+              display: 'inline-flex', alignItems: 'center', gap: '0.3rem',
+              background: 'transparent', border: 'none', padding: '0.2rem 0.3rem',
+              color: 'var(--primary)', fontSize: '0.72rem', fontWeight: 600,
+              cursor: 'pointer', whiteSpace: 'nowrap', borderRadius: '6px'
+            }}
+          >
+            <CheckCheck size={13} />
+            Limpar todas
+          </button>
+        )}
       </div>
     
       <div style={{ maxHeight: '300px', overflowY: 'auto' }}>
