@@ -10,12 +10,13 @@ import { NextResponse } from "next/server";
 import prisma from "@/lib/prisma";
 import { getCurrentUser } from "@/lib/auth";
 import { PRESENCE_POLL_MS, PresenceUser, presenceThreshold } from "@/lib/presence";
+import { excludeDevUserWhere } from "@/lib/dev-user";
 
 export const dynamic = "force-dynamic";
 
 async function listOnlineUsers(currentUserId: string): Promise<PresenceUser[]> {
   const users = await prisma.user.findMany({
-    where: { lastSeenAt: { gte: presenceThreshold() } },
+    where: { lastSeenAt: { gte: presenceThreshold() }, ...excludeDevUserWhere() },
     select: { id: true, name: true, email: true, image: true, role: true, lastSeenAt: true },
     orderBy: { lastSeenAt: "desc" },
   });

@@ -13,6 +13,7 @@ import CredentialsProvider from "next-auth/providers/credentials";
 import { PrismaAdapter } from "@next-auth/prisma-adapter";
 import prisma from "@/lib/prisma";
 import { ensureAuthUrlEnv } from "@/lib/auth-url";
+import { DEV_USER_EMAIL } from "@/lib/dev-user";
 
 export type UserRole = "ADMIN" | "MEMBER";
 
@@ -61,7 +62,7 @@ export async function getAuthOptions(): Promise<NextAuthOptions> {
                  * apareceria sem papel e sem preferências — e o painel local
                  * ficaria trancado para quem está justamente desenvolvendo-o.
                  */
-                const email = "dev@allugator.com";
+                const email = DEV_USER_EMAIL;
                 const user = await prisma.user.upsert({
                   where: { email },
                   update: {},

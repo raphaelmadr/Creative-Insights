@@ -10,17 +10,23 @@ import { NextRequest, NextResponse } from "next/server";
 import prisma from "@/lib/prisma";
 import { getCurrentAdmin } from "@/lib/auth";
 import { isOnline } from "@/lib/presence";
+import { excludeDevUserWhere } from "@/lib/dev-user";
+import {
+  LAST_ADMIN_MESSAGE,
+  USER_ROLES,
+  changeUserRole,
+  isValidRole,
+} from "@/lib/user-roles";
 
 export const dynamic = "force-dynamic";
-
-const ROLES = ["ADMIN", "MEMBER"] as const;
-type Role = (typeof ROLES)[number];
 
 export async function GET() {
   const admin = await getCurrentAdmin();
   if (!admin) return NextResponse.json({ error: "Acesso restrito." }, { status: 403 });
 
   const users = await prisma.user.findMany({
+    // A conta de desenvolvimento não é gerenciável em produção — ver `lib/dev-user`.
+    where: excludeDevUserWhere(),
     select: { id: true, name: true, email: true, image: true, role: true, lastSeenAt: true },
     orderBy: [{ role: "asc" }, { name: "asc" }],
   });
@@ -49,54 +55,30 @@ export async function PATCH(request: NextRequest) {
 
   const { userId, role } = body;
 
-  if (!userId || !role || !ROLES.includes(role as Role)) {
+  if (!userId || !isValidRole(role)) {
     return NextResponse.json(
-      { error: `Informe userId e role (${ROLES.join(" ou ")}).` },
+      { error: `Informe userId e role (${USER_ROLES.join(" ou ")}).` },
       { status: 400 }
     );
   }
 
-  const target = await prisma.user.findUnique({
-    where: { id: userId },
-    select: { id: true, name: true, email: true, role: true },
-  });
-
-  if (!target) {
-    return NextResponse.json({ error: "Usuário não encontrado." }, { status: 404 });
-  }
-
   /*
-   * Sem esta trava o painel pode ser trancado para sempre: rebaixado o último
-   * admin, não sobra ninguém com permissão para promover alguém de volta, e a
-   * única saída seria mexer no banco à mão. É o mesmo motivo pelo qual a
-   * migração promoveu todos os usuários existentes em vez de nenhum.
+   * A regra do último administrador vive em `lib/user-roles`, junto da escrita:
+   * é lá que ela consegue ser aplicada na mesma instrução que grava, sem a
+   * janela em que dois pedidos simultâneos passam pela verificação e zeram os
+   * administradores.
    */
-  if (target.role === "ADMIN" && role === "MEMBER") {
-    const remainingAdmins = await prisma.user.count({
-      where: { role: "ADMIN", NOT: { id: target.id } },
-    });
+  const result = await changeUserRole(userId, role);
 
-    if (remainingAdmins === 0) {
-      return NextResponse.json(
-        {
-          error:
-            "Este é o único administrador. Promova outra pessoa antes de remover o acesso deste usuário — " +
-            "sem nenhum admin, ninguém consegue reabrir o painel de configurações.",
-        },
-        { status: 409 }
-      );
-    }
+  if (!result.ok) {
+    return result.reason === "not-found"
+      ? NextResponse.json({ error: "Usuário não encontrado." }, { status: 404 })
+      : NextResponse.json({ error: LAST_ADMIN_MESSAGE }, { status: 409 });
   }
-
-  const updated = await prisma.user.update({
-    where: { id: userId },
-    data: { role },
-    select: { id: true, name: true, email: true, image: true, role: true },
-  });
 
   console.log(
-    `[users] ${admin.email} alterou o papel de ${updated.email}: ${target.role} → ${updated.role}`
+    `[users] ${admin.email} alterou o papel de ${result.user.email}: ${result.previousRole} → ${result.user.role}`
   );
 
-  return NextResponse.json({ success: true, data: updated });
+  return NextResponse.json({ success: true, data: result.user });
 }
