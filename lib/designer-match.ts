@@ -7,12 +7,44 @@
  */
 
 import prisma from "./prisma";
+import { splitAcronyms } from "./acronyms";
+
+// Reexportado para quem já importava daqui; a regra em si mora em `acronyms`,
+// que não depende do Prisma e por isso serve também ao lado do cliente.
+export { splitAcronyms };
+
+/**
+ * A sigla do balde: onde vai a peça cujo nome não contém sigla nenhuma.
+ *
+ * Antes essas peças ficavam com `designer` nulo, e nulo não aparece em lugar
+ * nenhum — 11.449 criativos, a maior parte da conta, invisíveis na página de
+ * equipe. O volume que escapa da convenção de nomenclatura é exatamente o que
+ * precisa estar à vista de quem pode corrigir a convenção.
+ *
+ * Não é a mesma coisa que `status` UNKNOWN, que é defeito: aqui a ausência de
+ * atribuição é um fato sobre o nome do anúncio, e o balde a torna legível.
+ */
+export const UNATTRIBUTED_ACRONYM = "UNKNOWN";
 
 /**
  * Siglas que existem apenas como rótulo de "sem atribuição" e nunca devem ser
  * casadas contra o nome de um anúncio.
  */
-const RESERVED_ACRONYMS = new Set(["UNKNOWN"]);
+const RESERVED_ACRONYMS = new Set([UNATTRIBUTED_ACRONYM]);
+
+/**
+ * Siglas que descrevem uma ORIGEM, não uma pessoa, e por isso perdem para a
+ * assinatura de um designer.
+ *
+ * "VD_allu_ads_influenciadores_Nando Viana-ez" é de Ezequiel: a convenção do
+ * time põe a assinatura no fim, e "influenciadores" descreve de onde veio a
+ * peça. Sem este rebaixamento, a palavra vence só por aparecer antes no nome.
+ *
+ * Antes isso funcionava por acidente — a origem dividia cadastro com o balde de
+ * "sem atribuição", e era o balde que a rebaixava. Separados os dois cadastros,
+ * a regra precisou virar explícita.
+ */
+const GENERIC_ACRONYMS = new Set(["INFLUENCIADORES", "INFLUS", "PARCERIAS"]);
 
 export interface AcronymAlias {
   /** Sigla como aparece (ou pode aparecer) no nome do anúncio. */
@@ -35,6 +67,7 @@ function escapeRegex(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
+
 /**
  * Monta o índice de siglas a partir dos criadores cadastrados.
  *
@@ -50,16 +83,17 @@ export function buildAliasIndex(creators: { acronym: string }[]): AcronymAlias[]
   const seen = new Set<string>();
 
   for (const creator of creators) {
-    const tokens = (creator.acronym || "")
-      .split(",")
-      .map((token) => token.trim().toUpperCase())
-      .filter(Boolean);
+    const tokens = splitAcronyms(creator.acronym);
 
     const canonical = tokens.find((token) => !RESERVED_ACRONYMS.has(token));
     if (!canonical) continue;
 
-    // Um criador que declara UNKNOWN entre suas siglas é o balde de fallback.
-    const priority: 0 | 1 = tokens.some((token) => RESERVED_ACRONYMS.has(token)) ? 1 : 0;
+    /*
+     * Perde para a assinatura de um designer quem é balde de fallback (declara
+     * UNKNOWN) ou quem descreve origem em vez de pessoa.
+     */
+    const priority: 0 | 1 =
+      tokens.some((token) => RESERVED_ACRONYMS.has(token) || GENERIC_ACRONYMS.has(token)) ? 1 : 0;
 
     for (const token of tokens) {
       if (RESERVED_ACRONYMS.has(token)) continue;
@@ -98,6 +132,9 @@ function aliasPattern(alias: string): RegExp {
 /**
  * Resolve a sigla canônica do criador para um nome de anúncio.
  *
+ * Devolve `UNATTRIBUTED_ACRONYM` quando nenhuma sigla casa, e `null` apenas
+ * quando não há nome para examinar.
+ *
  * Critérios de desempate, nesta ordem:
  *  1. criador real vence o balde de fallback;
  *  2. entre criadores reais, vence a sigla que aparece primeiro no nome;
@@ -109,6 +146,7 @@ export function resolveDesigner(
   adName: string | null | undefined,
   aliases: AcronymAlias[]
 ): string | null {
+  // Sem nome não há o que casar — aí sim fica nulo, porque não se sabe nada.
   if (!adName) return null;
 
   const haystack = adName.toLowerCase();
@@ -131,7 +169,9 @@ export function resolveDesigner(
     if (wins) best = { canonical, index, length: alias.length, priority };
   }
 
-  return best ? best.canonical : null;
+  // Sem nenhuma sigla no nome, a peça vai para o balde em vez de ficar sem
+  // dono. Ver UNATTRIBUTED_ACRONYM.
+  return best ? best.canonical : UNATTRIBUTED_ACRONYM;
 }
 
 /** Carrega os criadores do banco e devolve o índice de siglas pronto para uso. */

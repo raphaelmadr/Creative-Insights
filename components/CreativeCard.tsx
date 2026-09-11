@@ -33,11 +33,8 @@ function CopyButton({ text }: { text: string }) {
         setCopied(true);
         setTimeout(() => setCopied(false), 2000);
       }}
-      style={{
-        background: "transparent", border: "none", cursor: "pointer", opacity: 0.5,
-        display: "inline-flex", alignItems: "center", justifyContent: "center", padding: "2px",
-        transition: "opacity 0.2s"
-      }}
+      className="btn btn-ghost"
+      style={{ padding: "2px", opacity: 0.5, transition: "opacity 0.2s" }}
       onMouseOver={e => e.currentTarget.style.opacity = "1"}
       onMouseOut={e => e.currentTarget.style.opacity = "0.5"}
       title="Copiar nome do anúncio"
@@ -60,12 +57,11 @@ function CopyNameButton({ text }: { text: string }) {
         setTimeout(() => setCopied(false), 2000);
       }}
       title="Copiar nome do anúncio"
+      className="btn btn-overlay"
       style={{
-        flexShrink: 0, display: "inline-flex", alignItems: "center", gap: "0.4rem",
-        background: copied ? "rgba(16, 185, 129, 0.9)" : "rgba(255,255,255,0.1)",
-        border: "1px solid rgba(255,255,255,0.2)", borderRadius: "100px",
-        padding: "0.35rem 0.7rem", color: "#fff", fontSize: "0.72rem", fontWeight: 600,
-        lineHeight: 1, whiteSpace: "nowrap", cursor: "pointer", transition: "background 0.2s ease"
+        flexShrink: 0, gap: "0.4rem",
+        background: copied ? "rgba(16, 185, 129, 0.9)" : undefined,
+        padding: "0.35rem 0.7rem", fontSize: "var(--text-caption)"
       }}
     >
       {copied ? <Check size={13} /> : <Copy size={13} />}
@@ -99,7 +95,7 @@ function CreativePreviewModal({ creative, onClose }: { creative: any; onClose: (
           border: "1px solid rgba(255,255,255,0.16)", borderRadius: "12px", padding: "0.55rem 0.6rem 0.55rem 0.75rem"
         }}
       >
-        <span style={{ flex: 1, minWidth: 0, color: "rgba(255,255,255,0.92)", fontSize: "0.74rem", fontWeight: 600, lineHeight: 1.35, wordBreak: "break-all", maxHeight: "2.7em", overflow: "hidden" }}>
+        <span style={{ flex: 1, minWidth: 0, color: "rgba(255,255,255,0.92)", fontSize: "var(--text-caption)", fontWeight: 600, lineHeight: 1.35, wordBreak: "break-all", maxHeight: "2.7em", overflow: "hidden" }}>
           {creative.ad_name}
         </span>
         <CopyNameButton text={creative.ad_name} />
@@ -206,14 +202,11 @@ function AnalyzeButton({
     <button
       onClick={(e) => { e.preventDefault(); e.stopPropagation(); onClick(); }}
       title={saved ? "Ver a análise salva deste criativo" : "Analisar criativo com IA"}
+      className="btn btn-overlay"
       style={{
         position: "absolute", top: "8px", right: "8px", zIndex: 10,
-        display: "inline-flex", alignItems: "center", gap: "0.35rem",
-        background: "rgba(0,0,0,0.6)", backdropFilter: "blur(4px)", WebkitBackdropFilter: "blur(4px)",
-        border: "1px solid rgba(255,255,255,0.18)", borderRadius: "100px",
-        padding: "4px 9px 4px 8px", color: "rgba(255,255,255,0.92)",
-        fontSize: "0.68rem", fontWeight: 600, lineHeight: 1, whiteSpace: "nowrap",
-        cursor: "pointer", boxShadow: "0 2px 8px rgba(0,0,0,0.25)", transition: "background 0.2s ease, border-color 0.2s ease, color 0.2s ease"
+        gap: "0.35rem", padding: "4px 9px 4px 8px",
+        fontSize: "var(--text-eyebrow)", boxShadow: "0 2px 8px rgba(0,0,0,0.25)"
       }}
       onMouseOver={e => {
         e.currentTarget.style.background = "rgba(16, 185, 129, 0.9)";
@@ -269,7 +262,7 @@ function AnalysisBody({ text }: { text: string }) {
               style={{
                 margin: i === 0 ? 0 : "0.5rem 0 0",
                 color: "#10b981",
-                fontSize: "0.72rem",
+                fontSize: "var(--text-caption)",
                 fontWeight: 700,
                 textTransform: "uppercase",
                 letterSpacing: "0.6px",
@@ -285,7 +278,7 @@ function AnalysisBody({ text }: { text: string }) {
             key={i}
             style={{
               margin: 0,
-              fontSize: "0.84rem",
+              fontSize: "var(--text-control)",
               lineHeight: 1.6,
               opacity: 0.9,
               whiteSpace: "pre-wrap",
@@ -366,7 +359,7 @@ function AnalysisModal({
           ) : imageUrl ? (
             <SafeImage src={imageUrl} alt={creative.ad_name} />
           ) : (
-            <div style={{ padding: "4rem 3rem", color: "rgba(255,255,255,0.5)", fontSize: "0.8rem" }}>
+            <div style={{ padding: "4rem 3rem", color: "rgba(255,255,255,0.5)", fontSize: "var(--text-control)" }}>
               <ImageIcon size={28} />
             </div>
           )}
@@ -380,12 +373,12 @@ function AnalysisModal({
               padding: "1rem 2.6rem 0.75rem 1.1rem", borderBottom: "1px solid var(--card-border)"
             }}
           >
-            <div style={{ display: "flex", alignItems: "center", gap: "0.45rem", color: "#10b981", fontWeight: 700, fontSize: "0.78rem" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: "0.45rem", color: "#10b981", fontWeight: 700, fontSize: "var(--text-caption)" }}>
               <Sparkles size={14} />
               Leitura do criativo pela IA
             </div>
             <div style={{ display: "flex", alignItems: "flex-start", gap: "0.5rem" }}>
-              <span style={{ flex: 1, minWidth: 0, fontSize: "0.72rem", opacity: 0.7, lineHeight: 1.4, wordBreak: "break-all" }}>
+              <span style={{ flex: 1, minWidth: 0, fontSize: "var(--text-caption)", opacity: 0.7, lineHeight: 1.4, wordBreak: "break-all" }}>
                 {creative.ad_name}
               </span>
               <CopyButton text={creative.ad_name} />
@@ -395,14 +388,14 @@ function AnalysisModal({
           {/* Só o texto rola: o cabeçalho e o rodapé ficam à vista numa análise longa. */}
           <div style={{ flex: 1, minHeight: 0, overflowY: "auto", padding: "0.9rem 1.1rem" }}>
             {loading ? (
-              <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", opacity: 0.7, fontSize: "0.85rem" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", opacity: 0.7, fontSize: "var(--text-control)" }}>
                 <Loader2 size={14} style={{ animation: "spin 2s linear infinite" }} />
                 {savedAt ? "Refazendo a análise..." : "Lendo a peça e analisando..."}
               </div>
             ) : hypothesis ? (
               <AnalysisBody text={hypothesis} />
             ) : (
-              <p style={{ margin: 0, fontSize: "0.85rem", opacity: 0.7 }}>Nada a mostrar para esta peça.</p>
+              <p style={{ margin: 0, fontSize: "var(--text-control)", opacity: 0.7 }}>Nada a mostrar para esta peça.</p>
             )}
           </div>
 
@@ -410,7 +403,7 @@ function AnalysisModal({
             style={{
               flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "space-between",
               gap: "0.75rem", flexWrap: "wrap", padding: "0.7rem 1.1rem",
-              borderTop: "1px solid var(--card-border)", fontSize: "0.68rem", opacity: 0.75
+              borderTop: "1px solid var(--card-border)", fontSize: "var(--text-eyebrow)", opacity: 0.75
             }}
           >
             {/* Dizer que o texto veio do banco é o que explica por que abriu na hora. */}
@@ -419,12 +412,8 @@ function AnalysisModal({
               onClick={(e) => { e.preventDefault(); e.stopPropagation(); onReanalyze(); }}
               disabled={loading}
               title="Descartar a análise salva e pedir uma nova à IA"
-              style={{
-                background: "none", border: "none", color: "#10b981",
-                fontSize: "0.68rem", fontWeight: 600, cursor: loading ? "default" : "pointer",
-                opacity: loading ? 0.4 : 1, padding: 0,
-                display: "inline-flex", alignItems: "center", gap: "0.3rem"
-              }}
+              className="btn btn-ghost"
+              style={{ color: "var(--success)", fontSize: "var(--text-eyebrow)", padding: 0, gap: "0.3rem" }}
             >
               <RefreshCw size={11} /> Refazer análise
             </button>
@@ -435,13 +424,7 @@ function AnalysisModal({
           onClick={onClose}
           title="Fechar (Esc)"
           aria-label="Fechar"
-          style={{
-            position: "absolute", top: "10px", right: "10px",
-            display: "inline-flex", alignItems: "center", justifyContent: "center",
-            width: "28px", height: "28px", borderRadius: "100px",
-            background: "var(--card-bg)", border: "1px solid var(--card-border)",
-            color: "var(--foreground)", cursor: "pointer"
-          }}
+          className="btn btn-close btn-close-float"
         >
           <X size={15} />
         </button>
@@ -545,7 +528,7 @@ export function CreativeCard({ creative, creators, tier, savedAnalysis }: Creati
           pointerEvents: "none"
         }} title={`Criador: ${matchingCreator.name}`}>
           <Avatar src={matchingCreator.avatarUrl} name={matchingCreator.name} size="xs" isActive={matchingCreator.active !== false} />
-          <span style={{ fontSize: "0.7rem", fontWeight: 600 }}>{matchingCreator.name.split(" ")[0]}</span>
+          <span style={{ fontSize: "var(--text-caption)", fontWeight: 600 }}>{matchingCreator.name.split(" ")[0]}</span>
         </div>
       )}
 
@@ -558,7 +541,7 @@ export function CreativeCard({ creative, creators, tier, savedAnalysis }: Creati
         <div style={{ flex: "1 1 120px", display: "flex", flexDirection: "column", gap: "0.4rem" }}>
           <div style={{ display: "flex", alignItems: "flex-start", gap: "0.25rem" }}>
             <h4 style={{ 
-              margin: 0, fontSize: "0.8rem", lineHeight: 1.3, opacity: 0.9, wordBreak: "break-all", fontWeight: 600,
+              margin: 0, fontSize: "var(--text-control)", lineHeight: 1.3, opacity: 0.9, wordBreak: "break-all", fontWeight: 600,
               display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden", minHeight: "2.6em"
             }}>
               {creative.ad_name}
@@ -596,7 +579,7 @@ export function CreativeCard({ creative, creators, tier, savedAnalysis }: Creati
       
       <div style={{ marginTop: "0.75rem", display: "flex", justifyContent: "space-between", alignItems: "center", borderTop: "1px solid var(--card-border)", paddingTop: "0.5rem" }}>
         {creative.createdTime ? (
-          <span style={{ fontSize: "0.65rem", color: "var(--foreground)", opacity: 0.5, fontWeight: 500 }} title="Anúncio rodando desde">
+          <span style={{ fontSize: "var(--text-eyebrow)", color: "var(--foreground)", opacity: 0.5, fontWeight: 500 }} title="Anúncio rodando desde">
             Desde {new Date(creative.createdTime).toLocaleDateString("pt-BR", { timeZone: "UTC" })}
           </span>
         ) : <span />}

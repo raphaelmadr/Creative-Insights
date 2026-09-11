@@ -1,8 +1,8 @@
 "use client";
 
-import React, { useEffect } from "react";
-import { createPortal } from "react-dom";
-import { ExternalLink, ShieldAlert, ShieldCheck, X } from "lucide-react";
+import React, { createContext, useContext, useState } from "react";
+import Modal from "./Modal";
+import { ExternalLink, Settings2, ShieldAlert, ShieldCheck } from "lucide-react";
 import { BrandIcon, brandOf, type BrandId } from "./BrandIcon";
 
 /**
@@ -22,7 +22,7 @@ export const FIELD_STYLE: React.CSSProperties = {
   background: "var(--background-main)",
   color: "var(--foreground)",
   fontFamily: "monospace",
-  fontSize: "0.86rem",
+  fontSize: "var(--text-control)",
   width: "100%",
   boxSizing: "border-box",
 };
@@ -37,7 +37,7 @@ export function StatusPill({ ok, okLabel = "Configurada", pendingLabel = "Falta 
     <span
       style={{
         display: "inline-flex", alignItems: "center", gap: "0.3rem",
-        fontSize: "0.68rem", fontWeight: 700, whiteSpace: "nowrap",
+        fontSize: "var(--text-eyebrow)", fontWeight: 700, whiteSpace: "nowrap",
         color: ok ? "#16a34a" : "#b45309",
         background: ok ? "rgba(34,197,94,0.12)" : "rgba(245,158,11,0.14)",
         border: `1px solid ${ok ? "rgba(34,197,94,0.3)" : "rgba(245,158,11,0.3)"}`,
@@ -59,7 +59,7 @@ export function DocsLink({ href, label }: { href: string; label: string }) {
       rel="noopener noreferrer"
       style={{
         display: "inline-flex", alignItems: "center", gap: "0.3rem",
-        fontSize: "0.76rem", fontWeight: 600, color: "var(--primary)",
+        fontSize: "var(--text-caption)", fontWeight: 600, color: "var(--primary)",
         textDecoration: "none", whiteSpace: "nowrap",
       }}
     >
@@ -75,6 +75,30 @@ export function DocsLink({ href, label }: { href: string; label: string }) {
  * O cabeçalho carrega a marca, o nome, o estado e o link do passo a passo — as
  * quatro coisas que alguém precisa antes de tocar em qualquer campo.
  */
+/**
+ * Como gravar, para quem está dentro de um diálogo.
+ *
+ * As telas de configuração são um `<form>` só com um `submit` no rodapé. Os
+ * campos passaram a viver em diálogos, que o React renderiza num portal — fora
+ * do `<form>` —, então `type="submit"` não alcança mais o formulário. O
+ * contexto leva a função de gravar até lá sem repeti-la nas oito seções.
+ */
+const SettingsSaveContext = createContext<{ save: () => void; saving: boolean } | null>(null);
+
+export function SettingsSaveProvider({
+  save, saving, children,
+}: {
+  save: () => void;
+  saving: boolean;
+  children: React.ReactNode;
+}) {
+  return (
+    <SettingsSaveContext.Provider value={{ save, saving }}>
+      {children}
+    </SettingsSaveContext.Provider>
+  );
+}
+
 export function SettingsSection({
   brand,
   title,
@@ -82,6 +106,7 @@ export function SettingsSection({
   status,
   children,
   action,
+  inline = false,
 }: {
   brand?: BrandId;
   title?: string;
@@ -89,9 +114,13 @@ export function SettingsSection({
   status?: boolean;
   action?: React.ReactNode;
   children: React.ReactNode;
+  /** Para o raro bloco que não é formulário e deve ficar aberto na página. */
+  inline?: boolean;
 }) {
   const info = brand ? brandOf(brand) : null;
   const heading = title ?? info?.label ?? "";
+  const [open, setOpen] = useState(false);
+  const gravar = useContext(SettingsSaveContext);
 
   return (
     <section
@@ -110,21 +139,54 @@ export function SettingsSection({
 
         <div style={{ flex: 1, minWidth: "12rem", display: "flex", flexDirection: "column", gap: "0.3rem" }}>
           <div style={{ display: "flex", alignItems: "center", gap: "0.55rem", flexWrap: "wrap" }}>
-            <h3 style={{ margin: 0, fontSize: "1rem", fontWeight: 700, color: "var(--foreground)" }}>{heading}</h3>
+            <h3 style={{ margin: 0, fontSize: "var(--text-cardtitle)", fontWeight: 700, color: "var(--foreground)" }}>{heading}</h3>
             {status !== undefined && <StatusPill ok={status} />}
           </div>
 
           {description && (
-            <p style={{ margin: 0, fontSize: "0.82rem", color: "var(--muted)", lineHeight: 1.55 }}>{description}</p>
+            <p style={{ margin: 0, fontSize: "var(--text-control)", color: "var(--muted)", lineHeight: 1.55 }}>{description}</p>
           )}
 
           {info?.docsUrl && info.docsLabel && <DocsLink href={info.docsUrl} label={info.docsLabel} />}
         </div>
 
         {action}
+
+        {/* Regra do projeto: formulário abre por um botão, nunca fica aberto
+            na página. Aqui o cartão apresenta a integração e o estado dela; as
+            credenciais ficam atrás do "Configurar". */}
+        {!inline && (
+          <button type="button" onClick={() => setOpen(true)} className="btn btn-secondary" style={{ alignSelf: "center" }}>
+            <Settings2 size={15} />
+            Configurar
+          </button>
+        )}
       </header>
 
-      {children}
+      {inline && children}
+
+      {!inline && (
+        <Modal
+          open={open}
+          title={heading}
+          description={description}
+          onClose={() => setOpen(false)}
+          footer={
+            <>
+              <button type="button" onClick={() => setOpen(false)} className="btn btn-secondary">
+                Fechar
+              </button>
+              {gravar && (
+                <button type="button" onClick={gravar.save} disabled={gravar.saving} className="btn btn-primary">
+                  {gravar.saving ? "Salvando..." : "Salvar alterações"}
+                </button>
+              )}
+            </>
+          }
+        >
+          {children}
+        </Modal>
+      )}
     </section>
   );
 }
@@ -150,7 +212,7 @@ export function SettingsField({
   type?: string;
 }) {
   return (
-    <label style={{ display: "flex", flexDirection: "column", gap: "0.4rem", fontSize: "0.86rem", minWidth: 0 }}>
+    <label style={{ display: "flex", flexDirection: "column", gap: "0.4rem", fontSize: "var(--text-control)", minWidth: 0 }}>
       <span style={{ fontWeight: 600 }}>{label}</span>
       <input
         type={type ?? (secret ? "password" : "text")}
@@ -160,7 +222,7 @@ export function SettingsField({
         style={{ ...FIELD_STYLE, fontFamily: mono ? FIELD_STYLE.fontFamily : "inherit" }}
       />
       {hint && (
-        <span style={{ fontSize: "0.76rem", color: "var(--muted)", opacity: 0.85, lineHeight: 1.5 }}>{hint}</span>
+        <span style={{ fontSize: "var(--text-caption)", color: "var(--muted)", opacity: 0.85, lineHeight: 1.5 }}>{hint}</span>
       )}
     </label>
   );
@@ -184,17 +246,7 @@ export function FieldGrid({ children, columns = 2 }: { children: React.ReactNode
 /** O botão de salvar, igual em todas as telas. */
 export function SaveButton({ saving, label = "Salvar alterações" }: { saving: boolean; label?: string }) {
   return (
-    <button
-      type="submit"
-      disabled={saving}
-      style={{
-        background: "var(--primary)", color: "#fff", border: "none",
-        padding: "0.6rem 1.35rem", borderRadius: "10px",
-        fontWeight: 600, fontSize: "0.86rem",
-        cursor: saving ? "default" : "pointer", opacity: saving ? 0.6 : 1,
-        display: "inline-flex", alignItems: "center", gap: "0.5rem", whiteSpace: "nowrap",
-      }}
-    >
+    <button type="submit" disabled={saving} className="btn btn-primary" >
       {saving ? "Salvando..." : label}
     </button>
   );
@@ -209,90 +261,22 @@ export function SaveButton({ saving, label = "Salvar alterações" }: { saving: 
  * primeira dobra e empurrando para baixo os campos que a pessoa veio editar.
  * Some o número no resumo, o detalhe atrás de um clique.
  */
+/**
+ * Apelido de `Modal`, mantido porque as telas de configuração já o chamavam
+ * assim. Havia duas implementações de diálogo na plataforma — esta e a de
+ * `components/Modal.tsx` — com tamanhos, sombras e botão de fechar diferentes.
+ */
 export function SettingsModal({
-  title,
-  description,
-  onClose,
-  children,
+  title, description, onClose, children,
 }: {
   title: string;
   description?: string;
   onClose: () => void;
   children: React.ReactNode;
 }) {
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
-    };
-    document.addEventListener("keydown", onKey);
-
-    const previousOverflow = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
-
-    return () => {
-      document.removeEventListener("keydown", onKey);
-      document.body.style.overflow = previousOverflow;
-    };
-  }, [onClose]);
-
-  return createPortal(
-    <div
-      onClick={onClose}
-      role="dialog"
-      aria-modal="true"
-      aria-label={title}
-      style={{
-        position: "fixed", inset: 0, zIndex: 9999,
-        background: "rgba(0,0,0,0.6)", backdropFilter: "blur(4px)", WebkitBackdropFilter: "blur(4px)",
-        display: "flex", alignItems: "center", justifyContent: "center", padding: "1.5rem",
-      }}
-    >
-      <div
-        onClick={e => e.stopPropagation()}
-        style={{
-          position: "relative",
-          display: "flex", flexDirection: "column",
-          width: "100%", maxWidth: "34rem", maxHeight: "85vh",
-          borderRadius: "16px", overflow: "hidden",
-          // Tokens do tema: o popup vive num portal, fora da árvore da página.
-          background: "var(--card-bg)",
-          color: "var(--foreground)",
-          border: "1px solid var(--card-border)",
-          boxShadow: "0 24px 60px rgba(0,0,0,0.45)",
-        }}
-      >
-        <header
-          style={{
-            flexShrink: 0, display: "flex", flexDirection: "column", gap: "0.3rem",
-            padding: "1.1rem 3rem 0.9rem 1.2rem", borderBottom: "1px solid var(--card-border)",
-          }}
-        >
-          <strong style={{ fontSize: "0.98rem" }}>{title}</strong>
-          {description && (
-            <span style={{ fontSize: "0.8rem", color: "var(--muted)", lineHeight: 1.55 }}>{description}</span>
-          )}
-        </header>
-
-        {/* Só o conteúdo rola: o cabeçalho fica à vista numa lista longa. */}
-        <div style={{ flex: 1, minHeight: 0, overflowY: "auto", padding: "1rem 1.2rem" }}>{children}</div>
-
-        <button
-          type="button"
-          onClick={onClose}
-          title="Fechar (Esc)"
-          aria-label="Fechar"
-          style={{
-            position: "absolute", top: "0.75rem", right: "0.75rem",
-            display: "inline-flex", alignItems: "center", justifyContent: "center",
-            width: "28px", height: "28px", borderRadius: "100px",
-            background: "var(--background-main)", border: "1px solid var(--card-border)",
-            color: "var(--foreground)", cursor: "pointer",
-          }}
-        >
-          <X size={15} />
-        </button>
-      </div>
-    </div>,
-    document.body
+  return (
+    <Modal open title={title} description={description} onClose={onClose}>
+      {children}
+    </Modal>
   );
 }

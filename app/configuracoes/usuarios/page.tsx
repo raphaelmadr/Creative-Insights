@@ -90,8 +90,8 @@ export default function UsuariosPage() {
   return (
     <div>
       <div style={{ marginBottom: "1.5rem" }}>
-        <h2 style={{ fontSize: "1.5rem", fontWeight: 700, marginBottom: "0.35rem" }}>Usuários e acesso</h2>
-        <p style={{ color: "var(--muted)", fontSize: "0.9rem", lineHeight: 1.6, maxWidth: "620px" }}>
+        <h2 style={{ fontSize: "var(--text-metric-lg)", fontWeight: 700, marginBottom: "0.35rem" }}>Usuários e acesso</h2>
+        <p style={{ color: "var(--muted)", fontSize: "var(--text-cardtitle)", lineHeight: 1.6, maxWidth: "620px" }}>
           Administradores abrem este painel — metas, credenciais das integrações, prompts de IA e
           logs. Membros usam o resto da plataforma normalmente, sem ver nenhuma credencial.
         </p>
@@ -105,7 +105,7 @@ export default function UsuariosPage() {
             padding: "0.85rem 1rem",
             borderRadius: "8px",
             marginBottom: "1.25rem",
-            fontSize: "0.85rem",
+            fontSize: "var(--text-control)",
             lineHeight: 1.5,
           }}
         >
@@ -120,7 +120,7 @@ export default function UsuariosPage() {
         </div>
       ) : (
         <>
-          <div style={{ fontSize: "0.75rem", color: "var(--muted)", marginBottom: "0.75rem" }}>
+          <div style={{ fontSize: "var(--text-caption)", color: "var(--muted)", marginBottom: "0.75rem" }}>
             {users.length} {users.length === 1 ? "conta" : "contas"} · {admins}{" "}
             {admins === 1 ? "administrador" : "administradores"}
           </div>
@@ -152,14 +152,14 @@ export default function UsuariosPage() {
                   <Avatar src={user.image} name={name} size="md" isActive={user.isOnline} />
 
                   <div style={{ flex: 1, minWidth: "180px" }}>
-                    <div style={{ fontSize: "0.9rem", fontWeight: 600 }}>
+                    <div style={{ fontSize: "var(--text-cardtitle)", fontWeight: 600 }}>
                       {name}
                       {user.isSelf && (
                         <span style={{ color: "var(--muted)", fontWeight: 400 }}> (você)</span>
                       )}
                     </div>
-                    <div style={{ fontSize: "0.75rem", color: "var(--muted)" }}>{user.email}</div>
-                    <div style={{ fontSize: "0.7rem", color: "var(--muted)", opacity: 0.8, marginTop: "0.15rem" }}>
+                    <div style={{ fontSize: "var(--text-caption)", color: "var(--muted)" }}>{user.email}</div>
+                    <div style={{ fontSize: "var(--text-caption)", color: "var(--muted)", opacity: 0.8, marginTop: "0.15rem" }}>
                       {lastSeenLabel(user)}
                     </div>
                   </div>
@@ -170,26 +170,7 @@ export default function UsuariosPage() {
                       const Icon = role === "ADMIN" ? ShieldCheck : UserIcon;
 
                       return (
-                        <button
-                          key={role}
-                          onClick={() => !selected && changeRole(user, role)}
-                          disabled={selected || savingId === user.id}
-                          style={{
-                            display: "flex",
-                            alignItems: "center",
-                            gap: "0.4rem",
-                            padding: "0.45rem 0.8rem",
-                            borderRadius: "100px",
-                            fontSize: "0.75rem",
-                            fontWeight: 600,
-                            cursor: selected || savingId === user.id ? "default" : "pointer",
-                            border: `1px solid ${selected ? "var(--primary)" : "var(--card-border)"}`,
-                            background: selected ? "rgba(22, 163, 74, 0.12)" : "transparent",
-                            color: selected ? "var(--primary)" : "var(--muted)",
-                            opacity: savingId === user.id ? 0.5 : 1,
-                            transition: "all 0.2s",
-                          }}
-                        >
+                        <button key={role} onClick={() => !selected && changeRole(user, role)} disabled={selected || savingId === user.id} aria-pressed={selected} className="btn btn-toggle" >
                           <Icon size={14} />
                           {role === "ADMIN" ? "Administrador" : "Membro"}
                         </button>
@@ -201,7 +182,7 @@ export default function UsuariosPage() {
                     <div
                       style={{
                         width: "100%",
-                        fontSize: "0.7rem",
+                        fontSize: "var(--text-caption)",
                         color: "var(--muted)",
                         opacity: 0.8,
                       }}

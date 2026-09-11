@@ -226,10 +226,10 @@ export default function Home() {
           
           <div style={{ display: "flex", flexDirection: "column", gap: "1.5rem", marginBottom: "1rem" }}>
             <div style={{ display: "flex", flexDirection: "column", gap: "0.25rem" }}>
-              <h1 style={{ fontSize: "2.5rem", fontWeight: 800, margin: 0, wordBreak: "break-word" }} className="lowercase-title">
+              <h1 style={{ fontSize: "var(--text-page)", fontWeight: 800, margin: 0, wordBreak: "break-word" }} className="lowercase-title">
                 dashboard criativo<span className="dot-green">.</span>
               </h1>
-              <p style={{ color: "#6B7280", maxWidth: "600px", lineHeight: 1.6, margin: 0 }} className="lowercase-title">
+              <p style={{ color: "var(--muted)", maxWidth: "600px", lineHeight: 1.6, margin: 0 }} className="lowercase-title">
                 acompanhe a performance real dos seus criativos a partir de seu histórico.
               </p>
             </div>
@@ -248,7 +248,7 @@ export default function Home() {
                       value={selectedDesigner || ""}
                       onChange={(e) => setSelectedDesigner(e.target.value || null)}
                       style={{
-                        border: "none", background: "transparent", fontSize: "0.85rem", fontWeight: 600, cursor: "pointer", 
+                        border: "none", background: "transparent", fontSize: "var(--text-control)", fontWeight: 600, cursor: "pointer", 
                         color: "var(--foreground)", outline: "none", appearance: "none", paddingRight: "1.2rem",
                       }}
                     >
@@ -273,7 +273,7 @@ export default function Home() {
                     value={channelFilter}
                     onChange={(e) => setChannelFilter(e.target.value)}
                     style={{
-                      border: "none", background: "transparent", fontSize: "0.85rem", fontWeight: 600, cursor: "pointer", 
+                      border: "none", background: "transparent", fontSize: "var(--text-control)", fontWeight: 600, cursor: "pointer", 
                       color: "var(--foreground)", outline: "none", appearance: "none", paddingRight: "1.2rem",
                     }}
                   >
@@ -296,7 +296,7 @@ export default function Home() {
                     value={statusFilter}
                     onChange={(e) => setStatusFilter(e.target.value)}
                     style={{
-                      border: "none", background: "transparent", fontSize: "0.85rem", fontWeight: 600, cursor: "pointer", 
+                      border: "none", background: "transparent", fontSize: "var(--text-control)", fontWeight: 600, cursor: "pointer", 
                       color: "var(--foreground)", outline: "none", appearance: "none", paddingRight: "1.2rem",
                     }}
                   >
@@ -327,7 +327,7 @@ export default function Home() {
                 style={{ 
                   display: "flex", alignItems: "center", gap: "0.6rem", background: "var(--card-bg)", padding: "0.4rem 0.75rem", 
                   borderRadius: "8px", border: "1px solid var(--card-border)", boxShadow: "var(--card-shadow)", whiteSpace: "nowrap", cursor: "pointer", userSelect: "none",
-                  fontSize: "0.85rem", fontWeight: 600, color: "var(--foreground)", flexShrink: 0, height: "36px"
+                  fontSize: "var(--text-control)", fontWeight: 600, color: "var(--foreground)", flexShrink: 0, height: "36px"
                 }}
               >
                 <div style={{
@@ -354,14 +354,14 @@ export default function Home() {
             </div>
             
             <div style={{ display: "flex", alignItems: "flex-start", gap: "0.75rem", background: "rgba(59, 130, 246, 0.05)", border: "1px solid rgba(59, 130, 246, 0.15)", padding: "1rem", borderRadius: "8px", marginBottom: "1.5rem" }}>
-              <div style={{ color: "#3b82f6", flexShrink: 0, marginTop: "2px" }}>
+              <div style={{ color: "var(--info)", flexShrink: 0, marginTop: "2px" }}>
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="16" x2="12" y2="12"></line><line x1="12" y1="8" x2="12.01" y2="8"></line></svg>
               </div>
-              <p style={{ margin: 0, fontSize: "0.85rem", color: "var(--foreground)", opacity: 0.8, lineHeight: 1.5 }}>
+              <p style={{ margin: 0, fontSize: "var(--text-control)", color: "var(--foreground)", opacity: 0.8, lineHeight: 1.5 }}>
                 <strong>Aviso sobre Atribuição da Meta:</strong> O Meta Ads leva de 1 a 24 horas para atualizar e exibir os dados de uma compra no Gerenciador de Anúncios. Em muitos casos o evento aparece em poucas horas, mas o painel pode demorar até 48 horas para consolidar a atribuição correta e refletir todas as conversões.{" "}
-                <a href="https://www.reddit.com/r/FacebookAds/comments/1t4kh4m/ads_manager_data_update_time/?tl=pt-br" target="_blank" rel="noopener noreferrer" style={{ color: "#3b82f6", textDecoration: "none" }}>[1]</a>{" "}
-                <a href="https://www.reddit.com/r/PPC/comments/1ku6n7h/how_long_does_it_take_for_meta_ads_to_start/?tl=pt-br" target="_blank" rel="noopener noreferrer" style={{ color: "#3b82f6", textDecoration: "none" }}>[2]</a>{" "}
-                <a href="https://www.reddit.com/r/PPC/comments/122p8ge/how_long_does_it_take_for_conversions_to_show_up/?tl=pt-br" target="_blank" rel="noopener noreferrer" style={{ color: "#3b82f6", textDecoration: "none" }}>[3]</a>
+                <a href="https://www.reddit.com/r/FacebookAds/comments/1t4kh4m/ads_manager_data_update_time/?tl=pt-br" target="_blank" rel="noopener noreferrer" style={{ color: "var(--info)", textDecoration: "none" }}>[1]</a>{" "}
+                <a href="https://www.reddit.com/r/PPC/comments/1ku6n7h/how_long_does_it_take_for_meta_ads_to_start/?tl=pt-br" target="_blank" rel="noopener noreferrer" style={{ color: "var(--info)", textDecoration: "none" }}>[2]</a>{" "}
+                <a href="https://www.reddit.com/r/PPC/comments/122p8ge/how_long_does_it_take_for_conversions_to_show_up/?tl=pt-br" target="_blank" rel="noopener noreferrer" style={{ color: "var(--info)", textDecoration: "none" }}>[3]</a>
               </p>
             </div>
 
@@ -390,7 +390,7 @@ export default function Home() {
                   ◇ VALOR BRUTO
                   {metrics.conversions?.grossRevenue?.key && (
                     <span
-                      style={{ marginLeft: '0.4rem', fontWeight: 500, opacity: 0.65, textTransform: 'none', letterSpacing: 0 }}
+                      style={{ marginLeft: '0.4rem', fontWeight: 400, opacity: 0.65, textTransform: 'none', letterSpacing: 0 }}
                       title={`Evento de conversão: ${metrics.conversions.grossRevenue.key}${metrics.conversions.grossRevenue.id ? ` (${metrics.conversions.grossRevenue.id})` : ''}`}
                     >
                       · {metrics.conversions.grossRevenue.key}
@@ -418,7 +418,7 @@ export default function Home() {
                   ◇ CPA MÉDIO
                   {metrics.conversions?.cpa?.key && (
                     <span
-                      style={{ marginLeft: '0.4rem', fontWeight: 500, opacity: 0.65, textTransform: 'none', letterSpacing: 0 }}
+                      style={{ marginLeft: '0.4rem', fontWeight: 400, opacity: 0.65, textTransform: 'none', letterSpacing: 0 }}
                       title={`Evento de conversão: ${metrics.conversions.cpa.key}${metrics.conversions.cpa.id ? ` (${metrics.conversions.cpa.id})` : ''}`}
                     >
                       · {metrics.conversions.cpa.key}

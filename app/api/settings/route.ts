@@ -187,7 +187,11 @@ export async function POST(request: Request) {
     if (huggingFaceApiKey !== undefined) updateData.huggingFaceApiKey = huggingFaceApiKey;
     if (slackBotToken !== undefined) updateData.slackBotToken = slackBotToken;
     if (slackChannelId !== undefined) updateData.slackChannelId = slackChannelId;
-    if (teamCreativeGoal !== undefined) updateData.teamCreativeGoal = parseInt(teamCreativeGoal) || 300;
+    if (teamCreativeGoal !== undefined) {
+      // `|| 300` recusava o zero: meta global zerada voltava a 300 na gravação.
+      const parsed = parseInt(teamCreativeGoal, 10);
+      updateData.teamCreativeGoal = Number.isFinite(parsed) && parsed >= 0 ? parsed : 300;
+    }
     if (cronSyncEnabled !== undefined) updateData.cronSyncEnabled = Boolean(cronSyncEnabled);
     if (cronSyncInterval !== undefined) updateData.cronSyncInterval = parseInt(cronSyncInterval) || 120;
     if (cpanelUploadUrl !== undefined) updateData.cpanelUploadUrl = cpanelUploadUrl;

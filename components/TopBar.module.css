@@ -117,7 +117,7 @@
 
 .mobileMenuOverlay .navLink {
   padding: 0.75rem 1rem;
-  font-size: 1rem;
+  font-size: var(--text-cardtitle);
   border-radius: 8px;
   background-color: rgba(255,255,255,0.02);
 }
@@ -138,8 +138,8 @@
 }
 
 .navLink {
-  font-size: 0.8rem;
-  font-weight: 500;
+  font-size: var(--text-control);
+  font-weight: 400;
   color: var(--foreground);
   opacity: 0.8;
   transition: opacity 0.2s;
@@ -191,11 +191,11 @@
 
 .userName {
   font-size: 0.875rem;
-  font-weight: 500;
+  font-weight: 400;
 }
 
 .logoutBtn {
-  font-size: 0.75rem;
+  font-size: var(--text-caption);
   color: var(--danger);
   text-align: left;
 }

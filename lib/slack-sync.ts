@@ -9,6 +9,12 @@
 
 import prisma from "./prisma";
 import { logExternalFailure } from "./external-log";
+import {
+  buildAliasIndex,
+  resolveDesigner,
+  splitAcronyms,
+  UNATTRIBUTED_ACRONYM,
+} from "./designer-match";
 
 type SettingsRow = Awaited<ReturnType<typeof prisma.systemSettings.findUnique>>;
 
@@ -26,6 +32,25 @@ export interface SlackSyncOptions {
   fullMonth?: boolean;
   month?: number;
   year?: number;
+}
+
+/**
+ * O texto da mensagem sem os alvos de link, para o casamento de sigla.
+ *
+ * 86% das mensagens do canal trazem um link do Drive, e o Slack os escreve como
+ * `<url|rótulo>`. O identificador do arquivo é aleatório, então mais cedo ou
+ * mais tarde ele contém uma sigla de duas letras por acaso — foi o que
+ * aconteceu com `1qGDhFCnqKzI-PP6_FLEh...`, que dava a peça de PT para PP.
+ *
+ * O rótulo é preservado porque é o nome do arquivo, e é ali que a convenção do
+ * time põe a assinatura ("08_vídeo_pt_allu-ads-..."). Já menções (`<@U085...>`)
+ * e links sem rótulo não têm texto humano nenhum e saem inteiros.
+ */
+export function slackTextForMatching(text: string): string {
+  return text.replace(/<([^<>]*)>/g, (_full, inner: string) => {
+    const separator = inner.indexOf("|");
+    return separator >= 0 ? inner.slice(separator + 1) : " ";
+  });
 }
 
 export function isSlackConfigured(settings: SettingsRow): boolean {
@@ -123,18 +148,21 @@ export async function runSlackSync(
 
   const creators = await prisma.creator.findMany();
 
-  // Pré-compilar as Expressões Regulares para máxima performance
-  const creatorRegexes: { creator: any; regex: RegExp }[] = [];
+  /*
+   * As entregas passam pela MESMA regra dos criativos (`lib/designer-match`).
+   *
+   * Aqui havia uma segunda implementação: montava um regex por sigla e ficava
+   * com o primeiro que casasse, na ordem em que o banco devolvia os criadores.
+   * Três consequências — "UNKNOWN" era casado como se fosse sigla de gente;
+   * "INFLUENCIADORES" vencia a assinatura do designer no fim da mensagem, que é
+   * a convenção do time; e o resultado mudava conforme a ordem do banco.
+   */
+  const aliases = buildAliasIndex(creators);
+
+  const creatorByAcronym = new Map<string, (typeof creators)[number]>();
   for (const creator of creators) {
-    const acronyms = creator.acronym
-      .split(",")
-      .map((a: string) => a.trim())
-      .filter(Boolean);
-    for (const ac of acronyms) {
-      creatorRegexes.push({
-        creator,
-        regex: new RegExp(`(^|[^a-zA-Z0-9])(${ac})([^a-zA-Z0-9]|$)`, "i"),
-      });
+    for (const token of splitAcronyms(creator.acronym)) {
+      if (!creatorByAcronym.has(token)) creatorByAcronym.set(token, creator);
     }
   }
 
@@ -160,17 +188,11 @@ export async function runSlackSync(
     const piecesCount = Number(piecesMatch[1]);
     if (piecesCount <= 0) continue;
 
-    let matchedCreator = null;
-    for (const { creator, regex } of creatorRegexes) {
-      if (regex.test(text)) {
-        matchedCreator = creator;
-        break;
-      }
-    }
-
-    if (!matchedCreator) {
-      matchedCreator = unknownCreator;
-    }
+    const canonical = resolveDesigner(slackTextForMatching(text), aliases);
+    const matchedCreator =
+      (canonical && canonical !== UNATTRIBUTED_ACRONYM
+        ? creatorByAcronym.get(canonical)
+        : null) ?? unknownCreator;
 
     opsToRun.push({
       slackTs: msg.ts,

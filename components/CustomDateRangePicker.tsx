@@ -40,7 +40,7 @@ export default function CustomDateRangePicker({ dateFrom, dateTo, maxDate, onCha
           box-shadow: var(--card-shadow) !important;
           font-family: inherit !important;
           font-weight: 600 !important;
-          font-size: 0.85rem !important;
+          font-size: var(--text-control) !important;
           padding: 0.5rem 0.8rem 0.5rem 2.5rem !important;
           cursor: pointer !important;
           transition: all 0.2s !important;

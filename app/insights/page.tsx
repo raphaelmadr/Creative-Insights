@@ -12,10 +12,18 @@ export default function InsightsPage() {
   const { updates, loading, loadingText, isSearching, searchForUpdates, markAllAsRead, unreadCount, hasMore, isFetchingMore, loadMoreUpdates, lastReadDate } = useNotifications();
   const [selectedUpdate, setSelectedUpdate] = useState<UpdateItem | null>(null);
 
+  /*
+   * Urgência e categoria saem da paleta do tema.
+   *
+   * `var(--destructive)` não existe neste projeto — o token é `--danger` —, então
+   * a urgência "alta", justamente a que precisa saltar, saía sem cor nenhuma. E
+   * a categoria tinha cinco cores próprias (#2ed573, #ff4757, #3742fa...) que
+   * não apareciam em nenhuma outra tela.
+   */
   const getUrgencyColor = (urgency: string) => {
     switch (urgency?.toLowerCase()) {
-      case "alta": return "var(--destructive)";
-      case "média": 
+      case "alta": return "var(--danger)";
+      case "média":
       case "media": return "var(--warning)";
       case "baixa": return "var(--success)";
       default: return "var(--primary)";
@@ -24,11 +32,11 @@ export default function InsightsPage() {
 
   const getCategoryColor = (category: string) => {
     switch (category?.toLowerCase()) {
-      case "criativos": return "#2ed573";
-      case "estudo de caso": return "#ff4757";
-      case "growth": return "#3742fa";
-      case "dica de ferramenta": return "#ffa502";
-      default: return "#5352ed";
+      case "criativos": return "var(--primary)";
+      case "estudo de caso": return "var(--danger)";
+      case "growth": return "var(--info)";
+      case "dica de ferramenta": return "var(--warning)";
+      default: return "var(--muted)";
     }
   };
 
@@ -41,11 +49,11 @@ export default function InsightsPage() {
         
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "1rem" }}>
           <div>
-            <h1 style={{ fontSize: "2.5rem", fontWeight: 800, marginBottom: "0.25rem", display: "flex", alignItems: "center", gap: "0.5rem", flexWrap: "wrap" }} className="lowercase-title">
+            <h1 style={{ fontSize: "var(--text-page)", fontWeight: 800, marginBottom: "0.25rem", display: "flex", alignItems: "center", gap: "0.5rem", flexWrap: "wrap" }} className="lowercase-title">
               <Lightbulb size={32} color="var(--primary)" />
               insights de mercado &amp; criativos<span className="dot-green">.</span>
             </h1>
-            <p style={{ opacity: 0.7, marginTop: "0.5rem" }}>
+            <p style={{ color: "var(--muted)", marginTop: "0.5rem" }}>
               Acompanhe as últimas tendências, estudos de caso e novidades de alta performance para o time criativo.
             </p>
           </div>
@@ -74,7 +82,7 @@ export default function InsightsPage() {
         {isSearching && !loading && (
           <div className="glass-panel" style={{ display: "flex", alignItems: "center", justifyContent: "center", padding: "1rem", gap: "1rem", border: "1px solid var(--primary)" }}>
             <Loader2 size={24} color="var(--primary)" className="spin" style={{ animation: "spin 2s linear infinite" }} />
-            <span style={{ fontWeight: 500 }}>{loadingText}</span>
+            <span style={{ fontWeight: 400 }}>{loadingText}</span>
           </div>
         )}
 
@@ -132,7 +140,7 @@ export default function InsightsPage() {
                         <div style={{ position: "absolute", top: "0.7rem", left: "0.7rem", right: "0.7rem", display: "flex", gap: "0.4rem", flexWrap: "wrap" }}>
                           <span style={{
                             padding: "0.2rem 0.5rem", borderRadius: "100px",
-                            fontSize: "0.62rem", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.04em",
+                            fontSize: "var(--text-eyebrow)", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.04em",
                             background: "rgba(10,10,12,0.72)", color: getCategoryColor(update.category),
                             backdropFilter: "blur(6px)", WebkitBackdropFilter: "blur(6px)",
                           }}>
@@ -141,7 +149,7 @@ export default function InsightsPage() {
                           {isUnread && (
                             <span style={{
                               padding: "0.2rem 0.5rem", borderRadius: "100px",
-                              fontSize: "0.62rem", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.04em",
+                              fontSize: "var(--text-eyebrow)", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.04em",
                               background: "var(--primary)", color: "#fff",
                               marginLeft: "auto",
                             }}>
@@ -153,7 +161,7 @@ export default function InsightsPage() {
 
                       {/* Content Area */}
                       <div style={{ padding: "1.25rem", display: "flex", flexDirection: "column", gap: "0.75rem", flex: 1 }}>
-                        <h3 style={{ fontSize: "1.1rem", color: "var(--foreground)", margin: 0, lineHeight: 1.3, display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden" }}>
+                        <h3 style={{ fontSize: "var(--text-metric)", color: "var(--foreground)", margin: 0, lineHeight: 1.3, display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden" }}>
                           {update.title}
                         </h3>
                         
@@ -170,7 +178,7 @@ export default function InsightsPage() {
                         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: "0.75rem", marginTop: "auto", paddingTop: "0.9rem", borderTop: "1px solid var(--card-border)" }}>
                           {/* De onde veio e quando: os dois dados que decidem
                               se vale abrir, e que o cartão não mostrava. */}
-                          <span style={{ fontSize: "0.72rem", color: "var(--muted)", display: "flex", alignItems: "center", gap: "0.4rem", minWidth: 0 }}>
+                          <span style={{ fontSize: "var(--text-caption)", color: "var(--muted)", display: "flex", alignItems: "center", gap: "0.4rem", minWidth: 0 }}>
                             <span style={{ whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
                               {sourceDomain(update.sourceUrl) || "fonte não informada"}
                             </span>
@@ -179,7 +187,7 @@ export default function InsightsPage() {
                               {new Date(update.timestamp).toLocaleDateString("pt-BR", { day: "2-digit", month: "short" })}
                             </span>
                           </span>
-                          <span className="insight-card-cta" style={{ fontSize: "0.75rem", color: "var(--primary)", fontWeight: 600, whiteSpace: "nowrap" }}>Ler &rarr;</span>
+                          <span className="insight-card-cta" style={{ fontSize: "var(--text-caption)", color: "var(--primary)", fontWeight: 600, whiteSpace: "nowrap" }}>Ler &rarr;</span>
                         </div>
                       </div>
                     </div>
@@ -233,16 +241,7 @@ export default function InsightsPage() {
               boxShadow: "0 25px 50px -12px rgba(0, 0, 0, 0.5)"
             }}
           >
-            <button 
-              onClick={() => setSelectedUpdate(null)}
-              style={{
-                position: "absolute", top: "1rem", right: "1rem",
-                background: "rgba(0,0,0,0.6)", border: "none", color: "#fff",
-                borderRadius: "50%", width: "40px", height: "40px",
-                display: "flex", alignItems: "center", justifyContent: "center",
-                cursor: "pointer", zIndex: 10, backdropFilter: "blur(4px)", WebkitBackdropFilter: "blur(4px)"
-              }}
-            >
+            <button onClick={() => setSelectedUpdate(null)} className="btn btn-icon" style={{ position: "absolute", top: "1rem", right: "1rem", color: "#fff", width: "40px", height: "40px", zIndex: 10, backdropFilter: "blur(4px)", WebkitBackdropFilter: "blur(4px)" }} >
               <X size={24} />
             </button>
 
@@ -257,27 +256,27 @@ export default function InsightsPage() {
             <div style={{ padding: "2.5rem", display: "flex", flexDirection: "column", gap: "1.5rem" }}>
               <div style={{ display: "flex", gap: "0.75rem", flexWrap: "wrap" }}>
                 <span style={{ 
-                  padding: "0.25rem 0.75rem", borderRadius: "1rem", fontSize: "0.8rem", fontWeight: 700, textTransform: "uppercase",
+                  padding: "0.25rem 0.75rem", borderRadius: "1rem", fontSize: "var(--text-control)", fontWeight: 700, textTransform: "uppercase",
                   backgroundColor: getCategoryColor(selectedUpdate.category) + "20",
                   color: getCategoryColor(selectedUpdate.category), border: `1px solid ${getCategoryColor(selectedUpdate.category)}40`
                 }}>
                   {selectedUpdate.category}
                 </span>
                 <span style={{ 
-                  padding: "0.25rem 0.75rem", borderRadius: "1rem", fontSize: "0.8rem", fontWeight: 700, textTransform: "uppercase",
+                  padding: "0.25rem 0.75rem", borderRadius: "1rem", fontSize: "var(--text-control)", fontWeight: 700, textTransform: "uppercase",
                   backgroundColor: getUrgencyColor(selectedUpdate.urgency) + "20",
                   color: getUrgencyColor(selectedUpdate.urgency), border: `1px solid ${getUrgencyColor(selectedUpdate.urgency)}40`
                 }}>
                   {selectedUpdate.urgency}
                 </span>
-                <span style={{ fontSize: "0.9rem", opacity: 0.6, display: "flex", alignItems: "center", marginLeft: "auto" }}>
+                <span style={{ fontSize: "var(--text-cardtitle)", opacity: 0.6, display: "flex", alignItems: "center", marginLeft: "auto" }}>
                   {new Date(selectedUpdate.timestamp).toLocaleDateString("pt-BR", { day: '2-digit', month: 'long', year: 'numeric' })}
                 </span>
               </div>
 
-              <h2 style={{ fontSize: "1.75rem", margin: "0.5rem 0", color: "var(--foreground)", lineHeight: 1.3 }}>{selectedUpdate.title}</h2>
+              <h2 style={{ fontSize: "var(--text-metric-lg)", margin: "0.5rem 0", color: "var(--foreground)", lineHeight: 1.3 }}>{selectedUpdate.title}</h2>
 
-              <div className="insight-modal-content" style={{ opacity: 0.9, lineHeight: 1.6, fontSize: "0.95rem", color: "var(--foreground)", display: "flex", flexDirection: "column", gap: "1rem" }}>
+              <div className="insight-modal-content" style={{ opacity: 0.9, lineHeight: 1.6, fontSize: "var(--text-cardtitle)", color: "var(--foreground)", display: "flex", flexDirection: "column", gap: "1rem" }}>
                 <ReactMarkdown>{selectedUpdate.content}</ReactMarkdown>
               </div>
 
@@ -310,7 +309,7 @@ export default function InsightsPage() {
         .insight-card-preview h2,
         .insight-card-preview h3,
         .insight-card-preview h4 {
-          font-size: 0.95rem !important;
+          font-size: var(--text-cardtitle) !important;
           font-weight: 700 !important;
           margin-top: 0 !important;
           margin-bottom: 0.25rem !important;
@@ -320,7 +319,7 @@ export default function InsightsPage() {
         .insight-card-preview p,
         .insight-card-preview ul,
         .insight-card-preview li {
-          font-size: 0.85rem !important;
+          font-size: var(--text-control) !important;
           margin-top: 0 !important;
           margin-bottom: 0.25rem !important;
           line-height: 1.5 !important;
@@ -340,7 +339,7 @@ export default function InsightsPage() {
         }
         .insight-modal-content p,
         .insight-modal-content li {
-          font-size: 0.95rem !important;
+          font-size: var(--text-cardtitle) !important;
           line-height: 1.6 !important;
         }
       `}</style>

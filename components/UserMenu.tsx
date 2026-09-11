@@ -57,8 +57,8 @@ export default function UserMenu() {
     background: "transparent",
     border: "none",
     color: "var(--foreground)",
-    fontSize: "0.85rem",
-    fontWeight: 500,
+    fontSize: "var(--text-control)",
+    fontWeight: 400,
     textAlign: "left",
     textDecoration: "none",
     cursor: "pointer",
@@ -74,21 +74,7 @@ export default function UserMenu() {
 
   return (
     <div ref={containerRef} style={{ position: "relative" }}>
-      <button
-        onClick={() => setIsOpen(!isOpen)}
-        title={name}
-        aria-haspopup="menu"
-        aria-expanded={isOpen}
-        style={{
-          display: "flex",
-          alignItems: "center",
-          background: "transparent",
-          border: "none",
-          padding: 0,
-          cursor: "pointer",
-          borderRadius: "50%",
-        }}
-      >
+      <button onClick={() => setIsOpen(!isOpen)} title={name} aria-haspopup="menu" aria-expanded={isOpen} className="btn btn-avatar" >
         <Avatar src={user.image} name={name} size="sm" isActive={false} />
       </button>
 
@@ -121,7 +107,7 @@ export default function UserMenu() {
             <div style={{ minWidth: 0 }}>
               <div
                 style={{
-                  fontSize: "0.85rem",
+                  fontSize: "var(--text-control)",
                   fontWeight: 600,
                   whiteSpace: "nowrap",
                   overflow: "hidden",
@@ -132,7 +118,7 @@ export default function UserMenu() {
               </div>
               <div
                 style={{
-                  fontSize: "0.7rem",
+                  fontSize: "var(--text-caption)",
                   color: "var(--muted)",
                   whiteSpace: "nowrap",
                   overflow: "hidden",
@@ -145,7 +131,7 @@ export default function UserMenu() {
                 style={{
                   display: "inline-block",
                   marginTop: "0.35rem",
-                  fontSize: "0.6rem",
+                  fontSize: "var(--text-eyebrow)",
                   fontWeight: 700,
                   letterSpacing: "0.03em",
                   color: isAdmin ? "var(--primary)" : "var(--muted)",

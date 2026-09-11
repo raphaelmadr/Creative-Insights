@@ -216,12 +216,12 @@ export default function DateRangePicker({ dateFrom, dateTo, onChange }: DateRang
     const grid = generateCalendarGrid(y, m);
     return (
       <div style={{ flex: 1, minWidth: "250px" }}>
-        <div style={{ display: "flex", justifyContent: "center", marginBottom: "1rem", fontWeight: 600, fontSize: "0.95rem" }}>
+        <div style={{ display: "flex", justifyContent: "center", marginBottom: "1rem", fontWeight: 600, fontSize: "var(--text-cardtitle)" }}>
           {MONTH_NAMES[m]} de {y}
         </div>
         <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: "2px", marginBottom: "0.5rem" }}>
           {WEEK_DAYS.map((d, i) => (
-            <div key={i} style={{ textAlign: "center", fontSize: "0.75rem", color: "var(--muted)", fontWeight: 500, padding: "4px 0" }}>
+            <div key={i} style={{ textAlign: "center", fontSize: "var(--text-caption)", color: "var(--muted)", fontWeight: 400, padding: "4px 0" }}>
               {d}
             </div>
           ))}
@@ -265,26 +265,7 @@ export default function DateRangePicker({ dateFrom, dateTo, onChange }: DateRang
                     {/* The highlight bar for ranges */}
                     {(isSel || isHovRange) && <div style={{ position: "absolute", top: "4px", bottom: "4px", left: 0, right: 0, ...bgStyle, borderRadius: borderRad, zIndex: 1 }} />}
                     
-                    <button
-                      onClick={() => handleDateClick(date)}
-                      onMouseEnter={() => setHoverDate(date)}
-                      style={{
-                        position: "relative", zIndex: 2,
-                        width: "32px", height: "32px", margin: "0 auto", display: "flex", alignItems: "center", justifyContent: "center",
-                        borderRadius: "50%",
-                        fontSize: "0.85rem", fontWeight: isBound ? 600 : 500,
-                        background: isBound ? "var(--primary)" : "transparent",
-                        color: isBound ? "#fff" : "var(--foreground)",
-                        cursor: "pointer", border: "none", outline: "none",
-                        transition: "all 0.1s"
-                      }}
-                      onMouseOver={(e) => {
-                        if (!isBound) (e.currentTarget as HTMLButtonElement).style.background = isSel || isHovRange ? "transparent" : "rgba(0,0,0,0.05)";
-                      }}
-                      onMouseOut={(e) => {
-                        if (!isBound) (e.currentTarget as HTMLButtonElement).style.background = "transparent";
-                      }}
-                    >
+                    <button onClick={() => handleDateClick(date)} onMouseEnter={() => setHoverDate(date)} aria-pressed={!!isBound} className="btn btn-day" style={{ position: "relative", zIndex: 2 }} >
                       {date.getUTCDate()}
                     </button>
                   </div>
@@ -304,14 +285,7 @@ export default function DateRangePicker({ dateFrom, dateTo, onChange }: DateRang
   return (
     <div ref={wrapperRef} style={{ position: "relative" }}>
       {/* Trigger Button */}
-      <button 
-        onClick={() => setIsOpen(!isOpen)}
-        style={{ 
-          display: "flex", alignItems: "center", gap: "0.5rem", background: "var(--card-bg)", padding: "0.4rem 0.75rem", 
-          borderRadius: "8px", border: "1px solid var(--card-border)", boxShadow: "var(--card-shadow)", whiteSpace: "nowrap", width: "270px",
-          color: "var(--foreground)", fontSize: "0.85rem", fontWeight: 600, cursor: "pointer"
-        }}
-      >
+      <button onClick={() => setIsOpen(!isOpen)} className="btn btn-secondary" style={{ width: "270px", color: "var(--foreground)" }} >
         <CalendarIcon size={16} style={{ opacity: 0.8 }} />
         <span style={{ flex: 1, textAlign: "left" }}>
           {dateFrom && dateTo ? `${formatDisplay(initialStart)} ~ ${formatDisplay(initialEnd)}` : "Selecionar período"}
@@ -334,17 +308,7 @@ export default function DateRangePicker({ dateFrom, dateTo, onChange }: DateRang
                 { label: "Mês passado", val: "last_month" },
                 { label: "Sempre", val: "all_time" }
               ].map(preset => (
-                <button
-                  key={preset.val}
-                  onClick={() => applyPreset(preset.val)}
-                  style={{
-                    textAlign: "left", padding: "0.4rem 0.5rem", borderRadius: "6px", fontSize: "0.85rem", fontWeight: 500,
-                    background: "transparent", border: "none", cursor: "pointer", color: "var(--foreground)",
-                    transition: "background 0.1s"
-                  }}
-                  onMouseOver={(e) => (e.currentTarget as HTMLButtonElement).style.background = "var(--primary-glow)"}
-                  onMouseOut={(e) => (e.currentTarget as HTMLButtonElement).style.background = "transparent"}
-                >
+                <button key={preset.val} onClick={() => applyPreset(preset.val)} className="btn btn-ghost" style={{ textAlign: "left", color: "var(--foreground)" }} onMouseOver={(e) => (e.currentTarget as HTMLButtonElement).style.background = "var(--primary-glow)"} onMouseOut={(e) => (e.currentTarget as HTMLButtonElement).style.background = "transparent"} >
                   {preset.label}
                 </button>
               ))}
@@ -354,18 +318,12 @@ export default function DateRangePicker({ dateFrom, dateTo, onChange }: DateRang
             <div className="datePickerCalendars">
               
               {/* Prev Button */}
-              <button 
-                onClick={handlePrevMonth}
-                style={{ position: "absolute", left: "1.5rem", top: "1.5rem", background: "transparent", border: "none", cursor: "pointer", color: "var(--muted)" }}
-              >
+              <button onClick={handlePrevMonth} className="btn btn-icon" style={{ position: "absolute", left: "1.5rem", top: "1.5rem", color: "var(--muted)" }} >
                 <ChevronLeft size={20} />
               </button>
 
               {/* Next Button */}
-              <button 
-                onClick={handleNextMonth}
-                style={{ position: "absolute", right: "1.5rem", top: "1.5rem", background: "transparent", border: "none", cursor: "pointer", color: "var(--muted)" }}
-              >
+              <button onClick={handleNextMonth} className="btn btn-icon" style={{ position: "absolute", right: "1.5rem", top: "1.5rem", color: "var(--muted)" }} >
                 <ChevronRight size={20} />
               </button>
 
@@ -378,27 +336,20 @@ export default function DateRangePicker({ dateFrom, dateTo, onChange }: DateRang
           {/* Footer Area */}
           <div className="datePickerFooter">
             <div className="datePickerFooterInner" style={{ display: "flex", gap: "0.5rem", alignItems: "center" }}>
-              <div style={{ padding: "0.4rem 0.75rem", background: "var(--card-bg)", border: "1px solid var(--card-border)", borderRadius: "6px", fontSize: "0.85rem", fontWeight: 600 }}>
+              <div style={{ padding: "0.4rem 0.75rem", background: "var(--card-bg)", border: "1px solid var(--card-border)", borderRadius: "6px", fontSize: "var(--text-control)", fontWeight: 600 }}>
                 {start ? formatDisplay(start) : "DD/MM/YYYY"}
               </div>
               <span style={{ color: "var(--muted)" }}>-</span>
-              <div style={{ padding: "0.4rem 0.75rem", background: "var(--card-bg)", border: "1px solid var(--card-border)", borderRadius: "6px", fontSize: "0.85rem", fontWeight: 600 }}>
+              <div style={{ padding: "0.4rem 0.75rem", background: "var(--card-bg)", border: "1px solid var(--card-border)", borderRadius: "6px", fontSize: "var(--text-control)", fontWeight: 600 }}>
                 {end ? formatDisplay(end) : "DD/MM/YYYY"}
               </div>
             </div>
             
             <div className="datePickerFooterInner" style={{ display: "flex", gap: "0.75rem" }}>
-              <button 
-                onClick={() => setIsOpen(false)}
-                style={{ padding: "0.5rem 1rem", borderRadius: "6px", border: "1px solid var(--card-border)", background: "var(--card-bg)", fontSize: "0.85rem", fontWeight: 600, cursor: "pointer", color: "var(--foreground)" }}
-              >
+              <button onClick={() => setIsOpen(false)} className="btn btn-secondary" style={{ color: "var(--foreground)" }} >
                 Cancelar
               </button>
-              <button 
-                onClick={handleApply}
-                disabled={!start}
-                style={{ padding: "0.5rem 1rem", borderRadius: "6px", border: "none", background: "var(--primary)", fontSize: "0.85rem", fontWeight: 600, cursor: "pointer", color: "#fff", opacity: (!start) ? 0.5 : 1 }}
-              >
+              <button onClick={handleApply} disabled={!start} className="btn btn-primary" >
                 Aplicar
               </button>
             </div>

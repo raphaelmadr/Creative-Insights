@@ -50,19 +50,7 @@ export default function OnlineUsers() {
 
   return (
     <div ref={containerRef} style={{ position: "relative", display: "flex", alignItems: "center" }}>
-      <button
-        onClick={() => setIsOpen(!isOpen)}
-        title={`${users.length} ${users.length === 1 ? "pessoa online" : "pessoas online"}`}
-        style={{
-          display: "flex",
-          alignItems: "center",
-          gap: "0.5rem",
-          background: "transparent",
-          border: "none",
-          cursor: "pointer",
-          padding: "0.25rem",
-        }}
-      >
+      <button onClick={() => setIsOpen(!isOpen)} title={`${users.length} ${users.length === 1 ? "pessoa online" : "pessoas online"}`} className="btn btn-ghost" >
         <div style={{ display: "flex", alignItems: "center" }}>
           {visible.map((user, index) => (
             <div
@@ -95,7 +83,7 @@ export default function OnlineUsers() {
                 display: "flex",
                 alignItems: "center",
                 justifyContent: "center",
-                fontSize: "0.7rem",
+                fontSize: "var(--text-caption)",
                 fontWeight: 700,
                 color: "var(--muted)",
               }}
@@ -110,7 +98,7 @@ export default function OnlineUsers() {
             display: "flex",
             alignItems: "center",
             gap: "0.35rem",
-            fontSize: "0.75rem",
+            fontSize: "var(--text-caption)",
             color: "var(--muted)",
             whiteSpace: "nowrap",
           }}
@@ -147,7 +135,7 @@ export default function OnlineUsers() {
             style={{
               padding: "0.75rem 1rem",
               borderBottom: "1px solid var(--card-border)",
-              fontSize: "0.8rem",
+              fontSize: "var(--text-control)",
               fontWeight: 600,
             }}
           >
@@ -170,7 +158,7 @@ export default function OnlineUsers() {
                 <div style={{ minWidth: 0, flex: 1 }}>
                   <div
                     style={{
-                      fontSize: "0.8rem",
+                      fontSize: "var(--text-control)",
                       fontWeight: 600,
                       whiteSpace: "nowrap",
                       overflow: "hidden",
@@ -184,7 +172,7 @@ export default function OnlineUsers() {
                   </div>
                   <div
                     style={{
-                      fontSize: "0.7rem",
+                      fontSize: "var(--text-caption)",
                       color: "var(--muted)",
                       whiteSpace: "nowrap",
                       overflow: "hidden",
@@ -197,7 +185,7 @@ export default function OnlineUsers() {
                 {user.role === "ADMIN" && (
                   <span
                     style={{
-                      fontSize: "0.6rem",
+                      fontSize: "var(--text-eyebrow)",
                       fontWeight: 700,
                       letterSpacing: "0.03em",
                       color: "var(--primary)",

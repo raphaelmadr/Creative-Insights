@@ -27,7 +27,7 @@ export default function SafeImage({ src, alt, style }: SafeImageProps) {
         }}
       >
         <ImageIcon size={32} opacity={0.3} />
-        <span style={{ fontSize: "0.75rem", opacity: 0.5, fontWeight: 500 }}>Mídia Expirada</span>
+        <span style={{ fontSize: "var(--text-caption)", opacity: 0.5, fontWeight: 400 }}>Mídia Expirada</span>
       </div>
     );
   }

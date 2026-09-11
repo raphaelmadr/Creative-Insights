@@ -10,6 +10,11 @@
   --card-bg: #FFFFFF;
   --card-border: #E5E7EB;
   --card-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+
+  /* Bloco interno de um cartão. No claro afunda, no escuro clareia — por isso
+     é token: `rgba(255,255,255,0.03)` fixo some sobre o cartão branco. */
+  --surface-sunken: #F6F7F8;
+  --surface-sunken-border: #EDEFF2;
   
   --primary: #27AE60;
   --primary-hover: #2ECC71;
@@ -18,9 +23,45 @@
   --success: #27AE60;
   --danger: #EF4444;
   --warning: #F59E0B;
+  /* Azul de informação: era `#3B82F6` literal em sete lugares, sem token. */
+  --info: #3B82F6;
   
-  --font-sans: var(--font-inter), -apple-system, sans-serif;
+  --font-sans: var(--font-sans-family), -apple-system, BlinkMacSystemFont, sans-serif;
   --font-heading: var(--font-bricolage), -apple-system, sans-serif;
+
+  /* -------------------------------------------------------------------------
+     Escala de tipo
+
+     Nomeada pelo papel, não pelo tamanho: é o papel que diz qual usar. Antes
+     conviviam treze tamanhos entre 0.65rem e 1rem escolhidos um a um — a
+     projeção do mês saía em 0.7rem ao lado de um subtexto de cartão em
+     0.75rem, diferença visível e sem motivo.
+
+     Texto novo escolhe um destes. Um tamanho fora da escala precisa de uma
+     razão escrita ao lado.
+     ------------------------------------------------------------------------- */
+  --text-eyebrow: 0.65rem;    /* rótulo em maiúsculas, sobre um valor */
+  --text-caption: 0.75rem;    /* explicação, nota de rodapé, legenda */
+  --text-body: 0.8rem;        /* parágrafo e texto corrido */
+  --text-control: 0.85rem;    /* botão, seletor, texto de apoio */
+  --text-cardtitle: 0.95rem;  /* título de um cartão ou de uma seção */
+  --text-metric: 1.25rem;     /* valor de métrica em grade estreita */
+  --text-metric-lg: 1.75rem;  /* valor de métrica em grade larga */
+  --text-page: 2.5rem;        /* o h1 da página */
+
+  /* Raio. Conviviam 16px (glass-panel), 14px (insight-card), 12px, 8px, 6px e
+     4px, escolhidos um a um — nada distinguia um do outro além do acaso. */
+  --radius-card: 12px;        /* cartão que embrulha conteúdo */
+  --radius-block: 8px;        /* bloco interno, campo, botão de ícone */
+  --radius-pill: 100px;       /* botão de texto, selo, barra de progresso */
+
+  /* Espaço. Um cartão tinha 0.7rem de respiro, o vizinho 1.5rem, e a grade
+     entre eles ora 1rem ora 1.5rem — a tela parecia desalinhada sem que se
+     soubesse apontar por quê. */
+  --pad-card: 1rem;           /* respiro interno de um cartão */
+  --pad-card-lg: 1.25rem;     /* cartão que é a peça principal da tela */
+  --gap-grid: 1rem;           /* entre cartões de uma grade */
+  --gap-stack: 0.85rem;       /* entre blocos dentro de um cartão */
 }
 
 [data-theme='dark'] {
@@ -32,6 +73,9 @@
   --card-bg: #141416;
   --card-border: rgba(255, 255, 255, 0.12);
   --card-shadow: 0 4px 16px rgba(0, 0, 0, 0.2);
+
+  --surface-sunken: rgba(255, 255, 255, 0.035);
+  --surface-sunken-border: rgba(255, 255, 255, 0.08);
 }
 
 * {
@@ -68,6 +112,19 @@ h1, h2, h3, h4, h5, h6 {
   letter-spacing: -0.02em;
 }
 
+/*
+ * Texto corrido: 0.8rem em toda a plataforma.
+ *
+ * Os parágrafos herdavam o tamanho do navegador (16px) em algumas telas e
+ * recebiam 0.85, 0.9 ou 0.95rem em outras — a mesma frase mudava de tamanho
+ * conforme a página. Quem precisa de outro tamanho usa a escala `--text-*`
+ * explicitamente, e aí é uma decisão, não uma herança.
+ */
+p {
+  font-size: var(--text-body);
+  line-height: 1.55;
+}
+
 .lowercase-title {
   text-transform: lowercase;
 }
@@ -87,9 +144,8 @@ h1, h2, h3, h4, h5, h6 {
 .glass-panel {
   background: var(--card-bg);
   border: 1px solid var(--card-border);
-  border-radius: 16px;
+  border-radius: var(--radius-card);
   overflow: hidden;
-  font-weight: 500;
   transition: all 0.2s ease;
 }
 
@@ -149,13 +205,13 @@ h1, h2, h3, h4, h5, h6 {
 .fixed-grid-4 {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 1rem;
+  gap: var(--gap-grid);
 }
 
 .team-grid-3 {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 1.5rem;
+  gap: var(--gap-grid);
 }
 
 @media (max-width: 1024px) {
@@ -259,20 +315,21 @@ h1, h2, h3, h4, h5, h6 {
 
 .section-number {
   font-family: var(--font-mono, monospace);
-  font-size: 0.75rem;
+  font-size: var(--text-caption);
   opacity: 0.5;
   font-weight: 600;
 }
 
 .section-title {
-  font-size: 1.25rem;
+  font-size: var(--text-metric);
   font-weight: 700;
   text-transform: lowercase;
 }
 
 .section-subtitle {
-  font-size: 0.875rem;
-  color: #6B7280;
+  font-size: var(--text-control);
+  /* Mesmo caso do subtexto do cartão: cinza fixo não acompanha o tema escuro. */
+  color: var(--muted);
   font-weight: 400;
   text-transform: lowercase;
 }
@@ -280,19 +337,21 @@ h1, h2, h3, h4, h5, h6 {
 .allu-card {
   background: var(--card-bg);
   border: 1px solid var(--card-border);
-  border-radius: 8px;
-  padding: 1.25rem;
+  border-radius: var(--radius-block);
+  padding: var(--pad-card);
   display: flex;
   flex-direction: column;
+  gap: 0.35rem;
 }
 
+/* Sem `margin-bottom`: o espaço é o `gap` do `.allu-card`. Com a margem, a
+   classe só funcionava direito dentro dele — e ela é puramente tipográfica. */
 .allu-card-label {
-  font-size: 0.65rem;
+  font-size: var(--text-eyebrow);
   text-transform: uppercase;
   letter-spacing: 0.05em;
   color: #4B5563;
   font-weight: 600;
-  margin-bottom: 0.5rem;
   display: flex;
   align-items: center;
   gap: 0.25rem;
@@ -303,17 +362,21 @@ h1, h2, h3, h4, h5, h6 {
 }
 
 .allu-card-value {
-  font-size: 1.75rem;
+  font-size: var(--text-metric-lg);
   font-weight: 800;
   font-family: var(--font-heading);
   color: var(--foreground);
-  margin-bottom: 0.25rem;
   line-height: 1;
+  /* É sempre um número: as casas alinham entre um cartão e o de baixo. */
+  font-variant-numeric: tabular-nums;
 }
 
 .allu-card-subtext {
-  font-size: 0.75rem;
-  color: #6B7280;
+  font-size: var(--text-caption);
+  /* `var(--muted)` e não `#6B7280` fixo: o rótulo logo acima tem variante para
+     o tema escuro e este não tinha, então o subtexto ficava mais apagado que
+     todo o resto do texto secundário da plataforma no escuro. */
+  color: var(--muted);
   line-height: 1.4;
 }
 
@@ -327,6 +390,83 @@ h1, h2, h3, h4, h5, h6 {
 
 .allu-card-highlight .allu-card-value {
   color: var(--primary);
+}
+
+/* ---------------------------------------------------------------------------
+   Métricas de um time
+
+   Os mesmos cartões do dashboard criativo (`.allu-card`), numa grade que cabe
+   seis por linha e vai quebrando. O tom do time entra na borda e no rótulo —
+   como `.allu-card-highlight` faz com o verde — para o consolidado não se
+   confundir com os cartões das pessoas logo abaixo.
+
+   Os tons são tokens porque precisam de um valor por tema: o âmbar que
+   funciona sobre fundo branco some sobre o fundo escuro.
+   --------------------------------------------------------------------------- */
+.team-metrics-row {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--gap-grid);
+}
+
+@media (max-width: 900px) {
+  .team-metrics-row {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 560px) {
+  .team-metrics-row {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.team-metric {
+  padding: var(--pad-card);
+  border-color: var(--tint-border);
+}
+
+.team-metric .allu-card-label {
+  color: var(--tint-text);
+}
+
+/* O tamanho vem de `.allu-card-value`, igual ao da home — três por linha em vez
+   de seis é o que faz `R$ 214.900,00` caber sem encolher a fonte. */
+.team-metric .allu-card-value {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+/* O destaque funciona como `.allu-card-highlight` na home — sem preenchimento,
+   só o valor na cor —, aqui com a cor do time em vez da primária. */
+.team-metric-highlight .allu-card-value {
+  color: var(--tint-text);
+}
+
+.tint-interno {
+  --tint-bg: rgba(39, 174, 96, 0.07);
+  --tint-border: rgba(39, 174, 96, 0.22);
+  --tint-text: #1E7E4B;
+}
+
+.tint-externo {
+  --tint-bg: rgba(234, 179, 8, 0.09);
+  --tint-border: rgba(234, 179, 8, 0.3);
+  --tint-text: #A16207;
+}
+
+[data-theme='dark'] .tint-interno {
+  --tint-bg: rgba(39, 174, 96, 0.1);
+  --tint-border: rgba(39, 174, 96, 0.26);
+  --tint-text: #4ADE80;
+}
+
+[data-theme='dark'] .tint-externo {
+  --tint-bg: rgba(234, 179, 8, 0.1);
+  --tint-border: rgba(234, 179, 8, 0.3);
+  --tint-text: #FBBF24;
 }
 
 @keyframes spin {
@@ -448,10 +588,10 @@ h1, h2, h3, h4, h5, h6 {
   justify-content: center;
   gap: 0.5rem;
   padding: 0.625rem 1.1rem;
-  border-radius: 100px;
+  border-radius: var(--radius-pill);
   border: 1px solid transparent;
   font-family: inherit;
-  font-size: 0.85rem;
+  font-size: var(--text-control);
   font-weight: 600;
   line-height: 1.2;
   white-space: nowrap;
@@ -501,6 +641,359 @@ h1, h2, h3, h4, h5, h6 {
   color: var(--foreground);
 }
 
+.btn-danger {
+  background: rgba(239, 68, 68, 0.1);
+  border-color: transparent;
+  color: var(--danger);
+}
+.btn-danger:hover:not(:disabled) {
+  background: rgba(239, 68, 68, 0.18);
+}
+
+/*
+ * Botão só de ícone — barra de ações de cartão, fechar, avançar.
+ *
+ * Quadrado e sem texto, por isso não herda o padding do `.btn`; o resto (foco,
+ * desabilitado, transição) é o mesmo, para não haver um segundo botão no
+ * sistema com regras próprias.
+ */
+.btn-icon {
+  padding: 0.4rem;
+  width: 2rem;
+  height: 2rem;
+  border-radius: var(--radius-block);
+  background: transparent;
+  border-color: transparent;
+  color: var(--muted);
+}
+.btn-icon:hover:not(:disabled) {
+  background: var(--card-border);
+  color: var(--foreground);
+}
+
+/*
+ * Alternador segmentado — modo de cadastro, papel do usuário, formato, aba.
+ *
+ * Um grupo onde só uma opção vale por vez. A opção inativa é branca; a ativa
+ * ganha a borda e o texto na cor primária, e não o fundo cheio: com o fundo
+ * verde em todas, como ficou depois de uma conversão automática apressada, o
+ * grupo inteiro parecia selecionado e ninguém via qual estava valendo.
+ */
+.btn-toggle {
+  background: var(--card-bg);
+  border-color: var(--card-border);
+  color: var(--muted);
+  border-radius: var(--radius-block);
+}
+.btn-toggle:hover:not(:disabled) {
+  border-color: var(--primary);
+  color: var(--foreground);
+}
+.btn-toggle[aria-pressed="true"] {
+  border-color: var(--primary);
+  color: var(--primary);
+  background: var(--primary-glow);
+}
+/* Num alternador, "desabilitado" é a opção que já está valendo — não deve
+   parecer apagada como um botão fora de uso. */
+.btn-toggle:disabled,
+.btn-toggle[aria-disabled="true"] {
+  opacity: 1;
+  cursor: default;
+}
+
+/* ---------------------------------------------------------------------------
+   Diálogo
+
+   Onde os formulários da plataforma moram. O corpo rola sozinho quando o
+   formulário é longo, para o cabeçalho e os botões de ação nunca saírem da
+   vista — um formulário em camada onde o "Salvar" fica fora da tela é pior do
+   que o formulário aberto na página.
+   --------------------------------------------------------------------------- */
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 200;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1rem;
+  background: rgba(0, 0, 0, 0.45);
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+}
+
+.modal-panel {
+  display: flex;
+  flex-direction: column;
+  max-height: min(90vh, 780px);
+  max-width: 100%;
+  overflow: hidden;
+  border-radius: var(--radius-card);
+  background: var(--card-bg);
+  border: 1px solid var(--card-border);
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.25);
+}
+
+.modal-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 1rem 1.1rem;
+  border-bottom: 1px solid var(--card-border);
+}
+
+.modal-title {
+  margin: 0;
+  font-size: var(--text-cardtitle);
+  font-weight: 700;
+  color: var(--foreground);
+}
+
+.modal-body {
+  padding: 1.1rem;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 0.9rem;
+}
+
+.modal-footer {
+  display: flex;
+  gap: 0.6rem;
+  justify-content: flex-end;
+  padding: 0.85rem 1.1rem;
+  border-top: 1px solid var(--card-border);
+  background: var(--surface-sunken);
+}
+
+@media (max-width: 640px) {
+  .modal-footer {
+    flex-direction: column-reverse;
+  }
+  .modal-footer > .btn {
+    width: 100%;
+  }
+}
+
+/* ---------------------------------------------------------------------------
+   Formulário
+
+   Rótulo e campo eram escritos inline em cada tela — oito cópias do mesmo
+   `padding: 0.8rem; border-radius: 8px; border: 1px solid var(--card-border)`,
+   com o rótulo ora em --text-control, ora em --text-cardtitle.
+   --------------------------------------------------------------------------- */
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.field-label {
+  font-size: var(--text-control);
+  font-weight: 600;
+  color: var(--foreground);
+}
+
+.field-hint {
+  font-size: var(--text-caption);
+  color: var(--muted);
+  line-height: 1.4;
+}
+
+/* 0.5rem de altura interna, não 0.8rem: o campo tinha quase o dobro da altura
+   do botão ao lado, e uma tela de configuração é quase toda formulário. */
+.field-input {
+  padding: 0.45rem 0.6rem;
+  border-radius: var(--radius-block);
+  border: 1px solid var(--card-border);
+  background: var(--card-bg);
+  color: var(--foreground);
+  font-family: inherit;
+  font-size: var(--text-control);
+  line-height: 1.35;
+  outline: none;
+  transition: border-color 0.2s ease;
+}
+
+/* Campo de várias linhas: mesma moldura, altura mínima e fonte de código para
+   o que é chave, JSON ou prompt. */
+.field-textarea {
+  min-height: 96px;
+  font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+  font-size: var(--text-caption);
+  resize: vertical;
+}
+
+.field-input:focus-visible {
+  border-color: var(--primary);
+}
+
+.field-input:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+/*
+ * Dia do calendário.
+ *
+ * Transparente por padrão: só as duas pontas do período escolhido ganham o
+ * preenchimento. Uma conversão automática deu `.btn-primary` a todos os dias e
+ * o mês inteiro ficou verde, como se tudo estivesse selecionado — exatamente o
+ * contrário do que o calendário precisa dizer.
+ */
+.btn-day {
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  margin: 0 auto;
+  border-radius: var(--radius-pill);
+  background: transparent;
+  border-color: transparent;
+  color: var(--foreground);
+  font-weight: 400;
+}
+.btn-day:hover:not(:disabled) {
+  background: var(--surface-sunken);
+}
+.btn-day[aria-pressed="true"] {
+  background: var(--primary);
+  border-color: var(--primary);
+  color: #fff;
+  font-weight: 600;
+}
+.btn-day[aria-pressed="true"]:hover:not(:disabled) {
+  background: var(--primary-hover);
+}
+
+/* Selo de sigla — o crachá de um criador nas listas e nos formulários. */
+.acronym-chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.1rem 0.4rem;
+  border-radius: var(--radius-block);
+  background: var(--surface-sunken);
+  border: 1px solid var(--surface-sunken-border);
+  color: var(--muted);
+  font-size: var(--text-eyebrow);
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  white-space: nowrap;
+}
+
+/* ---------------------------------------------------------------------------
+   Selo de estado de uma integração
+
+   O estado das redes vivia só no `title` do navegador: aparece com atraso, não
+   tem estilo e no toque não aparece nunca. O popup abre no hover, no foco e no
+   clique; o ícone em repouso não marca nada, para a barra não ganhar três
+   pontinhos coloridos permanentes.
+   --------------------------------------------------------------------------- */
+.status-chip {
+  position: relative;
+  display: flex;
+}
+
+.status-chip-pill {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 60;
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.3rem 0.55rem;
+  border-radius: var(--radius-block);
+  background: var(--card-bg);
+  border: 1px solid var(--card-border);
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.14);
+  font-size: var(--text-eyebrow);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+[data-theme='dark'] .status-chip-pill {
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.45);
+}
+
+/*
+ * Botão que embrulha um avatar — o menu do usuário no topo.
+ *
+ * Abraça o avatar em vez de impor tamanho: sem `padding: 0` e com o raio de
+ * bloco do `.btn-icon`, a foto redonda ficava dentro de um quadrado de cantos
+ * arredondados, espremida pelo padding. O anel de foco e o hover ficam no
+ * botão, não no avatar, para o alvo de clique ser o círculo inteiro.
+ */
+.btn-avatar {
+  padding: 0;
+  width: auto;
+  height: auto;
+  border-radius: var(--radius-pill);
+  background: transparent;
+  border-color: transparent;
+  line-height: 0;
+}
+.btn-avatar:hover:not(:disabled) {
+  border-color: var(--primary);
+}
+
+/*
+ * Fechar — o mesmo botão em todo popup da plataforma.
+ *
+ * Havia cinco: 28px aqui, 30px ali, ícone de 14, 15 e 16, ora no canto
+ * absoluto, ora no cabeçalho. Agora a geometria é uma só; o que muda é onde
+ * ele fica (`.btn-close-float`) e o que está atrás dele — sobre uma peça ou
+ * sobre um aviso escuro, soma-se `.btn-overlay` para o ícone não sumir.
+ */
+.btn-close {
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border-radius: var(--radius-pill);
+  background: var(--card-bg);
+  border-color: var(--card-border);
+  color: var(--muted);
+}
+.btn-close:hover:not(:disabled) {
+  border-color: var(--danger);
+  color: var(--danger);
+}
+
+/* No canto de um painel que não tem cabeçalho para abrigá-lo. */
+.btn-close-float {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  z-index: 2;
+}
+
+/*
+ * Botão sobre mídia — fechar o popup, copiar o nome, pedir a análise.
+ *
+ * Precisa do próprio fundo: o ícone é branco e a peça atrás pode ser clara,
+ * então um botão transparente sumiria. É a única variante que não toma a cor
+ * do tema, porque o que está atrás dela é a imagem, não a página.
+ */
+.btn-overlay {
+  padding: 0.4rem;
+  border-radius: var(--radius-pill);
+  background: rgba(0, 0, 0, 0.6);
+  border-color: rgba(255, 255, 255, 0.18);
+  color: rgba(255, 255, 255, 0.92);
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+}
+.btn-overlay:hover:not(:disabled) {
+  background: rgba(0, 0, 0, 0.78);
+  border-color: rgba(255, 255, 255, 0.35);
+  color: #fff;
+}
+
 /* Ocupa a linha inteira — usado por "carregar mais" no fim de uma lista. */
 .btn-block {
   width: 100%;
@@ -526,7 +1019,7 @@ h1, h2, h3, h4, h5, h6 {
 .insight-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
-  gap: 1.5rem;
+  gap: var(--gap-grid);
 }
 
 @media (max-width: 420px) {
@@ -540,7 +1033,7 @@ h1, h2, h3, h4, h5, h6 {
   flex-direction: column;
   background: var(--card-bg);
   border: 1px solid var(--card-border);
-  border-radius: 14px;
+  border-radius: var(--radius-card);
   overflow: hidden;
   cursor: pointer;
   /* A elevação é do cartão inteiro, não uma faixa colorida na borda: com a

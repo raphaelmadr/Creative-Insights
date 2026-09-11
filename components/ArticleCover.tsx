@@ -133,7 +133,7 @@ export function ArticleCover({
         <Link2 size={15} style={{ flexShrink: 0, opacity: 0.8 }} />
         <span
           style={{
-            fontSize: "0.82rem",
+            fontSize: "var(--text-control)",
             fontWeight: 600,
             letterSpacing: "0.01em",
             whiteSpace: "nowrap",

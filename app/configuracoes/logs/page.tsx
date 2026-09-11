@@ -39,16 +39,7 @@ export default function LogsPage() {
       title="Logs do sistema"
       description="Falhas em dependências externas — chave de IA recusada, cota esgotada, token do Meta expirado, upload rejeitado pelo cPanel — chegam aqui com o motivo e a correção. Vermelho pede ação de configuração; amarelo passa sozinho na próxima execução."
       action={
-        <button
-          type="button"
-          onClick={clearLogs}
-          style={{
-            background: "rgba(239, 68, 68, 0.1)", border: "1px solid rgba(239,68,68,0.25)",
-            color: "var(--danger, #ef4444)", padding: "0.55rem 1.1rem", borderRadius: "10px",
-            cursor: "pointer", fontSize: "0.82rem", fontWeight: 600,
-            display: "inline-flex", alignItems: "center", gap: "0.45rem", whiteSpace: "nowrap",
-          }}
-        >
+        <button type="button" onClick={clearLogs} className="btn btn-danger" style={{ color: "var(--danger, #ef4444)" }} >
           <Trash2 size={15} /> Limpar logs
         </button>
       }
@@ -66,7 +57,7 @@ export default function LogsPage() {
         <div style={{ display: "flex", flexDirection: "column", gap: "1rem", overflowY: "auto", paddingRight: "0.5rem" }}>
           {sysLogs.map((log: any) => (
             <div key={log.id} style={{ padding: "1.2rem", borderRadius: "12px", background: "var(--background-main)", borderLeft: `4px solid ${log.level === 'ERROR' ? '#ef4444' : log.level === 'WARNING' ? '#f59e0b' : '#3b82f6'}`, boxShadow: "var(--card-shadow)" }}>
-              <div style={{ display: "flex", justifyContent: "space-between", fontSize: "0.85rem", color: "var(--muted)", marginBottom: "0.5rem" }}>
+              <div style={{ display: "flex", justifyContent: "space-between", fontSize: "var(--text-control)", color: "var(--muted)", marginBottom: "0.5rem" }}>
                 <span style={{ fontWeight: 700, color: "var(--foreground)" }}>[{log.source}] {log.level}</span>
                 <span>{new Date(log.createdAt).toLocaleString()}</span>
               </div>
@@ -74,10 +65,10 @@ export default function LogsPage() {
 
               {log.stack && (
                 <details style={{ marginTop: "0.6rem" }}>
-                  <summary style={{ cursor: "pointer", fontSize: "0.75rem", color: "var(--muted)" }}>
+                  <summary style={{ cursor: "pointer", fontSize: "var(--text-caption)", color: "var(--muted)" }}>
                     Rastreamento técnico
                   </summary>
-                  <pre style={{ margin: "0.5rem 0 0", padding: "0.6rem", background: "var(--card-bg)", border: "1px solid var(--card-border)", borderRadius: "8px", fontSize: "0.7rem", lineHeight: 1.45, overflowX: "auto", whiteSpace: "pre" }}>
+                  <pre style={{ margin: "0.5rem 0 0", padding: "0.6rem", background: "var(--card-bg)", border: "1px solid var(--card-border)", borderRadius: "8px", fontSize: "var(--text-caption)", lineHeight: 1.45, overflowX: "auto", whiteSpace: "pre" }}>
                     {log.stack}
                   </pre>
                 </details>
@@ -102,7 +93,7 @@ function LogMessage({ message }: { message: string }) {
   const lines = (message || "").split("\n");
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: "0.35rem", fontSize: "0.92rem", color: "var(--foreground)", lineHeight: 1.5 }}>
+    <div style={{ display: "flex", flexDirection: "column", gap: "0.35rem", fontSize: "var(--text-cardtitle)", color: "var(--foreground)", lineHeight: 1.5 }}>
       {lines.map((line, i) => {
         const isFix = /^CORRIGIR:/i.test(line.trim());
         const isProviderEcho = /^(Provedor respondeu|Endpoint|Contexto):/i.test(line.trim());

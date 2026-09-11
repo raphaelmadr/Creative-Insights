@@ -18,7 +18,9 @@ export default function MuiProvider({ children }: { children: ReactNode }) {
       },
     },
     typography: {
-      fontFamily: "var(--font-sans), 'Inter', -apple-system, sans-serif",
+      // A pilha inteira já vem do token; repetir a família aqui era a chance de
+      // as duas divergirem na próxima troca de fonte.
+      fontFamily: "var(--font-sans)",
     },
     components: {
       MuiPaper: {

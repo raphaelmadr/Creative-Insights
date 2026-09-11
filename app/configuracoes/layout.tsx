@@ -20,7 +20,7 @@ export default async function ConfiguracoesLayout({ children }: { children: Reac
       <div className="dashboard-container config-shell" style={{ flexDirection: "column" }}>
         
         <div style={{ marginBottom: "2rem" }}>
-          <h1 style={{ fontSize: "2.5rem", fontWeight: 800, marginBottom: "0.25rem", display: "flex", alignItems: "center", gap: "0.5rem" }} className="lowercase-title">
+          <h1 style={{ fontSize: "var(--text-page)", fontWeight: 800, marginBottom: "0.25rem", display: "flex", alignItems: "center", gap: "0.5rem" }} className="lowercase-title">
             <Settings size={32} color="var(--primary)" />
             configurações globais<span className="dot-green">.</span>
           </h1>

@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import prisma from "@/lib/prisma";
 import { isActiveStatus } from "@/lib/ad-status";
+import { splitAcronyms } from "@/lib/designer-match";
 
 export async function GET(request: Request) {
   try {
@@ -32,11 +33,16 @@ export async function GET(request: Request) {
           name: rep.creator.name,
           acronym: rep.creator.acronym,
           avatarUrl: rep.creator.avatarUrl,
+          // Quem tem conta Google é time interno; quem não tem é cadastro manual.
+          userEmail: rep.creator.userEmail,
           spend: rep.spend,
           purchases: rep.purchases,
           grossValue: rep.grossValue,
           riskApprovedValue: rep.riskApprovedValue,
           activeAdsCount: rep.activeAdsCount,
+          // O CPA de um time é gasto total ÷ pedidos totais — somar os CPAs de
+          // cada pessoa daria a média errada. Por isso `netOrders` também sai.
+          netOrders: rep.netOrders,
           cpa: rep.netOrders > 0 ? rep.spend / rep.netOrders : 0,
           roas: rep.roas,
           monthlyGoal: rep.creator.monthlyGoal ?? 50000,
@@ -109,6 +115,7 @@ export async function GET(request: Request) {
         name: creator.name,
         acronym: creator.acronym,
         avatarUrl: creator.avatarUrl,
+        userEmail: creator.userEmail,
         monthlyGoal: creator.monthlyGoal ?? 50000,
         monthlyVolumeGoal: creator.monthlyVolumeGoal ?? 30,
         spend: 0,
@@ -130,8 +137,7 @@ export async function GET(request: Request) {
       if (metricAcronym) {
         // Procurar o criador que possua essa sigla cadastrada (aceita múltiplas separadas por vírgula)
         const matchedCreator = creators.find(c => {
-          const possibleAcronyms = c.acronym.split(/[^a-zA-Z0-9]+/).filter(Boolean).map(s => s.toUpperCase());
-          return possibleAcronyms.includes(metricAcronym);
+          return splitAcronyms(c.acronym).includes(metricAcronym);
         });
         if (matchedCreator) {
           targetCreatorId = matchedCreator.id;
@@ -181,6 +187,7 @@ export async function GET(request: Request) {
         name: stats.name,
         acronym: stats.acronym,
         avatarUrl: stats.avatarUrl,
+        userEmail: stats.userEmail,
         monthlyGoal: stats.monthlyGoal,
         monthlyVolumeGoal: stats.monthlyVolumeGoal,
         spend: stats.spend,

@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect } from "react";
 import { Save, Loader2, Copy, Check, AlertTriangle, RefreshCw, Eye, EyeOff, ShieldCheck, ShieldAlert } from "lucide-react";
-import { FieldGrid, SettingsField, SettingsModal, SettingsSection } from "@/components/SettingsUI";
+import { FieldGrid, SettingsField, SettingsModal, SettingsSaveProvider, SettingsSection } from "@/components/SettingsUI";
 
 /** Cadência do disparador externo: bate sempre, o painel filtra. */
 const RECOMMENDED_CRON_EXPRESSION = "*/15 * * * *";
@@ -219,14 +219,6 @@ export default function SistemaPage() {
   const triggerValue = (format === "command" ? trigger?.triggerCommand : trigger?.triggerUrl) ?? "";
   const urlUsable = !!triggerValue && !!trigger?.reachableExternally && !!trigger?.hasSecret;
 
-  const inputStyle: React.CSSProperties = {
-    padding: "0.8rem",
-    borderRadius: "8px",
-    border: "1px solid var(--card-border)",
-    background: "var(--card-bg)",
-    color: "var(--foreground)",
-    outline: "none",
-  };
 
   const iconButtonStyle: React.CSSProperties = {
     background: "transparent",
@@ -243,7 +235,7 @@ export default function SistemaPage() {
     display: "flex",
     gap: "0.6rem",
     alignItems: "flex-start",
-    fontSize: "0.82rem",
+    fontSize: "var(--text-control)",
     lineHeight: 1.5,
     color: tone === "warn" ? "#b45309" : "var(--muted)",
     background: tone === "warn" ? "rgba(245,158,11,0.1)" : "rgba(0,0,0,0.02)",
@@ -260,6 +252,9 @@ export default function SistemaPage() {
    */
   return (
     <form onSubmit={handleSaveSettings} style={{ display: "flex", flexDirection: "column", gap: "1.1rem" }}>
+      {/* Os campos vivem em diálogos, que o React renderiza fora do <form>;
+          o provedor leva o "gravar" até eles. */}
+      <SettingsSaveProvider save={() => handleSaveSettings()} saving={savingSettings}>
 
         {/*
           O status como resumo de uma linha, e não como sete caixas abertas.
@@ -277,7 +272,7 @@ export default function SistemaPage() {
               background: pendingIntegrations === 0 ? "rgba(34,197,94,0.06)" : "rgba(245,158,11,0.08)",
             }}
           >
-            <span style={{ display: "flex", alignItems: "center", gap: "0.55rem", fontSize: "0.86rem" }}>
+            <span style={{ display: "flex", alignItems: "center", gap: "0.55rem", fontSize: "var(--text-control)" }}>
               {pendingIntegrations === 0
                 ? <ShieldCheck size={16} color="#16a34a" style={{ flexShrink: 0 }} />
                 : <ShieldAlert size={16} color="#b45309" style={{ flexShrink: 0 }} />}
@@ -291,16 +286,7 @@ export default function SistemaPage() {
               </span>
             </span>
 
-            <button
-              type="button"
-              onClick={() => setStatusOpen(true)}
-              style={{
-                background: "var(--card-bg)", color: "var(--foreground)",
-                border: "1px solid var(--card-border)", borderRadius: "10px",
-                padding: "0.45rem 0.9rem", fontSize: "0.8rem", fontWeight: 600,
-                cursor: "pointer", whiteSpace: "nowrap",
-              }}
-            >
+            <button type="button" onClick={() => setStatusOpen(true)} className="btn btn-secondary" style={{ color: "var(--foreground)" }} >
               Ver status detalhado
             </button>
           </div>
@@ -318,11 +304,11 @@ export default function SistemaPage() {
                   {item.configured
                     ? <ShieldCheck size={16} color="#16a34a" style={{ flexShrink: 0, marginTop: "0.15rem" }} />
                     : <ShieldAlert size={16} color="#b45309" style={{ flexShrink: 0, marginTop: "0.15rem" }} />}
-                  <div style={{ display: "flex", flexDirection: "column", gap: "0.15rem", fontSize: "0.84rem" }}>
+                  <div style={{ display: "flex", flexDirection: "column", gap: "0.15rem", fontSize: "var(--text-control)" }}>
                     <span style={{ fontWeight: 600, color: "var(--foreground)" }}>
                       {item.label}
                       {item.fromEnv && (
-                        <span style={{ marginLeft: "0.5rem", fontSize: "0.68rem", fontWeight: 600, color: "#b45309", background: "rgba(245,158,11,0.14)", border: "1px solid rgba(245,158,11,0.3)", borderRadius: "999px", padding: "0.1rem 0.45rem" }}>
+                        <span style={{ marginLeft: "0.5rem", fontSize: "var(--text-eyebrow)", fontWeight: 600, color: "#b45309", background: "rgba(245,158,11,0.14)", border: "1px solid rgba(245,158,11,0.3)", borderRadius: "999px", padding: "0.1rem 0.45rem" }}>
                           via .env — mover para o painel
                         </span>
                       )}
@@ -457,16 +443,16 @@ export default function SistemaPage() {
         <label style={{ display: "flex", alignItems: "flex-start", gap: "1rem", cursor: "pointer" }}>
           <input type="checkbox" checked={settings.cronSyncEnabled} onChange={e => setSettings({...settings, cronSyncEnabled: e.target.checked})} style={{ width: "1.2rem", height: "1.2rem", marginTop: "0.2rem", cursor: "pointer", accentColor: "var(--primary)" }} />
           <div style={{ display: "flex", flexDirection: "column", gap: "0.25rem" }}>
-            <span style={{ fontWeight: 600, fontSize: "0.95rem" }}>Sincronização automática ativa</span>
-            <span style={{ fontSize: "0.85rem", color: "var(--muted)", opacity: 0.8 }}>Quando desligada, o disparador externo continua batendo mas nada é sincronizado.</span>
+            <span className="field-label">Sincronização automática ativa</span>
+            <span style={{ fontSize: "var(--text-control)", color: "var(--muted)", opacity: 0.8 }}>Quando desligada, o disparador externo continua batendo mas nada é sincronizado.</span>
           </div>
         </label>
 
         {settings.cronSyncEnabled && (
           <div style={{ display: "flex", flexDirection: "column", gap: "1.5rem", padding: "1.5rem", background: "rgba(0,0,0,0.02)", borderRadius: "12px", border: "1px solid var(--card-border)", marginLeft: "2.2rem" }}>
-            <label style={{ display: "flex", flexDirection: "column", gap: "0.5rem", fontSize: "0.9rem", maxWidth: "22rem" }}>
+            <label style={{ display: "flex", flexDirection: "column", gap: "0.5rem", fontSize: "var(--text-cardtitle)", maxWidth: "22rem" }}>
               <span style={{ fontWeight: 600 }}>Intervalo de execução</span>
-              <select value={settings.cronSyncInterval} onChange={e => setSettings({...settings, cronSyncInterval: Number(e.target.value)})} style={inputStyle}>
+              <select value={settings.cronSyncInterval} onChange={e => setSettings({...settings, cronSyncInterval: Number(e.target.value)})} className="field-input">
                 <option value={15}>A cada 15 minutos</option>
                 <option value={30}>A cada 30 minutos</option>
                 <option value={60}>A cada 1 hora</option>
@@ -477,15 +463,15 @@ export default function SistemaPage() {
               </select>
             </label>
 
-            <div style={{ display: "flex", flexWrap: "wrap", gap: "1.5rem", fontSize: "0.85rem", color: "var(--muted)" }}>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: "1.5rem", fontSize: "var(--text-control)", color: "var(--muted)" }}>
               <span><strong style={{ color: "var(--foreground)" }}>Última sincronização:</strong> {formatDateTime(status.lastSyncAt)}</span>
               <span><strong style={{ color: "var(--foreground)" }}>Próxima automática:</strong> {nextEligibleLabel}</span>
             </div>
 
-            <div style={{ display: "flex", flexWrap: "wrap", gap: "0.5rem", alignItems: "center", fontSize: "0.85rem" }}>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: "0.5rem", alignItems: "center", fontSize: "var(--text-control)" }}>
               <span style={{ color: "var(--muted)" }}>Fontes sincronizadas:</span>
               {status.sources.map(source => (
-                <span key={source.label} style={{ padding: "0.2rem 0.6rem", borderRadius: "999px", fontSize: "0.78rem", fontWeight: 600, border: "1px solid var(--card-border)", background: source.configured ? "rgba(34,197,94,0.12)" : "transparent", color: source.configured ? "#16a34a" : "var(--muted)", opacity: source.configured ? 1 : 0.6 }}>
+                <span key={source.label} style={{ padding: "0.2rem 0.6rem", borderRadius: "999px", fontSize: "var(--text-caption)", fontWeight: 600, border: "1px solid var(--card-border)", background: source.configured ? "rgba(34,197,94,0.12)" : "transparent", color: source.configured ? "#16a34a" : "var(--muted)", opacity: source.configured ? 1 : 0.6 }}>
                   {source.label}{source.configured ? "" : " (sem credenciais)"}
                 </span>
               ))}
@@ -508,13 +494,13 @@ export default function SistemaPage() {
           status={urlUsable}
         >
 
-          <p style={{ fontSize: "0.85rem", color: "var(--muted)", margin: 0, lineHeight: 1.6 }}>
+          <p style={{ fontSize: "var(--text-control)", color: "var(--muted)", margin: 0, lineHeight: 1.6 }}>
             Cole o valor abaixo no Cron Job do cPanel com a frequência <code>{RECOMMENDED_CRON_EXPRESSION}</code> (a cada 15 min).
             O disparador só acorda a aplicação; é o intervalo acima que decide se há sincronização — então
             mudá-lo passa a valer na hora, sem mexer no servidor.
           </p>
 
-          <div style={{ display: "flex", flexDirection: "column", gap: "0.5rem", fontSize: "0.9rem" }}>
+          <div style={{ display: "flex", flexDirection: "column", gap: "0.5rem", fontSize: "var(--text-cardtitle)" }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: "1rem", flexWrap: "wrap" }}>
               <span style={{ fontWeight: 600 }}>{format === "command" ? "Comando para o cPanel" : "URL para o disparador"}</span>
               <div style={{ display: "inline-flex", border: "1px solid var(--card-border)", borderRadius: "8px", overflow: "hidden" }}>
@@ -522,20 +508,7 @@ export default function SistemaPage() {
                   ["command", "Comando (cPanel)"],
                   ["url", "URL simples"],
                 ] as [TriggerFormat, string][]).map(([value, label]) => (
-                  <button
-                    key={value}
-                    type="button"
-                    onClick={() => setFormat(value)}
-                    style={{
-                      background: format === value ? "var(--primary)" : "transparent",
-                      color: format === value ? "#fff" : "var(--muted)",
-                      border: "none",
-                      padding: "0.45rem 0.9rem",
-                      fontSize: "0.78rem",
-                      fontWeight: 600,
-                      cursor: "pointer",
-                    }}
-                  >
+                  <button key={value} type="button" onClick={() => setFormat(value)} aria-pressed={format === value} className="btn btn-toggle" >
                     {label}
                   </button>
                 ))}
@@ -548,25 +521,25 @@ export default function SistemaPage() {
                 value={triggerValue}
                 placeholder="Clique em Gerar para começar"
                 onFocus={e => e.currentTarget.select()}
-                style={{ ...inputStyle, flex: 1, fontFamily: "monospace", fontSize: "0.82rem" }}
+                className="field-input" style={{ flex: 1, fontFamily: "var(--font-mono, monospace)" }}
               />
-              <button type="button" onClick={() => setRevealUrl(v => !v)} title={revealUrl ? "Ocultar" : "Revelar"} style={iconButtonStyle}>
+              <button type="button" onClick={() => setRevealUrl(v => !v)} title={revealUrl ? "Ocultar" : "Revelar"} className="btn btn-icon" style={{ borderColor: "var(--card-border)" }}>
                 {revealUrl ? <EyeOff size={16} /> : <Eye size={16} />}
               </button>
               <button type="button" onClick={() => handleCopy(triggerValue, "trigger")} disabled={!triggerValue} title="Copiar" style={{ ...iconButtonStyle, opacity: triggerValue ? 1 : 0.4 }}>
                 {copied === "trigger" ? <Check size={16} color="#16a34a" /> : <Copy size={16} />}
               </button>
-              <button type="button" onClick={handleRotateSecret} disabled={rotating} style={{ background: "transparent", color: "var(--primary)", border: "1px solid var(--primary)", borderRadius: "8px", padding: "0 1rem", fontWeight: 600, cursor: rotating ? "wait" : "pointer", display: "flex", alignItems: "center", gap: "0.4rem", whiteSpace: "nowrap" }}>
+              <button type="button" onClick={handleRotateSecret} disabled={rotating} className="btn btn-primary">
                 {rotating ? <Loader2 size={14} className="spin" /> : <RefreshCw size={14} />}
                 {trigger?.hasDbSecret ? "Gerar novo" : "Gerar"}
               </button>
             </div>
-            <span style={{ fontSize: "0.8rem", color: "var(--muted)", opacity: 0.8, lineHeight: 1.5 }}>
+            <span style={{ fontSize: "var(--text-control)", color: "var(--muted)", opacity: 0.8, lineHeight: 1.5 }}>
               {format === "command"
                 ? "O Cron Jobs padrão do cPanel executa um comando de shell — é este o formato para o campo \"Command\". O segredo vai no cabeçalho, fora da URL, e o comando descarta a resposta em caso de sucesso para o cPanel não te enviar um e-mail a cada batida."
                 : "Use apenas se o seu disparador aceitar somente um link, sem comando. O segredo viaja na própria URL e por isso aparece nos logs de acesso do servidor."}
             </span>
-            <span style={{ fontSize: "0.8rem", color: "var(--muted)", opacity: 0.8 }}>
+            <span style={{ fontSize: "var(--text-control)", color: "var(--muted)", opacity: 0.8 }}>
               O segredo é gravado no mesmo instante em que você gera, então o valor exibido já é aceito pelo servidor — pode colar direto.
             </span>
           </div>
@@ -608,20 +581,20 @@ export default function SistemaPage() {
           status={!!storage?.configured}
         >
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(15rem, 1fr))", gap: "1.1rem" }}>
-            <label style={{ display: "flex", flexDirection: "column", gap: "0.5rem", fontSize: "0.9rem" }}>
+            <label style={{ display: "flex", flexDirection: "column", gap: "0.5rem", fontSize: "var(--text-cardtitle)" }}>
               <span style={{ fontWeight: 600 }}>URL de Upload (Webhook)</span>
-              <input type="url" value={settings.cpanelUploadUrl} onChange={e => setSettings({...settings, cpanelUploadUrl: e.target.value})} placeholder="https://..." style={{ ...inputStyle, fontFamily: "monospace" }} />
-              <span style={{ fontSize: "0.78rem", color: "var(--muted)", opacity: 0.8 }}>{sourceLabel(storage?.uploadUrlSource)}</span>
+              <input type="url" value={settings.cpanelUploadUrl} onChange={e => setSettings({...settings, cpanelUploadUrl: e.target.value})} placeholder="https://..." className="field-input" style={{ fontFamily: "var(--font-mono, monospace)" }} />
+              <span style={{ fontSize: "var(--text-caption)", color: "var(--muted)", opacity: 0.8 }}>{sourceLabel(storage?.uploadUrlSource)}</span>
             </label>
-            <label style={{ display: "flex", flexDirection: "column", gap: "0.5rem", fontSize: "0.9rem" }}>
+            <label style={{ display: "flex", flexDirection: "column", gap: "0.5rem", fontSize: "var(--text-cardtitle)" }}>
               <span style={{ fontWeight: 600 }}>Senha (Secret Token)</span>
               <div style={{ display: "flex", gap: "0.5rem" }}>
-                <input type={revealUploadSecret ? "text" : "password"} value={settings.cpanelUploadSecret} onChange={e => setSettings({...settings, cpanelUploadSecret: e.target.value})} style={{ ...inputStyle, flex: 1, fontFamily: "monospace" }} />
-                <button type="button" onClick={() => setRevealUploadSecret(v => !v)} title={revealUploadSecret ? "Ocultar" : "Revelar"} style={iconButtonStyle}>
+                <input type={revealUploadSecret ? "text" : "password"} value={settings.cpanelUploadSecret} onChange={e => setSettings({...settings, cpanelUploadSecret: e.target.value})} className="field-input" style={{ flex: 1, fontFamily: "var(--font-mono, monospace)" }} />
+                <button type="button" onClick={() => setRevealUploadSecret(v => !v)} title={revealUploadSecret ? "Ocultar" : "Revelar"} className="btn btn-icon" style={{ borderColor: "var(--card-border)" }}>
                   {revealUploadSecret ? <EyeOff size={16} /> : <Eye size={16} />}
                 </button>
               </div>
-              <span style={{ fontSize: "0.78rem", color: "var(--muted)", opacity: 0.8 }}>{sourceLabel(storage?.uploadSecretSource)}</span>
+              <span style={{ fontSize: "var(--text-caption)", color: "var(--muted)", opacity: 0.8 }}>{sourceLabel(storage?.uploadSecretSource)}</span>
             </label>
           </div>
 
@@ -652,23 +625,15 @@ export default function SistemaPage() {
             boxShadow: "0 6px 24px rgba(0,0,0,0.12)",
           }}
         >
-          <span style={{ fontSize: "0.8rem", color: "var(--muted)" }}>
+          <span style={{ fontSize: "var(--text-control)", color: "var(--muted)" }}>
             As alterações de todos os cartões acima são gravadas juntas.
           </span>
-          <button
-            type="submit"
-            disabled={savingSettings}
-            style={{
-              background: "var(--primary)", color: "#fff", border: "none",
-              padding: "0.6rem 1.4rem", borderRadius: "10px", fontWeight: 600, fontSize: "0.86rem",
-              cursor: savingSettings ? "default" : "pointer", opacity: savingSettings ? 0.6 : 1,
-              display: "inline-flex", alignItems: "center", gap: "0.5rem", whiteSpace: "nowrap",
-            }}
-          >
+          <button type="submit" disabled={savingSettings} className="btn btn-primary" >
             {savingSettings ? <Loader2 size={16} className="spin" /> : <Save size={16} />}
             {savingSettings ? "Salvando..." : "Salvar alterações"}
           </button>
         </div>
+      </SettingsSaveProvider>
     </form>
   );
 }

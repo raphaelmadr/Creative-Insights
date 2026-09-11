@@ -22,10 +22,10 @@ export default function AccessDenied() {
       }}
     >
       <ShieldAlert size={40} color="var(--muted)" style={{ marginBottom: "1rem" }} />
-      <h2 style={{ fontSize: "1.25rem", fontWeight: 700, marginBottom: "0.75rem" }}>
+      <h2 style={{ fontSize: "var(--text-metric)", fontWeight: 700, marginBottom: "0.75rem" }}>
         Área restrita a administradores
       </h2>
-      <p style={{ color: "var(--muted)", lineHeight: 1.6, fontSize: "0.9rem" }}>
+      <p style={{ color: "var(--muted)", lineHeight: 1.6, fontSize: "var(--text-cardtitle)" }}>
         As configurações globais guardam metas, credenciais das integrações e as chaves dos
         provedores de IA. Peça a um administrador que libere seu acesso em{" "}
         <strong>Configurações › Usuários</strong>.
@@ -40,7 +40,7 @@ export default function AccessDenied() {
           border: "1px solid var(--card-border)",
           color: "var(--foreground)",
           textDecoration: "none",
-          fontSize: "0.85rem",
+          fontSize: "var(--text-control)",
           fontWeight: 600,
         }}
       >

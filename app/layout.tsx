@@ -8,7 +8,9 @@ import MuiProvider from "@/components/MuiProvider";
 
 const inter = Inter({
   subsets: ["latin"],
-  variable: "--font-inter",
+  // O nome da variável não cita a fonte: assim uma troca futura mexe só aqui,
+  // e não no `globals.css` nem no tema do MUI.
+  variable: "--font-sans-family",
 });
 
 const bricolage = Bricolage_Grotesque({

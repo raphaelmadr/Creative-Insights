@@ -43,10 +43,10 @@ export function MetricMiniCard({ label, value, tone, title }: { label: string; v
         WebkitBackdropFilter: "blur(8px)",
       }}
     >
-      <span style={{ fontSize: "0.56rem", lineHeight: 1.2, opacity: 0.6, textTransform: "uppercase", letterSpacing: "0.5px", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+      <span style={{ fontSize: "var(--text-eyebrow)", lineHeight: 1.2, opacity: 0.6, textTransform: "uppercase", letterSpacing: "0.5px", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
         {label}
       </span>
-      <strong style={{ fontSize: "0.78rem", lineHeight: 1.25, color: c.text, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{value}</strong>
+      <strong style={{ fontSize: "var(--text-caption)", lineHeight: 1.25, color: c.text, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{value}</strong>
     </div>
   );
 }
@@ -195,13 +195,7 @@ export function MediaLightbox({
           onClick={onClose}
           title="Fechar (Esc)"
           aria-label="Fechar"
-          style={{
-            position: "absolute", top: "10px", right: "10px", zIndex: 2,
-            display: "inline-flex", alignItems: "center", justifyContent: "center",
-            width: "30px", height: "30px", borderRadius: "100px",
-            background: "rgba(0,0,0,0.6)", backdropFilter: "blur(4px)", WebkitBackdropFilter: "blur(4px)",
-            border: "1px solid rgba(255,255,255,0.18)", color: "rgba(255,255,255,0.9)", cursor: "pointer"
-          }}
+          className="btn btn-close btn-close-float btn-overlay"
         >
           <X size={15} />
         </button>

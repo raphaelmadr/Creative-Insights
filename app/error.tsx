@@ -40,7 +40,7 @@ export default function Error({
       </p>
       
       <button
-        className="rounded-lg bg-blue-600 px-6 py-2.5 text-sm font-medium text-white hover:bg-blue-700 transition-colors"
+        className="btn btn-primary"
         onClick={
           // Attempt to recover by trying to re-render the segment
           () => reset()

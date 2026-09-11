@@ -3,7 +3,7 @@
 import React, { useState, useEffect } from "react";
 import { Save, Loader2, Sparkles } from "lucide-react";
 import { BrandIcon, brandOf, type BrandId } from "@/components/BrandIcon";
-import { DocsLink, SettingsSection, StatusPill } from "@/components/SettingsUI";
+import { DocsLink, SettingsSection, StatusPill, SettingsSaveProvider } from "@/components/SettingsUI";
 
 type ProviderKey =
   | "geminiApiKey"
@@ -140,53 +140,49 @@ export default function IAPage() {
 
   return (
     <form onSubmit={handleSaveSettings} style={{ display: "flex", flexDirection: "column", gap: "1.1rem" }}>
+      <SettingsSaveProvider save={() => handleSaveSettings()} saving={savingSettings}>
 
         <SettingsSection
           title="Prompts das análises"
           description="O que cada função pede ao modelo. O idioma, o formato e a proibição de saudação são garantidos em código para toda resposta, em qualquer provedor — estes textos definem o conteúdo, não a forma."
         >
         <div style={{ display: "flex", flexDirection: "column", gap: "1.5rem" }}>
-          <label style={{ display: "flex", flexDirection: "column", gap: "0.5rem", fontSize: "0.9rem" }}>
+          <label style={{ display: "flex", flexDirection: "column", gap: "0.5rem", fontSize: "var(--text-cardtitle)" }}>
             <span style={{ fontWeight: 600 }}>Transcrição Visual do Criativo</span>
-            <span style={{ fontSize: "0.8rem", color: "var(--muted)", opacity: 0.8, lineHeight: 1.5 }}>
+            <span style={{ fontSize: "var(--text-control)", color: "var(--muted)", opacity: 0.8, lineHeight: 1.5 }}>
               Primeira etapa de toda análise: a IA recebe a imagem e devolve o que está nela — headline, subheadline, CTA, textos, cores e elementos.
               Deve retornar JSON. É o que substitui a antiga leitura pelo nome do arquivo, e o resultado fica em cache por criativo.
             </span>
-            <textarea value={settings.visionPrompt} onChange={e => setSettings({...settings, visionPrompt: e.target.value})} placeholder="Em branco usa o prompt padrão de transcrição." style={{ padding: "1rem", borderRadius: "8px", border: "1px solid var(--card-border)", background: "var(--card-bg)", color: "var(--foreground)", minHeight: "120px", fontFamily: "monospace", fontSize: "0.85rem", resize: "vertical" }} />
+            <textarea value={settings.visionPrompt} onChange={e => setSettings({...settings, visionPrompt: e.target.value})} placeholder="Em branco usa o prompt padrão de transcrição." className="field-input field-textarea" style={{ minHeight: "120px" }} />
             <div style={{ display: "flex", alignItems: "center", gap: "0.75rem", flexWrap: "wrap" }}>
-              <button
-                type="button"
-                onClick={handleTranscribeBatch}
-                disabled={transcribing}
-                style={{ background: "transparent", color: "var(--primary)", border: "1px solid var(--primary)", padding: "0.5rem 1rem", borderRadius: "6px", fontWeight: 600, fontSize: "0.85rem", cursor: transcribing ? "wait" : "pointer", display: "flex", alignItems: "center", gap: "0.5rem" }}
-              >
+              <button type="button" onClick={handleTranscribeBatch} disabled={transcribing} className="btn btn-primary" >
                 {transcribing ? <Loader2 size={15} className="spin" /> : <Sparkles size={15} />}
                 {transcribing ? "Transcrevendo..." : "Transcrever peças ativas agora"}
               </button>
-              <span style={{ fontSize: "0.78rem", color: "var(--muted)", opacity: 0.8 }}>
+              <span style={{ fontSize: "var(--text-caption)", color: "var(--muted)", opacity: 0.8 }}>
                 Processa em lote as peças ativas que ainda não têm transcrição, deixando as análises prontas de antemão.
                 Sob demanda isso já acontece sozinho na primeira análise de cada peça.
               </span>
             </div>
           </label>
 
-          <label style={{ display: "flex", flexDirection: "column", gap: "0.5rem", fontSize: "0.9rem" }}>
+          <label style={{ display: "flex", flexDirection: "column", gap: "0.5rem", fontSize: "var(--text-cardtitle)" }}>
             <span style={{ fontWeight: 600 }}>Analisar Criativo Individual (Botão)</span>
-            <span style={{ fontSize: "0.8rem", color: "var(--muted)", opacity: 0.8, lineHeight: 1.5 }}>
+            <span style={{ fontSize: "var(--text-control)", color: "var(--muted)", opacity: 0.8, lineHeight: 1.5 }}>
               Recebe a transcrição acima somada aos números do período. A transcrição é anexada automaticamente, não precisa de variável no prompt.
             </span>
-            <textarea value={settings.hypothesisPrompt} onChange={e => setSettings({...settings, hypothesisPrompt: e.target.value})} style={{ padding: "1rem", borderRadius: "8px", border: "1px solid var(--card-border)", background: "var(--card-bg)", color: "var(--foreground)", minHeight: "120px", fontFamily: "monospace", fontSize: "0.85rem", resize: "vertical" }} />
+            <textarea value={settings.hypothesisPrompt} onChange={e => setSettings({...settings, hypothesisPrompt: e.target.value})} className="field-input field-textarea" style={{ minHeight: "120px" }} />
           </label>
           
-          <label style={{ display: "flex", flexDirection: "column", gap: "0.5rem", fontSize: "0.9rem" }}>
+          <label style={{ display: "flex", flexDirection: "column", gap: "0.5rem", fontSize: "var(--text-cardtitle)" }}>
             <span style={{ fontWeight: 600 }}>Análise de Similaridade (Projeto Andromeda)</span>
-            <span style={{ fontSize: "0.8rem", color: "var(--muted)", opacity: 0.8, lineHeight: 1.5 }}>
+            <span style={{ fontSize: "var(--text-control)", color: "var(--muted)", opacity: 0.8, lineHeight: 1.5 }}>
               <strong>Sem uso no momento:</strong> a análise de similaridade foi removida e está sendo refeita.
               O texto continua guardado aqui — junto do material do time sobre o Andromeda, que vive no
               código — para alimentar a nova versão quando ela existir. Nada do que for escrito agora
               produz efeito em tela.
             </span>
-            <textarea value={settings.andromedaPrompt} onChange={e => setSettings({...settings, andromedaPrompt: e.target.value})} style={{ padding: "1rem", borderRadius: "8px", border: "1px solid var(--card-border)", background: "var(--card-bg)", color: "var(--foreground)", minHeight: "120px", fontFamily: "monospace", fontSize: "0.85rem", resize: "vertical" }} />
+            <textarea value={settings.andromedaPrompt} onChange={e => setSettings({...settings, andromedaPrompt: e.target.value})} className="field-input field-textarea" style={{ minHeight: "120px" }} />
           </label>
         </div>
         </SettingsSection>
@@ -218,15 +214,15 @@ export default function IAPage() {
                   }}
                 >
                   {/* A posição na cadeia, para a ordem ficar explícita. */}
-                  <span style={{ width: "1.4rem", flexShrink: 0, fontSize: "0.75rem", fontWeight: 700, color: "var(--muted)", textAlign: "right" }}>
+                  <span style={{ width: "1.4rem", flexShrink: 0, fontSize: "var(--text-caption)", fontWeight: 700, color: "var(--muted)", textAlign: "right" }}>
                     {provider.order ? `${index + 1}º` : "—"}
                   </span>
 
                   <BrandIcon id={provider.brand} size={30} />
 
                   <div style={{ flex: "1 1 9rem", minWidth: 0, display: "flex", flexDirection: "column", gap: "0.15rem" }}>
-                    <span style={{ fontWeight: 600, fontSize: "0.86rem" }}>{info.label}</span>
-                    <span style={{ fontSize: "0.74rem", color: "var(--muted)" }}>{provider.role}</span>
+                    <span className="field-label">{info.label}</span>
+                    <span style={{ fontSize: "var(--text-caption)", color: "var(--muted)" }}>{provider.role}</span>
                   </div>
 
                   <input
@@ -238,7 +234,7 @@ export default function IAPage() {
                       flex: "2 1 14rem", minWidth: 0,
                       padding: "0.6rem 0.7rem", borderRadius: "10px",
                       border: "1px solid var(--card-border)", background: "var(--card-bg)",
-                      color: "var(--foreground)", fontFamily: "monospace", fontSize: "0.82rem",
+                      color: "var(--foreground)", fontFamily: "monospace", fontSize: "var(--text-control)",
                     }}
                   />
 
@@ -259,13 +255,13 @@ export default function IAPage() {
           status={!!settings.tavilyApiKey}
         >
         <div style={{ display: "flex", flexDirection: "column", gap: "1.5rem" }}>
-          <label style={{ display: "flex", flexDirection: "column", gap: "0.5rem", fontSize: "0.9rem" }}>
+          <label style={{ display: "flex", flexDirection: "column", gap: "0.5rem", fontSize: "var(--text-cardtitle)" }}>
             <span style={{ fontWeight: 600 }}>Termos de Pesquisa Base (Query)</span>
-            <textarea value={settings.tavilySearchQuery} onChange={e => setSettings({...settings, tavilySearchQuery: e.target.value})} style={{ padding: "1rem", borderRadius: "8px", border: "1px solid var(--card-border)", background: "var(--card-bg)", color: "var(--foreground)", minHeight: "80px", fontFamily: "monospace", fontSize: "0.85rem", resize: "vertical" }} />
+            <textarea value={settings.tavilySearchQuery} onChange={e => setSettings({...settings, tavilySearchQuery: e.target.value})} className="field-input field-textarea" style={{ minHeight: "80px" }} />
           </label>
-          <label style={{ display: "flex", flexDirection: "column", gap: "0.5rem", fontSize: "0.9rem" }}>
+          <label style={{ display: "flex", flexDirection: "column", gap: "0.5rem", fontSize: "var(--text-cardtitle)" }}>
             <span style={{ fontWeight: 600 }}>Curador de Insights de Mercado (Prompt)</span>
-            <textarea value={settings.marketInsightsPrompt} onChange={e => setSettings({...settings, marketInsightsPrompt: e.target.value})} style={{ padding: "1rem", borderRadius: "8px", border: "1px solid var(--card-border)", background: "var(--card-bg)", color: "var(--foreground)", minHeight: "120px", fontFamily: "monospace", fontSize: "0.85rem", resize: "vertical" }} />
+            <textarea value={settings.marketInsightsPrompt} onChange={e => setSettings({...settings, marketInsightsPrompt: e.target.value})} className="field-input field-textarea" style={{ minHeight: "120px" }} />
           </label>
         </div>
         </SettingsSection>
@@ -281,23 +277,15 @@ export default function IAPage() {
             boxShadow: "0 6px 24px rgba(0,0,0,0.12)",
           }}
         >
-          <span style={{ fontSize: "0.8rem", color: "var(--muted)" }}>
+          <span style={{ fontSize: "var(--text-control)", color: "var(--muted)" }}>
             Prompts e chaves são gravados juntos.
           </span>
-          <button
-            type="submit"
-            disabled={savingSettings}
-            style={{
-              background: "var(--primary)", color: "#fff", border: "none",
-              padding: "0.6rem 1.4rem", borderRadius: "10px", fontWeight: 600, fontSize: "0.86rem",
-              cursor: savingSettings ? "default" : "pointer", opacity: savingSettings ? 0.6 : 1,
-              display: "inline-flex", alignItems: "center", gap: "0.5rem", whiteSpace: "nowrap",
-            }}
-          >
+          <button type="submit" disabled={savingSettings} className="btn btn-primary" >
             {savingSettings ? <Loader2 size={16} className="spin" /> : <Save size={16} />}
             {savingSettings ? "Salvando..." : "Salvar alterações"}
           </button>
         </div>
+      </SettingsSaveProvider>
     </form>
   );
 }

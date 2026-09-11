@@ -67,7 +67,7 @@ function ToastCard({ toast, index, isHovered, removeToast, syncProgress, isSynci
         flexDirection: "row",
         alignItems: "center",
         gap: "0.5rem",
-        fontWeight: 500,
+        fontWeight: 400,
         transformOrigin: "bottom right",
         pointerEvents: "auto",
         minWidth: "max-content"
@@ -81,25 +81,14 @@ function ToastCard({ toast, index, isHovered, removeToast, syncProgress, isSynci
               <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="3" fill="none" strokeDasharray="62.83" strokeDashoffset={62.83 - (62.83 * (syncProgress || 0)) / 100} style={{ transition: "stroke-dashoffset 0.3s ease", strokeLinecap: "round" }} />
             </svg>
           </div>
-          <span style={{ fontSize: "0.85rem", whiteSpace: "nowrap" }}>{syncMessage || toast.title}</span>
+          <span style={{ fontSize: "var(--text-control)", whiteSpace: "nowrap" }}>{syncMessage || toast.title}</span>
         </>
       ) : (
-        <span style={{ fontSize: "0.85rem", whiteSpace: "nowrap" }}>{toast.title}</span>
+        <span style={{ fontSize: "var(--text-control)", whiteSpace: "nowrap" }}>{toast.title}</span>
       )}
       
-      <button 
-        onClick={() => removeToast(toast.id)}
-        style={{ 
-          background: 'transparent', border: 'none', color: '#fff', 
-          cursor: 'pointer', opacity: 0.6, padding: '0.2rem',
-          display: 'flex', alignItems: 'center', justifyContent: 'center',
-          marginLeft: '0.25rem', transition: 'opacity 0.2s'
-        }}
-        onMouseOver={(e) => e.currentTarget.style.opacity = '1'}
-        onMouseOut={(e) => e.currentTarget.style.opacity = '0.6'}
-        title="Fechar"
-      >
-        <X size={14} />
+      <button onClick={() => removeToast(toast.id)} title="Dispensar" aria-label="Dispensar" className="btn btn-close btn-overlay" style={{ marginLeft: "0.25rem" }}>
+        <X size={15} />
       </button>
     </motion.div>
   );

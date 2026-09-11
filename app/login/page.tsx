@@ -86,8 +86,8 @@ export default function LoginPage() {
       >
         <div style={{ marginBottom: "2rem" }}>
           <img src="/logo.png" alt="allu.mkt creative insights" style={{ height: "40px", margin: "0 auto 1.5rem" }} />
-          <h1 style={{ fontSize: "1.5rem", fontWeight: 700, marginBottom: "0.5rem" }}>Bem-vindo ao Insights</h1>
-          <p style={{ color: "var(--muted)", fontSize: "0.95rem" }}>
+          <h1 style={{ fontSize: "var(--text-metric-lg)", fontWeight: 700, marginBottom: "0.5rem" }}>Bem-vindo ao Insights</h1>
+          <p style={{ color: "var(--muted)", fontSize: "var(--text-cardtitle)" }}>
             Faça login com seu e-mail corporativo para acessar o painel de performance de criativos.
           </p>
         </div>
@@ -99,8 +99,8 @@ export default function LoginPage() {
             padding: "0.8rem",
             borderRadius: "8px",
             marginBottom: "1.5rem",
-            fontSize: "0.9rem",
-            fontWeight: 500
+            fontSize: "var(--text-cardtitle)",
+            fontWeight: 400
           }}>
             Acesso negado. Apenas e-mails @allugator.com são autorizados.
           </div>
@@ -115,39 +115,16 @@ export default function LoginPage() {
               color: "var(--success)",
               padding: "1.5rem",
               borderRadius: "8px",
-              fontWeight: 500
+              fontWeight: 400
             }}
           >
-            <div style={{ fontSize: "2rem", marginBottom: "0.5rem" }}>✉️</div>
+            <div style={{ fontSize: "var(--text-metric-lg)", marginBottom: "0.5rem" }}>✉️</div>
             Enviamos um link mágico para o seu e-mail.<br/>
-            <span style={{ fontSize: "0.85rem", opacity: 0.9 }}>Clique no link para entrar.</span>
+            <span style={{ fontSize: "var(--text-control)", opacity: 0.9 }}>Clique no link para entrar.</span>
           </motion.div>
         ) : (
           <div style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
-            <button
-              onClick={() => {
-                setLoading(true);
-                signIn("google", { callbackUrl: "/" });
-              }}
-              disabled={loading}
-              style={{
-                background: "#ffffff",
-                color: "#111827",
-                padding: "0.8rem",
-                borderRadius: "8px",
-                fontWeight: 600,
-                fontSize: "1rem",
-                cursor: loading ? "not-allowed" : "pointer",
-                opacity: loading ? 0.7 : 1,
-                transition: "all 0.2s",
-                border: "1px solid #D1D5DB",
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-                gap: "0.75rem",
-                boxShadow: "0 1px 2px rgba(0,0,0,0.05)"
-              }}
-            >
+            <button onClick={() => { setLoading(true); signIn("google", { callbackUrl: "/" }); }} disabled={loading} className="btn btn-ghost" style={{ color: "#111827" }} >
               {loading ? (
                 <span style={{ display: "inline-block", width: "16px", height: "16px", border: "2px solid #111827", borderTopColor: "transparent", borderRadius: "50%", animation: "spin 1s linear infinite" }} />
               ) : (
@@ -164,30 +141,7 @@ export default function LoginPage() {
             </button>
             
             {process.env.NODE_ENV === 'development' && (
-              <button
-                onClick={() => {
-                  setLoading(true);
-                  signIn("credentials", { callbackUrl: "/" });
-                }}
-                disabled={loading}
-                style={{
-                  background: "#111827",
-                  color: "#ffffff",
-                  padding: "0.8rem",
-                  borderRadius: "8px",
-                  fontWeight: 600,
-                  fontSize: "1rem",
-                  cursor: loading ? "not-allowed" : "pointer",
-                  opacity: loading ? 0.7 : 1,
-                  transition: "all 0.2s",
-                  border: "none",
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  gap: "0.75rem",
-                  boxShadow: "0 1px 2px rgba(0,0,0,0.1)"
-                }}
-              >
+              <button onClick={() => { setLoading(true); signIn("credentials", { callbackUrl: "/" }); }} disabled={loading} className="btn btn-ghost" style={{ color: "#ffffff" }} >
                 {loading ? (
                   <span style={{ display: "inline-block", width: "16px", height: "16px", border: "2px solid #ffffff", borderTopColor: "transparent", borderRadius: "50%", animation: "spin 1s linear infinite" }} />
                 ) : (
@@ -203,11 +157,11 @@ export default function LoginPage() {
           onToggle={(e) => { if ((e.currentTarget as HTMLDetailsElement).open) loadConfig(); }}
           style={{ marginTop: "1.5rem", textAlign: "left" }}
         >
-          <summary style={{ cursor: "pointer", fontSize: "0.8rem", color: "var(--muted)", textAlign: "center", listStyle: "none" }}>
+          <summary style={{ cursor: "pointer", fontSize: "var(--text-control)", color: "var(--muted)", textAlign: "center", listStyle: "none" }}>
             Problemas para entrar?
           </summary>
 
-          <div style={{ marginTop: "1rem", fontSize: "0.8rem", color: "var(--muted)", lineHeight: 1.6 }}>
+          <div style={{ marginTop: "1rem", fontSize: "var(--text-control)", color: "var(--muted)", lineHeight: 1.6 }}>
             {configLoading && <p style={{ margin: 0 }}>Verificando a configuração...</p>}
 
             {config && (
@@ -220,30 +174,27 @@ export default function LoginPage() {
                 </p>
 
                 <div style={{ background: "rgba(127,127,127,0.12)", border: "1px solid var(--card-border)", borderRadius: "8px", padding: "0.75rem", display: "flex", alignItems: "center", gap: "0.5rem", flexWrap: "wrap" }}>
-                  <code style={{ flex: 1, minWidth: 0, fontSize: "0.75rem", wordBreak: "break-all", color: "var(--foreground)" }}>
+                  <code style={{ flex: 1, minWidth: 0, fontSize: "var(--text-caption)", wordBreak: "break-all", color: "var(--foreground)" }}>
                     {config.redirectUri || "endereço público não configurado"}
                   </code>
                   {config.redirectUri && (
-                    <button
-                      onClick={copyRedirectUri}
-                      style={{ background: "transparent", border: "1px solid var(--card-border)", color: "var(--foreground)", borderRadius: "6px", padding: "0.3rem 0.6rem", fontSize: "0.7rem", fontWeight: 600, cursor: "pointer", whiteSpace: "nowrap" }}
-                    >
+                    <button onClick={copyRedirectUri} className="btn btn-secondary" style={{ color: "var(--foreground)" }} >
                       {copied ? "Copiado" : "Copiar"}
                     </button>
                   )}
                 </div>
 
-                <p style={{ margin: "0.75rem 0 0", fontSize: "0.72rem", opacity: 0.85 }}>
+                <p style={{ margin: "0.75rem 0 0", fontSize: "var(--text-caption)", opacity: 0.85 }}>
                   Origem deste endereço: {config.sourceLabel || "nenhuma"}.
                   {config.googleClientId && (
-                    <> Cliente OAuth: <code style={{ fontSize: "0.7rem", wordBreak: "break-all" }}>{config.googleClientId}</code></>
+                    <> Cliente OAuth: <code style={{ fontSize: "var(--text-caption)", wordBreak: "break-all" }}>{config.googleClientId}</code></>
                   )}
                 </p>
 
                 {config.problems.length > 0 && (
                   <ul style={{ margin: "0.75rem 0 0", paddingLeft: "1.1rem", display: "flex", flexDirection: "column", gap: "0.35rem" }}>
                     {config.problems.map((problem, i) => (
-                      <li key={i} style={{ fontSize: "0.75rem", color: "var(--warning)" }}>{problem}</li>
+                      <li key={i} style={{ fontSize: "var(--text-caption)", color: "var(--warning)" }}>{problem}</li>
                     ))}
                   </ul>
                 )}
@@ -252,7 +203,7 @@ export default function LoginPage() {
           </div>
         </details>
 
-        <div style={{ marginTop: "2rem", fontSize: "0.8rem", color: "var(--muted)" }}>
+        <div style={{ marginTop: "2rem", fontSize: "var(--text-control)", color: "var(--muted)" }}>
           &copy; {new Date().getFullYear()} Allugator. Todos os direitos reservados.
         </div>
       </motion.div>

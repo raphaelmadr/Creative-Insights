@@ -13,7 +13,7 @@ export async function GET(req: Request) {
     const targetYear = yearParam ? parseInt(yearParam) : today.getFullYear();
 
     const settings = await prisma.systemSettings.findUnique({ where: { id: 1 } });
-    const teamCreativeGoal = settings?.teamCreativeGoal || 300;
+    const teamCreativeGoal = settings?.teamCreativeGoal ?? 300;
 
     // Início e fim do mês
     const startDate = new Date(targetYear, targetMonth - 1, 1);
