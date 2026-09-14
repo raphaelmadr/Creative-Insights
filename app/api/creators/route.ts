@@ -49,9 +49,22 @@ export async function GET() {
       linkedTo: c.email ? vinculados.get(c.email) ?? null : null,
     }));
 
+    /*
+     * Quantas peças cada sigla captura hoje.
+     *
+     * É o retorno que valida a regra: sem ele, quem cadastra uma sigla não tem
+     * como saber se ela pegou alguma coisa, e o erro só aparece semanas depois
+     * no relatório — quando a peça já foi contada para a pessoa errada, ou
+     * para ninguém.
+     */
+    const grupos = await prisma.adCreative.groupBy({ by: ["designer"], _count: true });
+    const counts: Record<string, number> = {};
+    grupos.forEach((g) => { if (g.designer) counts[g.designer] = g._count; });
+
     return NextResponse.json({
       data: creators,
       accounts,
+      counts,
       // Mantido para quem já consome o formato anterior.
       availableAccounts: accounts.filter(a => !a.linkedTo),
     });

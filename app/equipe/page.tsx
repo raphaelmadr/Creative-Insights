@@ -15,7 +15,7 @@ import {
 } from "@/components/CreativeCardPrimitives";
 import {
   Users, Target, RefreshCw, Info, Layers, TrendingUp,
-  Activity, ChevronDown, ChevronRight, CalendarDays, HelpCircle,
+  Activity, ChevronDown, CalendarDays,
 } from "lucide-react";
 
 /**
@@ -155,118 +155,7 @@ function GoalBlock({
   );
 }
 
-/**
- * Soma as métricas de um time.
- *
- * Receita, gasto e anúncios somam. ROAS e CPA **não**: são razões, e a média
- * das razões de cada pessoa não é a razão do time — quem gastou R$ 10 com ROAS
- * 8 pesaria igual a quem gastou R$ 50.000 com ROAS 1,2. Os dois são
- * recalculados a partir dos totais.
- *
- * Peças entregues somam: a meta de volume é de cada pessoa, mas o total
- * produzido pelo time é leitura direta.
- */
-function aggregate(members: any[]) {
-  const sum = (key: string) => members.reduce((acc, m) => acc + (Number(m[key]) || 0), 0);
 
-  const spend = sum("spend");
-  const grossValue = sum("grossValue");
-  const netOrders = sum("netOrders");
-
-  return {
-    net: sum("riskApprovedValue"),
-    grossValue,
-    spend,
-    activeAds: sum("activeAdsCount"),
-    pieces: sum("totalPieces"),
-    roas: spend > 0 ? grossValue / spend : 0,
-    cpa: netOrders > 0 ? spend / netOrders : 0,
-  };
-}
-
-/**
- * O consolidado do time, no mesmo cartão de métrica da página inicial.
- *
- * Mesmas classes do dashboard criativo — `.allu-card` com rótulo, valor e
- * subtexto — para que um número do time se leia igual a um número global. O
- * que muda é a cor: o tom do time entra na borda e no rótulo, como
- * `.allu-card-highlight` já faz com o verde, para o consolidado não se
- * confundir com os cartões das pessoas logo abaixo.
- *
- * O prefixo é o mesmo da home: `▶` no cartão em destaque, `◇` nos demais.
- */
-function TeamMetricsBar({ members, tint }: { members: any[]; tint: "interno" | "externo" }) {
-  const t = aggregate(members);
-
-  const items: {
-    label: string;
-    value: React.ReactNode;
-    subtext: string;
-    title: string;
-    highlight?: boolean;
-  }[] = [
-    {
-      label: "Receita líquida",
-      value: <AnimatedNumber value={t.net} prefix="R$ " decimals={2} />,
-      subtext: "liquidado · risk_approved_cc",
-      title: "Vendas aprovadas na análise de risco dos anúncios criados no mês",
-      highlight: true,
-    },
-    {
-      label: "CPA",
-      value: <AnimatedNumber value={t.cpa} prefix="R$ " decimals={2} />,
-      subtext: "investido ÷ pedidos líquidos",
-      title: "Custo por pedido líquido do time",
-    },
-    {
-      label: "ROAS",
-      value: `${t.roas.toFixed(2)}x`,
-      subtext: "bruta ÷ investimento",
-      title: "Retorno sobre o investimento do time",
-    },
-    {
-      label: "Receita bruta",
-      value: <AnimatedNumber value={t.grossValue} prefix="R$ " decimals={2} />,
-      subtext: "faturado · payment_approved_cc",
-      title: "Pagamentos aprovados, incluindo o que ainda pode cair na análise de risco",
-    },
-    {
-      label: "Anúncios ativos",
-      value: <AnimatedNumber value={t.activeAds} decimals={0} />,
-      subtext: "criados no mês, ainda ativos",
-      title: "Anúncios lançados no mês que seguem ativos agora",
-    },
-    {
-      label: "Peças entregues",
-      value: <AnimatedNumber value={t.pieces} decimals={0} />,
-      subtext: "lidas do canal do Slack",
-      title: "Soma das peças entregues pelos membros deste time",
-    },
-  ];
-
-  return (
-    <motion.div
-      className="team-metrics-row"
-      initial="hidden" animate="show"
-      variants={{ hidden: { opacity: 0 }, show: { opacity: 1, transition: { staggerChildren: 0.06 } } }}
-    >
-      {items.map((item) => (
-        <motion.div
-          key={item.label}
-          title={item.title}
-          className={`allu-card team-metric tint-${tint}${item.highlight ? " team-metric-highlight" : ""}`}
-          variants={{ hidden: { opacity: 0, y: 12 }, show: { opacity: 1, y: 0, transition: { type: "spring", stiffness: 300, damping: 24 } } }}
-        >
-          <div className="allu-card-label">
-            {item.highlight ? "▶" : "◇"} {item.label}
-          </div>
-          <div className="allu-card-value">{item.value}</div>
-          <div className="allu-card-subtext">{item.subtext}</div>
-        </motion.div>
-      ))}
-    </motion.div>
-  );
-}
 
 /**
  * O cartão de um membro.
@@ -371,99 +260,6 @@ function MemberCard({ stat, rank }: { stat: any; rank: number }) {
 );
 }
 
-/**
- * Uma categoria de time, no mesmo cartão das categorias da página inicial.
- *
- * Mesmo desenho de `FunnelsOverview`: o cartão embrulha tudo, o cabeçalho é uma
- * linha só — tile de ícone, nome, contagem embaixo — e a ponta direita traz o
- * "?" que explica o critério de entrada e a seta de recolher. Quem já entendeu
- * a home entende esta tela sem reaprender nada.
- */
-function TeamSection({
-  emoji, title, description, criterion, members, emptyText, tint,
-}: {
-  emoji: string;
-  title: string;
-  description: string;
-  criterion: React.ReactNode;
-  members: any[];
-  emptyText: string;
-  tint: "interno" | "externo";
-}) {
-  const [collapsed, setCollapsed] = useState(false);
-  const [whyOpen, setWhyOpen] = useState(false);
-
-  return (
-    <div style={{ background: "var(--card-bg)", border: "1px solid var(--card-border)", borderRadius: "12px", padding: "1rem", display: "flex", flexDirection: "column", gap: "1rem" }}>
-
-      <div style={{ display: "flex", flexWrap: "nowrap", alignItems: "center", gap: "0.5rem" }}>
-        <div style={{ display: "flex", alignItems: "center", gap: "0.55rem", flexShrink: 0, minWidth: 0 }}>
-          <div style={{ fontSize: "var(--text-metric)", width: "34px", height: "34px", borderRadius: "8px", background: "var(--background-main)", border: "1px solid var(--card-border)", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
-            {emoji}
-          </div>
-          <div style={{ display: "flex", flexDirection: "column", gap: "0.05rem", minWidth: 0 }}>
-            <h2 style={{ ...T.name, margin: 0, color: "var(--foreground)", whiteSpace: "nowrap" }}>{title}</h2>
-            <span style={{ fontSize: "var(--text-eyebrow)", color: "var(--muted)", fontWeight: 400, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
-              {members.length} {members.length === 1 ? "criador" : "criadores"} · {description}
-            </span>
-          </div>
-        </div>
-
-        <div style={{ display: "flex", alignItems: "center", gap: "0.15rem", marginLeft: "auto", flexShrink: 0 }}>
-          <button
-            onClick={() => setWhyOpen((v) => !v)}
-            title="Quem entra nesta categoria?"
-            aria-label="Quem entra nesta categoria?"
-            aria-expanded={whyOpen}
-            className="btn btn-icon" style={{ color: whyOpen ? "var(--primary)" : undefined }}
-          >
-            <HelpCircle size={16} />
-          </button>
-
-          <button
-            onClick={() => setCollapsed((v) => !v)}
-            title={collapsed ? "Expandir" : "Recolher"}
-            aria-label={collapsed ? "Expandir categoria" : "Recolher categoria"}
-            className="btn btn-icon"
-          >
-            {collapsed ? <ChevronRight size={18} /> : <ChevronDown size={18} />}
-          </button>
-        </div>
-      </div>
-
-      {whyOpen && (
-        <div style={{ display: "flex", flexDirection: "column", gap: "0.5rem", background: "var(--background-main)", border: "1px solid var(--card-border)", borderRadius: "8px", padding: "0.85rem 0.95rem" }}>
-          <span style={{ ...T.name, color: "var(--foreground)" }}>
-            Quem entra nesta categoria?
-          </span>
-          <span style={{ fontSize: "var(--text-caption)", color: "var(--muted)", lineHeight: 1.55 }}>{criterion}</span>
-        </div>
-      )}
-
-      {!collapsed && (
-        members.length === 0 ? (
-          <p style={{ ...T.foot, opacity: 0.55, margin: 0, padding: "1rem", border: "1px dashed var(--card-border)", borderRadius: "8px", textAlign: "center" }}>
-            {emptyText}
-          </p>
-        ) : (
-          <>
-            <TeamMetricsBar members={members} tint={tint} />
-
-            <motion.div
-              className="team-grid-3"
-              initial="hidden" animate="show"
-              variants={{ hidden: {}, show: { transition: { staggerChildren: 0.06 } } }}
-            >
-              {members.map((stat, index) => (
-                <MemberCard key={stat.acronym} stat={stat} rank={index + 1} />
-              ))}
-            </motion.div>
-          </>
-        )
-      )}
-    </div>
-  );
-}
 
 export default function EquipePage() {
   const [stats, setStats] = useState<any[]>([]);
@@ -551,14 +347,6 @@ export default function EquipePage() {
     if (selectedYear === currentYearValue) months = months.filter(m => m.value <= currentMonthValue);
     return months;
   }, [selectedYear, currentYearValue, currentMonthValue]);
-
-  /*
-   * Duas equipes, separadas pelo cadastro: quem tem conta Google vinculada é
-   * time interno; quem foi criado à mão é externo. Antes dividiam o mesmo
-   * ranking, e um influenciador aparecia acima de quem tem meta e salário.
-   */
-  const internos = stats.filter((s: any) => !!s.userEmail);
-  const externos = stats.filter((s: any) => !s.userEmail);
 
   const totalPieces = stats.reduce((acc, curr) => acc + (curr.totalPieces || 0), 0);
   // Meta zerada é "sem meta": a barra e o percentual somem em vez de mostrar 0.
@@ -732,39 +520,25 @@ export default function EquipePage() {
               <p style={{ margin: 0 }}>Nenhum dado encontrado para o período selecionado.</p>
             </div>
           ) : (
-            <div style={{ display: "flex", flexDirection: "column", gap: "1.75rem" }}>
-              <TeamSection
-                emoji="🏢"
-                title="Time interno"
-                description="contas Google da Allugator"
-                criterion={
-                  <>
-                    Criadores cujo cadastro está <strong>vinculado a uma conta Google da Allugator</strong>.
-                    O nome e a foto vêm do próprio login, e o vínculo é feito em Configurações › Equipe.
-                    Vincular um cadastro manual a uma conta o move para cá automaticamente.
-                  </>
-                }
-                tint="interno"
-                members={internos}
-                emptyText="Nenhuma conta corporativa está vinculada a um criador. Vincule em Configurações › Equipe."
-              />
-
-              <TeamSection
-                emoji="🤝"
-                title="Time externo"
-                description="cadastros manuais"
-                criterion={
-                  <>
-                    Criadores <strong>cadastrados à mão</strong>, sem conta Google vinculada: influenciadores,
-                    parcerias e embaixadores. Aqui também fica o balde <strong>UNKNOWN</strong>, que recolhe
-                    anúncios e entregas sem nenhuma das siglas cadastradas.
-                  </>
-                }
-                tint="externo"
-                members={externos}
-                emptyText="Nenhum cadastro manual. Crie em Configurações › Equipe."
-              />
-            </div>
+            /*
+              Um fluxo só de cards, sem agrupamento.
+              
+              Antes esta área separava "time interno" (conta Google) de "time
+              externo" (cadastro manual), cada um com seu consolidado. A divisão
+              impunha uma leitura que o time ainda não tinha fechado, e punha
+              dois totais na tela para uma pergunta que é de criador. Quem
+              compara o conjunto tem a meta global logo acima; quem compara
+              pessoas compara os cards, que já vêm ordenados.
+            */
+            <motion.div
+              className="team-grid-3"
+              initial="hidden" animate="show"
+              variants={{ hidden: {}, show: { transition: { staggerChildren: 0.06 } } }}
+            >
+              {stats.map((stat: any, index: number) => (
+                <MemberCard key={stat.acronym} stat={stat} rank={index + 1} />
+              ))}
+            </motion.div>
           )}
         </section>
       </div>

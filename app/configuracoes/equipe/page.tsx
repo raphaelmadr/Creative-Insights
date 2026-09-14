@@ -39,6 +39,8 @@ export default function EquipePage() {
    * influenciadores, embaixadores e criadores que já saíram.
    */
   const [accounts, setAccounts] = useState<{ email: string; name: string | null; image: string | null; linkedTo: string | null }[]>([]);
+  /** Peças capturadas por cada sigla — o retorno que diz se a regra pegou algo. */
+  const [counts, setCounts] = useState<Record<string, number>>({});
   const [entryMode, setEntryMode] = useState<"corporativo" | "externo">("corporativo");
   const [selectedAccount, setSelectedAccount] = useState("");
   
@@ -51,6 +53,7 @@ export default function EquipePage() {
       const res = await fetch("/api/creators").then(r => r.json());
       if (res.data) setCreators(res.data);
       if (res.accounts) setAccounts(res.accounts);
+      if (res.counts) setCounts(res.counts);
     } catch (err) {
       console.error(err);
     }
@@ -371,34 +374,80 @@ function parseGoal(value: unknown, fallback: number): number {
           </div>
         </Modal>
 
-        <div style={{ display: "flex", flexDirection: "column", gap: "0.5rem" }}>
-          {creators.map(c => (
-            <div key={c.id} className="allu-card" style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", padding: "0.85rem 1rem", gap: "1rem" }}>
-              <div style={{ display: "flex", alignItems: "center", gap: "1rem", minWidth: 0 }}>
-                <Avatar name={c.name} src={c.avatarUrl} size="md" />
-                <div style={{ display: "flex", flexDirection: "column", gap: "0.3rem", minWidth: 0 }}>
-                  <span style={{ display: "flex", alignItems: "center", gap: "0.4rem", flexWrap: "wrap", fontSize: "var(--text-control)", fontWeight: 600 }}>
-                    {c.name}
-                    {/* Cada sigla vira um selo: é por elas que o criativo é
-                        ligado à pessoa, então precisam se ler uma a uma, e não
-                        num texto corrido entre parênteses. */}
-                    {splitAcronyms(c.acronym).map((sigla: string) => (
-                      <span key={sigla} className="acronym-chip">{sigla}</span>
-                    ))}
-                    {c.userEmail && <span className="acronym-chip" title={c.userEmail}>conta Google</span>}
+        {/*
+          Um card por criador, e não uma lista de linhas.
+          
+          A configuração de cada um — as siglas que ele captura e as metas —
+          precisa caber junto do nome, não espremida numa linha só. As siglas
+          ganham destaque porque são a regra: é por elas que o criativo é
+          ligado à pessoa, inclusive nos cadastros que representam canal ou
+          parceria em vez de gente.
+        */}
+        <div
+          style={{
+            display: "grid",
+            gridTemplateColumns: "repeat(auto-fill, minmax(min(100%, 19rem), 1fr))",
+            gap: "0.85rem",
+          }}
+        >
+          {creators.map(c => {
+            const siglas = splitAcronyms(c.acronym);
+            const pecas = siglas.reduce((soma: number, s: string) => soma + (counts[s] || 0), 0);
+            return (
+              <div
+                key={c.id}
+                className="allu-card"
+                style={{ flexDirection: "column", alignItems: "stretch", padding: "1.1rem", gap: "0.85rem" }}
+              >
+                <div style={{ display: "flex", alignItems: "center", gap: "0.8rem", minWidth: 0 }}>
+                  <Avatar name={c.name} src={c.avatarUrl} size="md" />
+                  <div style={{ minWidth: 0, flex: 1 }}>
+                    <div style={{ fontSize: "var(--text-control)", fontWeight: 700, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                      {c.name}
+                    </div>
+                    {c.userEmail && (
+                      <div className="field-hint" style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={c.userEmail}>
+                        conta Google vinculada
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                <div>
+                  <span className="allu-card-label">Siglas que capturam</span>
+                  <div style={{ display: "flex", flexWrap: "wrap", gap: "0.35rem", marginTop: "0.4rem" }}>
+                    {siglas.length > 0
+                      ? siglas.map((sigla: string) => (
+                          <span key={sigla} className="acronym-chip">{sigla}</span>
+                        ))
+                      : <span className="field-hint">nenhuma — não captura peça alguma</span>}
+                  </div>
+                </div>
+
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end", gap: "0.75rem" }}>
+                  <div>
+                    <span className="allu-card-label">Peças atribuídas</span>
+                    <div className="allu-card-value">{pecas.toLocaleString("pt-BR")}</div>
+                  </div>
+                  {/* Meta zerada é "sem meta": some em vez de exibir "R$ 0". */}
+                  <span className="field-hint" style={{ textAlign: "right" }}>
+                    {describeGoals(c.monthlyGoal, c.monthlyVolumeGoal)}
                   </span>
-                  {/* Meta zerada é "sem meta": some da linha em vez de exibir "R$ 0". */}
-                  <span className="field-hint">{describeGoals(c.monthlyGoal, c.monthlyVolumeGoal)}</span>
+                </div>
+
+                <div style={{ display: "flex", gap: "0.5rem", borderTop: "1px solid var(--card-border)", paddingTop: "0.8rem" }}>
+                  <button type="button" onClick={() => handleEditCreator(c)} className="btn btn-secondary" style={{ flex: 1 }}>
+                    Configurar
+                  </button>
+                  <button type="button" onClick={() => handleDeleteCreator(c.id)} className="btn btn-icon" style={{ color: "var(--danger)" }} title="Remover">
+                    <Trash2 size={18} />
+                  </button>
                 </div>
               </div>
-              <div style={{ display: "flex", gap: "0.5rem" }}>
-                <button type="button" onClick={() => handleEditCreator(c)} className="btn btn-secondary">Editar</button>
-                <button type="button" onClick={() => handleDeleteCreator(c.id)} className="btn btn-icon" style={{ color: "var(--danger)" }} title="Remover"><Trash2 size={18} /></button>
-              </div>
-            </div>
-          ))}
+            );
+          })}
           {creators.length === 0 && (
-            <div style={{ padding: "2rem", textAlign: "center", color: "var(--muted)", border: "1px dashed var(--card-border)", borderRadius: "8px" }}>
+            <div style={{ padding: "2rem", textAlign: "center", color: "var(--muted)", border: "1px dashed var(--card-border)", borderRadius: "8px", gridColumn: "1 / -1" }}>
               Nenhum criador cadastrado.
             </div>
           )}
