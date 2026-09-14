@@ -123,11 +123,21 @@ interface ExistingAd {
  * A listagem `/ads` omite arquivados e removidos por padrão. Sem este filtro,
  * criativos antigos nunca recebem status — ficam presos em "UNKNOWN" para sempre.
  */
-const ALL_EFFECTIVE_STATUSES = [
-  "ACTIVE", "PAUSED", "DELETED", "PENDING_REVIEW", "DISAPPROVED", "PREAPPROVED",
-  "PENDING_BILLING_INFO", "CAMPAIGN_PAUSED", "ARCHIVED", "ADSET_PAUSED",
-  "IN_PROCESS", "WITH_ISSUES",
-];
+/**
+ * O único status que interessa: o que está no ar AGORA.
+ *
+ * Antes a enumeração pedia os doze status da conta, o que trazia o histórico
+ * inteiro — 13 mil anúncios, dos quais 8,6% ativos — e consumia o orçamento de
+ * tempo antes de qualquer coisa útil acontecer.
+ *
+ * Tudo que não está no ar fica de fora, inclusive os status de análise: um
+ * anúncio em revisão vira ACTIVE em horas e entra no ciclo seguinte, sem que
+ * seja preciso criar uma linha para algo que ainda não existe de fato.
+ *
+ * O que já foi sincronizado dos pausados continua gravado, para consulta. Sair
+ * desta lista é o que marca a pausa — ver a reconciliação após a leitura.
+ */
+const LIVE_EFFECTIVE_STATUSES = ["ACTIVE"];
 
 export async function runMetaSync(
   mode: "full" | "metrics" = "full",
@@ -297,18 +307,24 @@ export async function runMetaSync(
   const videoSourceMap: Record<string, string> = {};
   const adsetPlatformsMap: Record<string, string> = {};
 
-  // --- 3. Enumeração de anúncios (ativos E inativos) ---
+  // --- 3. Enumeração dos anúncios no ar ---
   //
-  // Antes o status vinha de chamadas em lote por ID, restritas aos anúncios com
-  // entrega no mês — anúncios sem entrega nunca tinham status atualizado e 1721
-  // criativos ficaram gravados como "UNKNOWN". Percorrer /ads da conta custa uma
-  // chamada por 500 anúncios e cobre a conta inteira.
+  // O status vem daqui, e não de chamadas em lote por ID: aquelas eram restritas
+  // aos anúncios com entrega no mês, então anúncios sem entrega nunca tinham
+  // status atualizado e 1721 criativos ficaram gravados como "UNKNOWN".
+  //
+  // `enumerationComplete` existe para a reconciliação: marcar como pausado quem
+  // não apareceu só é correto se a leitura foi até o fim. Cortada no meio por
+  // tempo ou erro, a ausência não prova nada — e agir sobre ela pausaria em
+  // massa anúncios que estão no ar.
+  let enumerationComplete = false;
+
   if (!reachedWallClock) {
-    if (onProgress) onProgress("Enumerando anúncios da conta (ativos e inativos)...", 28);
+    if (onProgress) onProgress("Enumerando anúncios no ar...", 28);
 
     try {
       const statusFilter = encodeURIComponent(JSON.stringify([
-        { field: "ad.effective_status", operator: "IN", value: ALL_EFFECTIVE_STATUSES },
+        { field: "ad.effective_status", operator: "IN", value: LIVE_EFFECTIVE_STATUSES },
       ]));
       let adsUrl: string | null = `https://graph.facebook.com/v19.0/${metaAccountId}/ads?fields=id,name,status,effective_status,created_time,adset{id,name},campaign{id,name}&filtering=${statusFilter}&limit=500&access_token=${metaToken}`;
       let pages = 0;
@@ -338,8 +354,11 @@ export async function runMetaSync(
 
         adsUrl = page.paging?.next || null;
         pages++;
-        if (onProgress) onProgress(`Enumerando anúncios (${Object.keys(adMetaMap).length})...`, 28);
+        if (onProgress) onProgress(`Enumerando anúncios no ar (${Object.keys(adMetaMap).length})...`, 28);
       }
+
+      // Sem próxima página e sem erro: a lista do que está no ar está completa.
+      if (!adsUrl) enumerationComplete = true;
     } catch (err: any) {
       /*
        * Limite de taxa também é declarado — como WARNING, porque a próxima
@@ -383,17 +402,40 @@ export async function runMetaSync(
     }
   }
 
+  /*
+   * Reconciliação: quem saiu do ar.
+   *
+   * A enumeração agora traz só o que está no ar, então a ausência de um anúncio
+   * passa a ser informação — é o único sinal de que ele foi pausado. Sem este
+   * passo, todo anúncio pausado desde a mudança ficaria gravado como ACTIVE
+   * para sempre, e o painel mostraria como ativa uma estrutura que não existe.
+   *
+   * Só roda com a leitura completa: cortada no meio, a ausência não prova nada.
+   */
+  if (enumerationComplete && mode === "full") {
+    const wentOffAir = existingAds
+      .filter(ad => (ad.status === "ACTIVE" || ad.status === "REVIEW") && !adMetaMap[ad.id])
+      .map(ad => ad.id);
+
+    if (wentOffAir.length > 0) {
+      if (onProgress) onProgress(`Marcando ${wentOffAir.length} anúncios que saíram do ar...`, 33);
+
+      // Em lotes: um IN com milhares de ids trava o planejador do MySQL.
+      for (let i = 0; i < wentOffAir.length; i += 500) {
+        await withDbRetry(() => prisma.adCreative.updateMany({
+          where: { id: { in: wentOffAir.slice(i, i + 500) } },
+          data: { status: "PAUSED" },
+        }));
+      }
+
+      console.log(`[Meta Sync] ${wentOffAir.length} anúncio(s) saíram do ar e foram marcados como pausados.`);
+    }
+  }
+
   // --- 4. Criativos e mídias ---
   //
   // A fila é montada só agora porque também inclui criativos descobertos pela
   // enumeração, que ainda não existem no banco e por isso não têm mídia alguma.
-  // Anúncios com entrega no mês vêm primeiro; os demais entram com um teto por
-  // execução, para a fila convergir em alguns ciclos em vez de estourar o tempo.
-  const NEW_WITHOUT_INSIGHTS_BUDGET = 500;
-
-  const isActiveInApi = (id: string) =>
-    normalizeMetaStatus(adMetaMap[id]?.status, adMetaMap[id]?.effective_status) === "ACTIVE";
-
   /*
    * A fila de mídia, em três origens — e sem repetição.
    *
@@ -403,26 +445,20 @@ export async function runMetaSync(
    * `!existingById.has(id)`. Anúncio ativo, sem arte no painel, que nenhum sync
    * jamais tentava buscar.
    */
+  /*
+   * A fila de criativos: só o que está no ar.
+   *
+   * `adMetaMap` já contém apenas anúncios no ar, então estar nele é o critério.
+   * A origem antiga "teve entrega na janela" saiu como porta de entrada
+   * independente: um anúncio que gastou no dia 3 e foi pausado no dia 4 não
+   * precisa de arte nova — ele continua no banco com a arte que já tinha, e suas
+   * métricas seguem sendo gravadas normalmente mais adiante.
+   *
+   * O teto por execução some junto: sem o passivo histórico, a fila é da ordem
+   * de centenas, não de milhares, e cabe inteira num ciclo.
+   */
   const refreshAdIds = mode === "full"
-    ? Array.from(
-        new Set([
-          // 1. Teve entrega na janela e a mídia precisa de renovação.
-          ...adIdsWithInsights.filter(id => needsMediaRefresh(existingById.get(id))),
-          // 2. Descoberto pela enumeração e ainda não existe no banco.
-          ...Object.keys(adMetaMap)
-            .filter(id => !existingById.has(id) && !rowsByAdId[id] && isActiveInApi(id))
-            .slice(0, NEW_WITHOUT_INSIGHTS_BUDGET),
-          // 3. Já existe, está no ar, mas segue sem mídia utilizável.
-          ...Object.keys(adMetaMap)
-            .filter(id =>
-              existingById.has(id) &&
-              !rowsByAdId[id] &&
-              isActiveInApi(id) &&
-              needsMediaRefresh(existingById.get(id))
-            )
-            .slice(0, NEW_WITHOUT_INSIGHTS_BUDGET),
-        ])
-      )
+    ? Object.keys(adMetaMap).filter(id => needsMediaRefresh(existingById.get(id)))
     : [];
 
   if (!reachedWallClock && mode === "full" && refreshAdIds.length > 0) {
@@ -825,15 +861,20 @@ export async function runMetaSync(
     }
 
     /**
-     * Criamos registro novo apenas para anúncios que entregaram na janela ou que
-     * estão no ar agora.
+     * Linha nova SÓ para anúncio no ar.
      *
-     * A enumeração devolve todo o histórico da conta, incluindo arquivados. Criar
-     * linha para cada um encheu a tabela com 4.5 mil criativos sem uma única
-     * métrica — invisíveis na interface e um peso morto em toda sincronização.
-     * Os que já existem no banco continuam recebendo status atualizado acima.
+     * Antes bastava ter entregado na janela, o que criava registro para peça já
+     * pausada — exatamente o que enchia a tabela de passado. Quem já tem linha
+     * continua sendo atualizado acima, com métricas e tudo; o que não existe
+     * não passa a existir por causa de um gasto antigo.
+     *
+     * Consequência assumida: um anúncio que estreou e foi pausado entre duas
+     * execuções nunca ganha linha, e como `AdDailyMetrics` depende dela por
+     * chave estrangeira, o gasto desse intervalo não é registrado. Com o ciclo
+     * de 30 minutos a janela é estreita, e a alternativa — gravar todo pausado
+     * que já gastou — é o passivo que se decidiu não ter.
      */
-    if (!item.hasInsights && item.status !== "ACTIVE") continue;
+    if (item.status !== "ACTIVE") continue;
     if (!item.adName && !item.hasInsights) continue;
 
     creativeOperations.push({
@@ -887,9 +928,29 @@ export async function runMetaSync(
 
   const metricOperations: any[] = [];
 
+  /*
+   * Só métricas de anúncio que tem linha.
+   *
+   * `AdDailyMetrics.adCreativeId` é chave estrangeira para `AdCreative`, então
+   * uma métrica de anúncio sem linha não é "um dado a menos": é uma violação
+   * que derruba a gravação inteira. Como agora só criamos linha para o que está
+   * no ar, o gasto de um pausado que nunca teve linha simplesmente não entra —
+   * de propósito, e sem levar junto as métricas de todo o resto.
+   */
+  const knownCreativeIds = new Set<string>([
+    ...existingById.keys(),
+    ...creativeOperations.filter(op => op.type === "upsert").map(op => op.adId),
+  ]);
+  let metricsSkipped = 0;
+
   for (const adId of adIdsWithInsights) {
     const rows = rowsByAdId[adId];
     if (!rows?.length) continue;
+
+    if (!knownCreativeIds.has(adId)) {
+      metricsSkipped++;
+      continue;
+    }
 
     for (const row of rows) {
       if (!row.date_start) continue;
@@ -978,6 +1039,13 @@ export async function runMetaSync(
         },
       });
     }
+  }
+
+  if (metricsSkipped > 0) {
+    console.log(
+      `[Meta Sync] ${metricsSkipped} anúncio(s) com entrega na janela não têm linha de criativo ` +
+      `(pausados antes de serem vistos) — suas métricas não foram gravadas.`
+    );
   }
 
   let syncedMetrics = 0;

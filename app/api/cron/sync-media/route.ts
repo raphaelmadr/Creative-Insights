@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { isCronRequestAuthorized } from "@/lib/cron-endpoint";
-import { runMetaMediaSync } from "@/lib/meta-media-sync";
-import { logInfo, logError } from "@/lib/logger";
+import { describeMediaReport, runMetaMediaSync } from "@/lib/meta-media-sync";
+import { logInfo, logWarning, logError } from "@/lib/logger";
 
 export const maxDuration = 300;
 export const dynamic = "force-dynamic";
@@ -41,16 +41,22 @@ async function handle(req: Request) {
       { limit }
     );
 
-    const summary =
-      `${report.coversUploaded} artes salvas, ${report.videoLinksRenewed} links de vídeo renovados` +
-      (report.failed > 0 ? `, ${report.failed} falharam` : "") +
-      (report.withoutSource > 0 ? `, ${report.withoutSource} sem fonte na API` : "") +
-      (report.remaining > 0 ? ` — ${report.remaining} ainda na fila` : "") +
-      (report.reachedLimit ? " (parcial, teto de tempo)" : "");
+    // Mesmo texto das outras duas portas: três versões da mesma frase divergiam.
+    const described = describeMediaReport(report);
 
-    await logInfo("CRON", `Concluída mídia. ${summary}`, "/api/cron/sync-media");
+    if (described.ok) {
+      await logInfo("CRON", `Concluída mídia. ${described.text}`, "/api/cron/sync-media");
+    } else {
+      await logWarning("CRON", `Concluída mídia com falhas. ${described.text}`, "/api/cron/sync-media");
+    }
 
-    return NextResponse.json({ success: true, status: "ok", summary, report });
+    return NextResponse.json({
+      success: true,
+      status: "ok",
+      summary: described.text,
+      mediaOk: described.ok,
+      report,
+    });
   } catch (error) {
     await logError("CRON", error, "/api/cron/sync-media");
     return NextResponse.json(

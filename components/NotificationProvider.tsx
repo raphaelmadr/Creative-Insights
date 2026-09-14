@@ -345,25 +345,37 @@ export default function NotificationProvider({ children }: { children: ReactNode
        */
       setSyncMessage("Salvando artes dos criativos...");
       let mediaSummary: string | null = null;
+      let mediaOk = true;
       try {
         const mediaRes = await fetch("/api/sync-media", { method: "POST" });
         const mediaJson = await mediaRes.json();
-        mediaSummary = mediaJson?.success
-          ? mediaJson.summary
-          : `artes falharam: ${mediaJson?.error || "erro desconhecido"}`;
+        if (mediaJson?.success) {
+          mediaSummary = mediaJson.summary;
+          mediaOk = mediaJson.mediaOk !== false;
+        } else {
+          mediaSummary = `As artes não puderam ser salvas: ${mediaJson?.error || "erro desconhecido"}.`;
+          mediaOk = false;
+        }
       } catch (mediaErr) {
-        mediaSummary = `artes falharam: ${(mediaErr as Error).message}`;
+        mediaSummary = `As artes não puderam ser salvas: ${(mediaErr as Error).message}.`;
+        mediaOk = false;
       }
 
       setLastSyncAt(new Date().toISOString());
       setSyncCounter(prev => prev + 1);
 
+      /*
+       * O ícone segue o PIOR dos dois resultados.
+       *
+       * Antes, um ✅ verde encabeçava a frase mesmo quando a segunda metade
+       * dizia que centenas de imagens não tinham sido salvas — a mensagem se
+       * contradizia e ninguém sabia se devia agir.
+       */
       const base = completion?.message || "Sincronização das redes concluída!";
+      const tudoCerto = !completion?.partial && mediaOk;
       setToastMsg({
         id: "sync-process",
-        title: completion?.partial
-          ? `⚠️ ${base}${mediaSummary ? ` · ${mediaSummary}` : ""}`
-          : `✅ ${base}${mediaSummary ? ` · ${mediaSummary}` : ""}`,
+        title: `${tudoCerto ? "✅" : "⚠️"} ${base}${mediaSummary ? ` · ${mediaSummary}` : ""}`,
         isNew: true,
       });
     } catch (err: any) {

@@ -27,7 +27,7 @@
 import { NextResponse } from "next/server";
 import prisma from "./prisma";
 import { runSync } from "./channels";
-import { runMetaMediaSync } from "./meta-media-sync";
+import { describeMediaReport, runMetaMediaSync } from "./meta-media-sync";
 import { logInfo, logWarning, logError } from "./logger";
 
 const DEFAULT_INTERVAL_MINUTES = 120;
@@ -186,14 +186,16 @@ export async function handleCronRequest(req: Request) {
         console.log(`[Cron mídia ${percentage}%] ${message}`);
       });
 
-      const summary =
-        `${media.coversUploaded} artes salvas, ${media.videoLinksRenewed} links de vídeo renovados` +
-        (media.failed > 0 ? `, ${media.failed} falharam` : "") +
-        (media.withoutSource > 0 ? `, ${media.withoutSource} sem fonte na API` : "") +
-        (media.remaining > 0 ? ` — ${media.remaining} ainda na fila` : "") +
-        (media.reachedLimit ? " (parcial, teto de tempo)" : "");
+      const described = describeMediaReport(media);
+      const summary = described.text;
 
-      await logInfo("CRON", `Concluída mídia. ${summary}`, "/api/cron/sync-all");
+      // Falha de gravação vira WARNING: um "Concluída" em nível INFO esconde
+      // centenas de imagens que não subiram.
+      if (described.ok) {
+        await logInfo("CRON", `Concluída mídia. ${summary}`, "/api/cron/sync-all");
+      } else {
+        await logWarning("CRON", `Concluída mídia com falhas. ${summary}`, "/api/cron/sync-all");
+      }
 
       return NextResponse.json({
         success: true,

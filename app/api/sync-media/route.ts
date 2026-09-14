@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
-import { runMetaMediaSync } from "@/lib/meta-media-sync";
-import { logInfo, logError } from "@/lib/logger";
+import { describeMediaReport, runMetaMediaSync } from "@/lib/meta-media-sync";
+import { logInfo, logWarning, logError } from "@/lib/logger";
 
 export const maxDuration = 300;
 export const dynamic = "force-dynamic";
@@ -25,14 +25,20 @@ export async function POST(req: Request) {
       console.log(`[Mídia ${percentage}%] ${message}`);
     }, { limit });
 
-    const summary =
-      `${report.coversUploaded} artes salvas, ${report.videoLinksRenewed} links de vídeo renovados` +
-      (report.failed > 0 ? `, ${report.failed} falharam` : "") +
-      (report.remaining > 0 ? ` — ${report.remaining} ainda na fila` : "");
+    const described = describeMediaReport(report);
 
-    await logInfo("SYNC", `Concluída mídia (manual). ${summary}`, "/api/sync-media");
+    if (described.ok) {
+      await logInfo("SYNC", `Concluída mídia (manual). ${described.text}`, "/api/sync-media");
+    } else {
+      await logWarning("SYNC", `Concluída mídia com falhas (manual). ${described.text}`, "/api/sync-media");
+    }
 
-    return NextResponse.json({ success: true, summary, report });
+    return NextResponse.json({
+      success: true,
+      summary: described.text,
+      mediaOk: described.ok,
+      report,
+    });
   } catch (error) {
     await logError("SYNC", error, "/api/sync-media");
     return NextResponse.json(

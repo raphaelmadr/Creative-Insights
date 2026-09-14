@@ -286,6 +286,16 @@ export async function runTikTokSync(
      * armazenamento.
      */
     const mediaTargets = pending.filter(item => {
+      /*
+       * Só o que está no ar.
+       *
+       * A lista de anúncios vem do relatório, que traz tudo que entregou na
+       * janela — inclusive peças pausadas no meio do mês. Suas métricas
+       * continuam sendo gravadas normalmente; o que não se faz mais é gastar
+       * chamada de API e cota de disco com a arte de quem saiu do ar.
+       */
+      if (item.status !== "ACTIVE") return false;
+
       const existing = existingById.get(item.adId);
       if (item.videoId) return true;
       if (!item.imageId) return false;
@@ -407,6 +417,16 @@ export async function runTikTokSync(
     const chunk = pending.slice(i, i + CHUNK);
     await withDbRetry(async () => {
       for (const item of chunk) {
+        /*
+         * Linha nova só para anúncio no ar.
+         *
+         * A lista vem do relatório, que inclui quem entregou e depois foi
+         * pausado. Quem já tem linha continua sendo atualizado; quem não tem
+         * não passa a ter por causa de gasto passado — é o passivo que se
+         * decidiu não acumular.
+         */
+        if (!existingById.has(item.adId) && item.status !== "ACTIVE") continue;
+
         const update: any = {
           adName: item.adName,
           adsetName: safeString(item.info.adgroup_name) || "Desconhecido",
@@ -514,7 +534,10 @@ export async function runTikTokSync(
   }
 
   let syncedMetrics = 0;
-  const knownAdIds = new Set(pending.map(p => p.adId));
+  // Só os que de fato terão linha: os já existentes e os que estão no ar.
+  const knownAdIds = new Set(
+    pending.filter(p => existingById.has(p.adId) || p.status === "ACTIVE").map(p => p.adId)
+  );
 
   // Sem o criativo o upsert viola a FK, então filtramos antes de escrever.
   const writableMetrics = metricOperations.filter(

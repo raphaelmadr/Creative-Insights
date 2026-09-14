@@ -214,6 +214,9 @@ export async function persistRemoteMedia(
   );
 
   if (config.uploadUrl && config.uploadSecret) {
+    /** Última causa observada, para o log final não dizer só "falhou". */
+    let lastFailure = "";
+
     for (let attempt = 1; attempt <= 3; attempt++) {
       try {
         const formData = new FormData();
@@ -252,11 +255,38 @@ export async function persistRemoteMedia(
           });
           return null;
         }
+
+        // Demais status (503, 507, 429...) são transitórios ou de capacidade:
+        // vale repetir, mas a causa precisa sobreviver até o log final.
+        lastFailure = `HTTP ${uploadRes.status} ${uploadRes.statusText}`.trim();
       } catch (error) {
-        console.warn(`[media-upload] Erro no upload (tentativa ${attempt}): ${(error as Error).message}`);
+        lastFailure = (error as Error).message;
+        console.warn(`[media-upload] Erro no upload (tentativa ${attempt}): ${lastFailure}`);
       }
       if (attempt < 3) await delay(500 * Math.pow(2, attempt - 1));
     }
+
+    /*
+     * As três tentativas acabaram sem sucesso e sem resposta conclusiva —
+     * servidor fora do ar, tempo esgotado, cota cheia (507), excesso de
+     * requisições (429).
+     *
+     * Este `return null` era mudo, e era o buraco mais caro do módulo: uma
+     * execução relatava "601 falharam" e não havia uma linha sequer em
+     * Configurações › Logs dizendo por quê. Falha sem causa registrada é
+     * indistinguível de bug nosso.
+     */
+    await logExternalFailure({
+      service: "cPanel",
+      operation: "subir a arte do criativo",
+      error: new Error(
+        `Três tentativas sem sucesso. Última resposta: ${lastFailure || "sem detalhe"}. ` +
+        `Causas típicas: cota de disco cheia, limite de requisições do servidor, ou o host recusando ` +
+        `uploads simultâneos.`
+      ),
+      endpoint: config.uploadUrl,
+      context: { arquivo: filename },
+    });
     return null;
   }
 

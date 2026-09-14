@@ -93,6 +93,51 @@ export interface MediaSyncReport {
   reachedLimit: boolean;
 }
 
+/**
+ * O relatório da mídia em português, para quem não conhece o código.
+ *
+ * Mora aqui, e não em cada chamador, porque eram três textos independentes — o
+ * cron, a rota manual e o aviso na tela — e eles divergiam. O resultado era uma
+ * frase como "0 artes salvas, 184 links de vídeo renovados, 601 falharam", que
+ * empilha números sem dizer o que cada um é nem o que fazer com eles.
+ *
+ * `ok` é falso quando houve falha de gravação: o aviso não pode exibir um ✅
+ * verde em cima de 601 imagens que não foram salvas.
+ */
+export function describeMediaReport(report: MediaSyncReport): { text: string; ok: boolean } {
+  const n = (value: number) => value.toLocaleString("pt-BR");
+
+  if (report.attempted === 0) {
+    return { text: "Artes: nada pendente.", ok: true };
+  }
+
+  const feitos: string[] = [];
+  if (report.coversUploaded > 0) feitos.push(`${n(report.coversUploaded)} imagens salvas no servidor`);
+  if (report.videoLinksRenewed > 0) feitos.push(`${n(report.videoLinksRenewed)} vídeos com link renovado`);
+
+  const partes: string[] = [];
+  partes.push(feitos.length > 0 ? `Artes: ${feitos.join(" e ")}` : "Artes: nenhuma imagem nova salva");
+
+  if (report.failed > 0) {
+    partes.push(
+      `${n(report.failed)} não puderam ser salvas (o servidor de imagens recusou — veja Configurações › Logs)`
+    );
+  }
+  if (report.withoutSource > 0) {
+    partes.push(`${n(report.withoutSource)} sem imagem disponível na Meta`);
+  }
+
+  let text = partes.join("; ") + ".";
+
+  if (report.remaining > 0) {
+    // A fila só tem anúncio no ar, então o que sobra é trabalho real de agora —
+    // não mais o passivo histórico, que deixou de ser buscado.
+    text += ` Restam ${n(report.remaining)} peças no ar para a próxima execução.`;
+  }
+
+  return { text, ok: report.failed === 0 };
+}
+
 interface Target {
   id: string;
   needsCover: boolean;
@@ -142,8 +187,16 @@ export async function runMetaMediaSync(
   // --- 1. A fila, tirada do banco e ordenada por urgência ---
   if (onProgress) onProgress("Levantando peças sem arte...", 5);
 
+  /*
+   * Só o que está no ar.
+   *
+   * O passivo era de 10.9 mil peças, quase todas pausadas há meses, e cada ciclo
+   * gastava chamadas de API e cota de disco com arte que ninguém abre. O que já
+   * foi salvo continua no banco para consulta; se um anúncio voltar ao ar, ele
+   * volta para esta fila sozinho.
+   */
   const creatives = await prisma.adCreative.findMany({
-    where: { platform: "META" },
+    where: { platform: "META", status: "ACTIVE" },
     select: { id: true, status: true, imageUrl: true, videoUrl: true, mediaType: true, createdTime: true },
   });
 
@@ -163,11 +216,10 @@ export async function runMetaMediaSync(
    * agora. Depois vem quem tem arte que vai expirar, e por último o vídeo que
    * só precisa do link renovado — esse ainda aparece pela capa.
    */
-  const urgency = ({ creative, target }: (typeof candidates)[number]): number => {
-    const live = creative.status === "ACTIVE";
-    if (target.needsCover) return live ? 0 : 1;
-    return live ? 2 : 3;
-  };
+  // Todos estão no ar, então o que ordena é a falta: sem capa é invisível no
+  // painel agora; só renovar o link do vídeo pode esperar.
+  const urgency = ({ target }: (typeof candidates)[number]): number =>
+    target.needsCover ? 0 : 1;
 
   candidates.sort((a, b) => {
     const diff = urgency(a) - urgency(b);
@@ -360,7 +412,9 @@ export async function runMetaMediaSync(
 
   if (budgetExhausted) reachedLimit = true;
   report.reachedLimit = reachedLimit;
-  report.remaining = Math.max(0, candidates.length - report.coversUploaded);
+  // O que não coube nesta execução — e não "candidatos menos artes salvas", que
+  // contava como pendente todo vídeo já resolvido por renovação de link.
+  report.remaining = Math.max(0, candidates.length - targets.length);
 
   if (onProgress) onProgress("Mídia concluída.", 100);
   return report;
