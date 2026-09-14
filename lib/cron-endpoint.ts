@@ -10,11 +10,24 @@
  *
  * O que é sincronizado não é decidido aqui: é `runSync()`, o mesmo caminho do
  * botão manual.
+ *
+ * Um disparador só, duas passadas alternadas
+ * ------------------------------------------
+ * Métricas e mídia não cabem na mesma execução: uma requisição morre em 300s
+ * (`maxDuration`) e só as fases de leitura da Meta consomem 180s. Antes da
+ * separação, o resultado era 100 execuções iniciadas contra 2 concluídas, ambas
+ * relatando "0 criativos" — a mídia rodava por último e nunca chegava a começar.
+ *
+ * Precisar de DUAS EXECUÇÕES é imposição da plataforma; precisar de dois
+ * cadastros no cPanel, não. Cada batida reivindica UMA das duas passadas — as
+ * métricas primeiro, a mídia na batida seguinte — e assim um cron só, batendo
+ * com frequência alta, alimenta as duas.
  */
 
 import { NextResponse } from "next/server";
 import prisma from "./prisma";
 import { runSync } from "./channels";
+import { runMetaMediaSync } from "./meta-media-sync";
 import { logInfo, logWarning, logError } from "./logger";
 
 const DEFAULT_INTERVAL_MINUTES = 120;
@@ -96,36 +109,100 @@ export async function handleCronRequest(req: Request) {
 
     const intervalMinutes = settings.cronSyncInterval || DEFAULT_INTERVAL_MINUTES;
     const startedAt = new Date();
+    const cutoff = new Date(startedAt.getTime() - intervalMinutes * 60 * 1000);
 
-    if (!force) {
-      // Reivindicação atômica da janela: a própria condição do UPDATE é o
-      // portão. Duas batidas simultâneas — ou uma nova enquanto a anterior
-      // ainda roda — não conseguem iniciar dois syncs concorrentes disputando
-      // a API da Meta e as mesmas linhas do banco.
-      const cutoff = new Date(startedAt.getTime() - intervalMinutes * 60 * 1000);
-      const claim = await prisma.systemSettings.updateMany({
-        where: {
-          id: 1,
-          OR: [{ lastCronSyncAt: null }, { lastCronSyncAt: { lt: cutoff } }],
-        },
-        data: { lastCronSyncAt: startedAt },
+    /*
+     * Reivindicação atômica da janela: a própria condição do UPDATE é o portão.
+     * Duas batidas simultâneas — ou uma nova enquanto a anterior ainda roda —
+     * não conseguem iniciar duas passadas concorrentes disputando a API da Meta
+     * e as mesmas linhas do banco.
+     */
+    const claim = async (field: "lastCronSyncAt" | "lastMediaSyncAt") => {
+      const result = await prisma.systemSettings.updateMany({
+        where: { id: 1, OR: [{ [field]: null }, { [field]: { lt: cutoff } }] },
+        data: { [field]: startedAt },
       });
+      return result.count > 0;
+    };
 
-      if (claim.count === 0) {
-        const nextEligible = settings.lastCronSyncAt
-          ? new Date(settings.lastCronSyncAt.getTime() + intervalMinutes * 60 * 1000)
-          : null;
-        return NextResponse.json({
-          success: true,
-          status: "skipped",
-          message: "Fora da janela de intervalo.",
-          nextEligibleAt: nextEligible?.toISOString() ?? null,
+    /*
+     * Qual passada roda nesta batida.
+     *
+     * As métricas têm precedência: são o que alimenta os números do painel, e a
+     * mídia pega a batida seguinte. Com o cron batendo a cada 15 min e o
+     * intervalo em 30, cada passada roda uma vez por janela, alternando.
+     *
+     * `?job=` força uma das duas — é como se testa uma sozinha sem esperar a vez.
+     */
+    const requested = (url.searchParams.get("job") || "").toLowerCase();
+    let job: "metrics" | "media" | null = null;
+
+    if (requested === "media" || requested === "metrics") {
+      // Pedido explícito ainda respeita a janela, a menos que venha com force.
+      job = force || (await claim(requested === "media" ? "lastMediaSyncAt" : "lastCronSyncAt"))
+        ? (requested as "metrics" | "media")
+        : null;
+      if (force) {
+        await prisma.systemSettings.update({
+          where: { id: 1 },
+          data: requested === "media"
+            ? { lastMediaSyncAt: startedAt }
+            : { lastCronSyncAt: startedAt },
         });
       }
-    } else {
+    } else if (force) {
+      job = "metrics";
       await prisma.systemSettings.update({
         where: { id: 1 },
         data: { lastCronSyncAt: startedAt },
+      });
+    } else if (await claim("lastCronSyncAt")) {
+      job = "metrics";
+    } else if (await claim("lastMediaSyncAt")) {
+      job = "media";
+    }
+
+    if (!job) {
+      const nextEligible = settings.lastCronSyncAt
+        ? new Date(settings.lastCronSyncAt.getTime() + intervalMinutes * 60 * 1000)
+        : null;
+      return NextResponse.json({
+        success: true,
+        status: "skipped",
+        message: "Fora da janela de intervalo para ambas as passadas.",
+        nextEligibleAt: nextEligible?.toISOString() ?? null,
+      });
+    }
+
+    /*
+     * A passada de mídia: criativos, artes em alta e renovação do link de vídeo.
+     * Sai por aqui porque não divide execução com as métricas — é justamente o
+     * ponto da alternância.
+     */
+    if (job === "media") {
+      await logInfo("CRON", "Iniciando sincronização de mídia.", "/api/cron/sync-all");
+
+      const media = await runMetaMediaSync((message, percentage) => {
+        console.log(`[Cron mídia ${percentage}%] ${message}`);
+      });
+
+      const summary =
+        `${media.coversUploaded} artes salvas, ${media.videoLinksRenewed} links de vídeo renovados` +
+        (media.failed > 0 ? `, ${media.failed} falharam` : "") +
+        (media.withoutSource > 0 ? `, ${media.withoutSource} sem fonte na API` : "") +
+        (media.remaining > 0 ? ` — ${media.remaining} ainda na fila` : "") +
+        (media.reachedLimit ? " (parcial, teto de tempo)" : "");
+
+      await logInfo("CRON", `Concluída mídia. ${summary}`, "/api/cron/sync-all");
+
+      return NextResponse.json({
+        success: true,
+        status: "ran",
+        job: "media",
+        message: summary,
+        partial: media.reachedLimit,
+        report: media,
+        nextEligibleAt: new Date(startedAt.getTime() + intervalMinutes * 60 * 1000).toISOString(),
       });
     }
 
@@ -154,6 +231,7 @@ export async function handleCronRequest(req: Request) {
       {
         success: report.ok,
         status: report.nothingConfigured ? "nothing-configured" : "ran",
+        job: "metrics",
         message: report.summary,
         partial: report.partial,
         outcomes: report.outcomes,

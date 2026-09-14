@@ -47,7 +47,6 @@ export default function SistemaPage() {
   const [savingSettings, setSavingSettings] = useState(false);
   const [rotating, setRotating] = useState(false);
   const [copied, setCopied] = useState<string | null>(null);
-  const [revealUrl, setRevealUrl] = useState(false);
   const [format, setFormat] = useState<TriggerFormat>("command");
 
   /*
@@ -181,8 +180,9 @@ export default function SistemaPage() {
       const res = await fetch("/api/settings/cron-secret", { method: "POST" });
       const data = await res.json();
       if (data.success) {
+        // O comando já nasce visível e montado com a chave nova — não há mais
+        // nada a revelar nem a compor.
         setTrigger(data);
-        setRevealUrl(true);
       } else {
         alert("Erro ao gerar o segredo: " + (data.error || "desconhecido"));
       }
@@ -219,17 +219,6 @@ export default function SistemaPage() {
   const triggerValue = (format === "command" ? trigger?.triggerCommand : trigger?.triggerUrl) ?? "";
   const urlUsable = !!triggerValue && !!trigger?.reachableExternally && !!trigger?.hasSecret;
 
-
-  const iconButtonStyle: React.CSSProperties = {
-    background: "transparent",
-    border: "1px solid var(--card-border)",
-    borderRadius: "8px",
-    padding: "0 0.9rem",
-    cursor: "pointer",
-    color: "var(--foreground)",
-    display: "flex",
-    alignItems: "center",
-  };
 
   const noticeStyle = (tone: "warn" | "info"): React.CSSProperties => ({
     display: "flex",
@@ -490,7 +479,7 @@ export default function SistemaPage() {
         <SettingsSection
           brand="cpanel"
           title="Disparador externo (Cron Job do cPanel)"
-          description="O cPanel bate nesta URL; a cadência de verdade é a definida acima. Configure o cron para cada 15 minutos e deixe o painel decidir."
+          description="Um único Cron Job. O cPanel bate nesta URL; a cadência de verdade é a definida acima. Configure o cron para cada 15 minutos e deixe o painel decidir."
           status={urlUsable}
         >
 
@@ -500,47 +489,78 @@ export default function SistemaPage() {
             mudá-lo passa a valer na hora, sem mexer no servidor.
           </p>
 
+          <p style={{ fontSize: "var(--text-control)", color: "var(--muted)", margin: 0, lineHeight: 1.6 }}>
+            É <strong style={{ color: "var(--foreground)" }}>um cadastro só</strong>. Cada batida executa uma das duas passadas,
+            alternando: primeiro as <strong style={{ color: "var(--foreground)" }}>métricas e status</strong>, na batida seguinte
+            as <strong style={{ color: "var(--foreground)" }}>artes e capas</strong>. As duas não cabem na mesma execução — uma
+            requisição expira em 300s e só a leitura da Meta consome 180s —, e era por isso que as artes,
+            que rodavam por último, nunca chegavam a ser salvas.
+          </p>
+
           <div style={{ display: "flex", flexDirection: "column", gap: "0.5rem", fontSize: "var(--text-cardtitle)" }}>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: "1rem", flexWrap: "wrap" }}>
-              <span style={{ fontWeight: 600 }}>{format === "command" ? "Comando para o cPanel" : "URL para o disparador"}</span>
-              <div style={{ display: "inline-flex", border: "1px solid var(--card-border)", borderRadius: "8px", overflow: "hidden" }}>
-                {([
-                  ["command", "Comando (cPanel)"],
-                  ["url", "URL simples"],
-                ] as [TriggerFormat, string][]).map(([value, label]) => (
-                  <button key={value} type="button" onClick={() => setFormat(value)} aria-pressed={format === value} className="btn btn-toggle" >
-                    {label}
-                  </button>
-                ))}
-              </div>
-            </div>
-            <div style={{ display: "flex", gap: "0.5rem" }}>
-              <input
-                readOnly
-                type={revealUrl ? "text" : "password"}
-                value={triggerValue}
-                placeholder="Clique em Gerar para começar"
-                onFocus={e => e.currentTarget.select()}
-                className="field-input" style={{ flex: 1, fontFamily: "var(--font-mono, monospace)" }}
-              />
-              <button type="button" onClick={() => setRevealUrl(v => !v)} title={revealUrl ? "Ocultar" : "Revelar"} className="btn btn-icon" style={{ borderColor: "var(--card-border)" }}>
-                {revealUrl ? <EyeOff size={16} /> : <Eye size={16} />}
+            <span style={{ fontWeight: 600 }}>
+              {format === "command"
+                ? "Cole no campo \"Command\" do Cron Jobs"
+                : "Cole no seu disparador"}
+            </span>
+
+            {/*
+              O comando aparece inteiro e legível, e não mascarado.
+              Escondê-lo atrás de um campo de senha era o que fazia parecer que
+              faltava montar alguma coisa — e o segredo já é visível só para
+              administradores, que são os únicos que abrem esta tela.
+              Textarea, e não input: um curl completo não cabe numa linha.
+            */}
+            <textarea
+              readOnly
+              rows={3}
+              value={triggerValue}
+              placeholder="Clique em Gerar para produzir o comando completo"
+              onFocus={e => e.currentTarget.select()}
+              className="field-input"
+              style={{
+                width: "100%",
+                fontFamily: "var(--font-mono, monospace)",
+                fontSize: "var(--text-control)",
+                lineHeight: 1.5,
+                resize: "vertical",
+                whiteSpace: "pre-wrap",
+                wordBreak: "break-all",
+              }}
+            />
+
+            <div style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap" }}>
+              <button
+                type="button"
+                onClick={() => handleCopy(triggerValue, "trigger")}
+                disabled={!triggerValue}
+                className="btn btn-primary"
+                style={{ opacity: triggerValue ? 1 : 0.5 }}
+              >
+                {copied === "trigger" ? <Check size={14} /> : <Copy size={14} />}
+                {copied === "trigger" ? "Copiado!" : "Copiar comando"}
               </button>
-              <button type="button" onClick={() => handleCopy(triggerValue, "trigger")} disabled={!triggerValue} title="Copiar" style={{ ...iconButtonStyle, opacity: triggerValue ? 1 : 0.4 }}>
-                {copied === "trigger" ? <Check size={16} color="#16a34a" /> : <Copy size={16} />}
-              </button>
-              <button type="button" onClick={handleRotateSecret} disabled={rotating} className="btn btn-primary">
+              <button type="button" onClick={handleRotateSecret} disabled={rotating} className="btn" style={{ borderColor: "var(--card-border)" }}>
                 {rotating ? <Loader2 size={14} className="spin" /> : <RefreshCw size={14} />}
-                {trigger?.hasDbSecret ? "Gerar novo" : "Gerar"}
+                {trigger?.hasDbSecret ? "Gerar nova chave" : "Gerar"}
+              </button>
+              <button
+                type="button"
+                onClick={() => setFormat(f => (f === "command" ? "url" : "command"))}
+                className="btn"
+                style={{ borderColor: "var(--card-border)", marginLeft: "auto" }}
+              >
+                {format === "command" ? "Preciso de uma URL" : "Voltar ao comando"}
               </button>
             </div>
+
             <span style={{ fontSize: "var(--text-control)", color: "var(--muted)", opacity: 0.8, lineHeight: 1.5 }}>
               {format === "command"
-                ? "O Cron Jobs padrão do cPanel executa um comando de shell — é este o formato para o campo \"Command\". O segredo vai no cabeçalho, fora da URL, e o comando descarta a resposta em caso de sucesso para o cPanel não te enviar um e-mail a cada batida."
-                : "Use apenas se o seu disparador aceitar somente um link, sem comando. O segredo viaja na própria URL e por isso aparece nos logs de acesso do servidor."}
+                ? "Já vem pronto, com a chave dentro: copie e cole, não há nada a montar. A chave viaja no cabeçalho, fora da URL, e o comando descarta a resposta em caso de sucesso para o cPanel não te enviar um e-mail a cada batida."
+                : "Use só se o seu disparador aceitar apenas um link, sem comando. Aqui a chave viaja na própria URL e por isso aparece nos logs de acesso do servidor — o comando é mais seguro."}
             </span>
             <span style={{ fontSize: "var(--text-control)", color: "var(--muted)", opacity: 0.8 }}>
-              O segredo é gravado no mesmo instante em que você gera, então o valor exibido já é aceito pelo servidor — pode colar direto.
+              Gerar uma nova chave já monta o comando com ela e grava no mesmo instante — o valor acima é sempre o que o servidor aceita agora. Se você já tinha um cron cadastrado, troque-o pelo novo comando.
             </span>
           </div>
 

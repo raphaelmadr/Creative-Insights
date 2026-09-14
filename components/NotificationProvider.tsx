@@ -335,14 +335,35 @@ export default function NotificationProvider({ children }: { children: ReactNode
     try {
       const completion = await runSyncStream("/api/sync-all");
 
+      /*
+       * Segundo passo, em requisição própria: as artes.
+       *
+       * Métricas e mídia não cabem nos mesmos 300s — juntas, quem ficava sem
+       * tempo era sempre a mídia, que roda por último. Separadas, cada uma tem
+       * o seu teto. Uma falha aqui não invalida as métricas que já entraram,
+       * então ela só entra no aviso final.
+       */
+      setSyncMessage("Salvando artes dos criativos...");
+      let mediaSummary: string | null = null;
+      try {
+        const mediaRes = await fetch("/api/sync-media", { method: "POST" });
+        const mediaJson = await mediaRes.json();
+        mediaSummary = mediaJson?.success
+          ? mediaJson.summary
+          : `artes falharam: ${mediaJson?.error || "erro desconhecido"}`;
+      } catch (mediaErr) {
+        mediaSummary = `artes falharam: ${(mediaErr as Error).message}`;
+      }
+
       setLastSyncAt(new Date().toISOString());
       setSyncCounter(prev => prev + 1);
 
+      const base = completion?.message || "Sincronização das redes concluída!";
       setToastMsg({
         id: "sync-process",
         title: completion?.partial
-          ? `⚠️ ${completion.message}`
-          : `✅ ${completion?.message || "Sincronização das redes concluída!"}`,
+          ? `⚠️ ${base}${mediaSummary ? ` · ${mediaSummary}` : ""}`
+          : `✅ ${base}${mediaSummary ? ` · ${mediaSummary}` : ""}`,
         isNew: true,
       });
     } catch (err: any) {
