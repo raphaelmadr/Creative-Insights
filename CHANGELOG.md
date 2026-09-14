@@ -1,6 +1,48 @@
 # Changelog: Creative Insights (Fase 1)
 Data: 31 de Agosto de 2026
 
+## ⏱️ Mídia em Passada Própria, Sob um Só Cron (Setembro 2026)
+A fase de mídia era a última de uma execução que já gastava todo o tempo antes de chegar nela. Nos logs: **100 inícios, 2 conclusões**. Ela não estava lenta — ela quase nunca rodava.
+
+* **O teto não é nosso, é da plataforma.** `maxDuration = 300` na Vercel é limite rígido: a execução é cortada no meio, sem erro que dê para tratar. Reservar um piso para a mídia dentro da mesma execução já foi tentado (`MEDIA_BUDGET_MS`, 60s) e só transferiu o aperto — as fases de leitura passaram a parar cedo e a mídia continuava recebendo o resto. Duas leituras diferentes não cabem numa requisição, e nenhum ajuste de orçamento muda isso.
+* **Duas execuções, um cadastro só.** O usuário não deveria configurar dois crons por causa de um limite de plataforma. `handleCronRequest` virou **escalonador**: o mesmo endereço alterna entre métricas e mídia a cada chamada. Quem cadastra o cron cadastra uma linha; quem lê o código vê a alternância explícita.
+* **A vez é reivindicada no banco, não presumida.** Duas execuções sobrepostas — cron atrasado, clique manual junto — rodariam a mesma passada duas vezes. `updateMany` com a janela na cláusula `where` é a trava: quem grava `lastCronSyncAt`/`lastMediaSyncAt` primeiro leva a fase, e `result.count > 0` é a resposta. Sem transação explícita e sem estado em memória, que não sobrevive a serverless.
+* **`lastMediaSyncAt` existe porque uma data só não separa as fases.** Com um campo único, a passada de mídia empurraria a janela das métricas e vice-versa; cada fase tem o próprio relógio.
+* **`?job=media|metrics` e `?force=1`:** testar uma fase isolada não deveria exigir esperar a vez dela chegar.
+* **`lib/meta-media-sync.ts`, com orçamento próprio:** `ROUTE_BUDGET_MS` 270s contra o teto de 300s, `READ_FLOOR_MS` de 100s reservado para as escritas, `MAX_TARGETS_PER_RUN` de 1200 e `UPLOAD_CONCURRENCY` 6. O piso de escrita vem antes da leitura: uma execução que lê 1200 peças e é cortada antes de gravar não adiantou nada.
+* **Falha de upload deixou de ser silenciosa.** `persistRemoteMedia` retornava `null` depois de 3 tentativas sem registrar nada — o motivo real morria dentro do retry. `lastFailure` guarda a última causa e `logExternalFailure` a grava, então "601 falharam" passou a ter onde ser investigado.
+* **`describeMediaReport` é a única redação do resumo.** A mensagem *"0 artes salvas, 184 links de vídeo renovados, 601 falharam — 10951 ainda na fila"* saía com o ✅ de sucesso e não dizia nem o que era "arte", nem de onde vinha a fila, nem o que fazer com a falha. Agora o texto nomeia o destino ("salvas no servidor", "link renovado"), aponta os Logs quando há recusa, e o ✅/⚠️ segue o `ok` do próprio relatório — as três telas que mostram esse resumo consomem a mesma função, em vez de três redações que divergem.
+
+## 📡 Só o Que Está no Ar (Setembro 2026)
+A fila de mídia tinha **9.717 peças** e não terminava nunca, porque a maior parte era anúncio desativado há meses. A plataforma acompanha a estrutura **presente**: o que já está gravado fica para consulta, o que não está não é buscado.
+
+* **`LIVE_EFFECTIVE_STATUSES` caiu de 12 status para `["ACTIVE"]`.** A enumeração pedia à Meta a conta inteira — pausados, arquivados, rejeitados, o histórico todo. **13.167 anúncios em ~27 páginas** viraram **1.131 em 3 páginas, em 2,0s**. É a mesma chamada, com o filtro certo.
+* **Linha de banco só nasce para anúncio no ar.** Criar o criativo e depois nunca mais tocá-lo enche o banco e o servidor de imagens de peças que ninguém vai ver. A criação passou a exigir `status === "ACTIVE"`; **atualização de quem já existe continua valendo**, senão um anúncio que saiu do ar congelaria com os números do último dia.
+* **A reconciliação depende da leitura ter terminado.** Marcar como pausado quem não apareceu na enumeração só é correto se ela foi até o fim — cortada por tempo ou erro, a ausência não prova nada e o resultado seria uma pausa em massa de anúncios no ar. Daí `enumerationComplete`, e daí os lotes de 500 no `updateMany`: um `IN` com milhares de ids trava o planejador do MySQL.
+* **Bug encontrado ao fazer isso: métrica sem criativo derrubaria a sync.** `AdDailyMetrics.adCreativeId` tem chave estrangeira para `AdCreative`; ao parar de criar linha para pausados, a métrica de um anúncio com entrega na janela mas já fora do ar não teria pai. `knownCreativeIds` — o que existe no banco mais o que esta execução vai gravar — filtra antes, e o `metricsSkipped` é registrado como aviso, não engolido.
+* **TikTok recebeu a mesma regra:** `mediaTargets` exige `ACTIVE`, criação idem, `knownAdIds` estreitado junto.
+* **Resultado medido:** fila de mídia **9.717 → 21**; anúncios ativos sem imagem **313 → 68**.
+* **Custo aceito, dito na cara:** preencher meses passados deixa de gravar métrica para anúncios que já estão pausados. O histórico já sincronizado permanece; o que não foi capturado até aqui não será.
+
+### Pendência conhecida
+* **As 601 recusas de upload continuam sem causa confirmada.** A primeira hipótese — cota de disco — foi medida e está errada: o cPanel mostra **12,21 GB usados contra disco ilimitado**. A hipótese atual é estrangulamento de LVE na hospedagem compartilhada (**5 MB/s de I/O, 1.024 IOPS, 1 núcleo**), que rejeitaria em rajada sem encher disco nenhum. Agora há log para verificar.
+* **O gargalo mudou de lugar, não sumiu.** A sync leva **288s** contra o teto de 300s, e cerca de **272s disso é latência de rede com o banco** — 7.642 upserts a 177,7ms cada, divididos pela concorrência. A enumeração deixou de ser o problema; a escrita é o próximo. É a mesma razão pela qual sair da Vercel está no radar.
+
+## 👤 Equipe em Cartões, Sem Grupos (Setembro 2026)
+A tela dividia o time em interno e externo, com barras de métrica por grupo. O alinhamento sobre o que cada número significa ainda não existe no time, e a divisão por grupo é exatamente a parte não acordada — ela saiu.
+
+* **Uma dimensão de Time chegou a ser construída e foi removida.** O modelo `Team`, os campos `AdCreative.team`/`teamLocked` e a tela de configuração existiram por algumas horas. Atribuir receita a um time externo pelo nome do arquivo era a ideia; o veredito foi que a unidade útil é a **pessoa**, e as colunas órfãs foram derrubadas do schema em vez de ficarem como resíduo.
+* **Bug no caminho: Prisma importado em componente de cliente.** `lib/team-match.ts` fazia as duas coisas — separar marcadores do nome e consultar o banco — e a tela importava dele. Separado em `lib/team-markers.ts` (puro) e `lib/team-match.ts` (banco), espelhando a divisão `acronyms.ts`/`designer-match.ts`, que existe no projeto por este mesmo motivo.
+* **Medição incompleta, corrigida:** eu afirmei que "PARCERIAS não aparece em nome nenhum". Verdade para a palavra exata — mas a convenção usada é `parceiro`/`parceiros`, presente em **157 peças**. A busca é que estava errada, não o time.
+* **`/equipe` virou uma grade única de cartões**, ordenada por resultado. Saíram `TeamSection`, `TeamMetricsBar`, o agregador por grupo e a separação internos/externos.
+* **Configurações mostram o que a sigla captura hoje.** `GET /api/creators` passou a devolver a contagem por `designer`. Sem isso, quem cadastra uma sigla não tem retorno nenhum: o erro só apareceria semanas depois no relatório, com a peça já contada para a pessoa errada — ou para ninguém.
+* **Cada criador é um cartão** com avatar, siglas que capturam, peças atribuídas, metas e "Configurar". A grade usa `minmax(min(100%, 19rem), 1fr)` — o `min()` evita o estouro horizontal quando a tela é mais estreita que a coluna.
+
+### O balde "sem atribuição" está certo; a leitura da página é que é estreita
+Verificado em setembro: a soma dos cartões fecha **exatamente** com o total apurado, e toda peça cuja sigla não casa com criador cadastrado cai no balde com a receita junto — **R$ 25.800,23, 15,7%**. Não há vazamento.
+
+O que a tela não mostra é outra coisa: ela conta apenas anúncios **criados dentro do mês**. Setembro teve **R$ 583.699,07**; os cartões somam **R$ 164.657,02**. Os outros **R$ 419.042 — 72% da receita — não aparecem em cartão nenhum**, porque vêm de criativos lançados antes. É o comportamento declarado na própria tela ("geradas por anúncios lançados no próprio mês") e mede a safra criativa do mês, não o caixa do mês. Trocar de leitura muda o patamar de todo mundo de uma vez e é decisão de produto — está em aberto.
+
 ## 👥 Quem Está Online, Preferências por Pessoa e Permissão de Admin (Setembro 2026)
 O sistema sabia quem entrava e não fazia mais nada com isso: não dava para ver com qual conta a aba estava aberta, não havia como sair, e **qualquer pessoa com e-mail @allugator.com podia ler e editar todas as credenciais** — tokens do Meta e do TikTok, segredo do Google, chave de cada provedor de IA, `nextAuthSecret`.
 
