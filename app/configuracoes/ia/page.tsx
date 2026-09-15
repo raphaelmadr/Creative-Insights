@@ -46,8 +46,9 @@ export default function IAPage() {
   const [transcribing, setTranscribing] = useState(false);
 
   /**
-   * `scope` escolhe o lote: "winners" são as peças de maior receita — as que o
-   * gerador de copy lê como referência —, "active" é a varredura ampla.
+   * `scope` escolhe o lote: "winners" são as peças da categoria **Winners** —
+   * as mesmas que o gerador de copy lê como referência —, "active" é a
+   * varredura ampla.
    *
    * A distinção importa: sem transcrição, o gerador recebe o NOME do anúncio no
    * lugar do texto que converteu, e escreve genérico. O lote amplo pega até 200
@@ -172,10 +173,11 @@ export default function IAPage() {
                 Transcrever peças ativas
               </button>
               <span style={{ fontSize: "var(--text-caption)", color: "var(--muted)", opacity: 0.8, lineHeight: 1.5 }}>
-                <strong>Vencedoras</strong> transcreve as peças de maior receita dos últimos 30 dias — são exatamente
-                as que o <strong>gerador de copy</strong> usa como referência. Sem elas transcritas, o modelo recebe o
-                nome do anúncio no lugar do texto que converteu, e a copy sai genérica. Vale rodar de novo quando os
-                criativos em destaque mudarem.
+                <strong>Vencedoras</strong> transcreve as peças classificadas como <strong>Winners</strong> que ainda
+                estão entregando — são exatamente as que o <strong>gerador de copy</strong> usa como referência. Sem
+                elas transcritas, o modelo recebe o nome do anúncio no lugar do texto que converteu, e a copy sai
+                genérica. Vale rodar de novo quando o quadro de Winners mudar, e sempre que as regras de categoria
+                forem alteradas em <strong>Metas</strong> — mudar o limite muda quem é referência.
                 <br />
                 <strong>Ativas</strong> é a varredura ampla, para deixar as análises individuais prontas de antemão.
               </span>

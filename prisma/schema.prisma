@@ -337,6 +337,13 @@ model Board {
   /// decisão que muda uma vez por ano. Ver `lib/kanban.ts`.
   receivesCopy Boolean @default(false)
 
+  /// Quais atributos embutidos cada card mostra na frente, em JSON
+  /// (`["priority","dueDate"]`).
+  ///
+  /// Nulo é "nunca configurado", e vale o conjunto padrão; a lista vazia é uma
+  /// escolha, e significa nenhum. Ver `parseCardBadges` em `lib/kanban.ts`.
+  cardBadges String? @db.Text
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -447,6 +454,18 @@ model BoardCard {
 
   /// O texto gerado pela IA, quando a demanda veio do gerador.
   copyText String? @db.Text
+
+  /// O link da demanda — a pasta do Drive com as artes.
+  ///
+  /// Coluna própria, e não mais um campo definível: todo card tem um, o quadro
+  /// o mostra na frente e ele abre com um clique. Ver `lib/card-link.ts`.
+  linkUrl String? @db.Text
+
+  /// Referências anexadas, em JSON: `[{url,name,size,uploadedAt}]`.
+  ///
+  /// O arquivo mora no servidor externo (o mesmo cPanel da arte dos criativos);
+  /// aqui fica só o endereço. Ver `lib/attachments.ts`.
+  attachments String? @db.Text
 
   archived    Boolean   @default(false)
   completedAt DateTime?

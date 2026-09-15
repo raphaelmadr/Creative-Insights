@@ -5,33 +5,10 @@ import { activeConversionDescriptor } from "@/lib/meta-conversions";
 import {
   calculateCpa,
   calculateCtr,
-  referenceRevenue,
   EMPTY_TOTALS,
   type CreativeTotals,
 } from "@/lib/creative-metrics";
-
-const DEFAULT_CATEGORIES = [
-  {
-    id: "cat_super_winners",
-    name: "Super Winners",
-    color: "var(--success)",
-    rules: {
-      META: { minSpend: 1000, minReturn: 5000, maxCpa: 50 },
-      TIKTOK: { minSpend: 1000, minReturn: 5000, maxCpa: 50 },
-      GOOGLE: { minSpend: 1000, minReturn: 5000, maxCpa: 50 },
-    }
-  },
-  {
-    id: "cat_winners",
-    name: "Winners",
-    color: "var(--primary)",
-    rules: {
-      META: { minSpend: 500, minReturn: 2000, maxCpa: 60 },
-      TIKTOK: { minSpend: 500, minReturn: 2000, maxCpa: 60 },
-      GOOGLE: { minSpend: 500, minReturn: 2000, maxCpa: 60 },
-    }
-  }
-];
+import { loadCategories, matchCategoryIndex } from "@/lib/creative-categories";
 
 export async function GET(req: Request) {
   try {
@@ -142,24 +119,9 @@ export async function GET(req: Request) {
 
     let settings = await prisma.systemSettings.findUnique({ where: { id: 1 } });
     
-    let categories: any[] = [];
-    if (settings?.creativeCategories) {
-      try {
-        categories = JSON.parse(settings.creativeCategories);
-      } catch (e) {
-        categories = DEFAULT_CATEGORIES;
-      }
-    } else {
-      categories = JSON.parse(JSON.stringify(DEFAULT_CATEGORIES));
-      if (settings) {
-        categories[0].rules.META.minSpend = settings.superWinnerSpend ?? 1000;
-        categories[0].rules.META.minReturn = settings.superWinnerReturn ?? 5000;
-        categories[0].rules.META.maxCpa = settings.superWinnerCpa ?? 50;
-        categories[1].rules.META.minSpend = settings.winnerSpend ?? 500;
-        categories[1].rules.META.minReturn = settings.winnerReturn ?? 2000;
-        categories[1].rules.META.maxCpa = settings.winnerCpa ?? 60;
-      }
-    }
+    // A regra de categoria é a de `lib/creative-categories.ts`, a mesma que o
+    // gerador de copy usa para decidir quais peças viram referência.
+    const categories = loadCategories(settings);
 
     const categorizedAds = categories.map(cat => ({ ...cat, ads: [] as any[] }));
     const testes: Record<string, any[]> = {};
@@ -248,30 +210,8 @@ export async function GET(req: Request) {
       const cpa = calculateCpa(agg);
       const ctr = calculateCtr(agg);
       
-      const creativePlatform = (agg.platform || "META").toUpperCase();
-
-      let matchedCategoryIndex = -1;
-
-      for (let i = 0; i < categories.length; i++) {
-        const catRules = categories[i].rules[creativePlatform] || categories[i].rules["META"]; // fallback
-        
-        const MIN_SPEND = catRules.minSpend || 0;
-        const MIN_RETURN = catRules.minReturn || 0;
-        const MAX_CPA = catRules.maxCpa || 0;
-
-        // As regras usam exatamente os mesmos números exibidos no card.
-        const returnValue = referenceRevenue(agg);
-
-        const isMatch = 
-          (MIN_SPEND === 0 || agg.spend >= MIN_SPEND) &&
-          (MIN_RETURN === 0 || returnValue >= MIN_RETURN) &&
-          (MAX_CPA === 0 || cpa <= MAX_CPA);
-
-        if (isMatch) {
-          matchedCategoryIndex = i;
-          break; // Stop at first match (priority)
-        }
-      }
+      // As regras usam exatamente os mesmos números exibidos no card.
+      const matchedCategoryIndex = matchCategoryIndex(agg, agg.platform, categories);
 
       if (matchedCategoryIndex !== -1) {
         const creativeData = {

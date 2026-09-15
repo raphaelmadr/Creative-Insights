@@ -894,6 +894,35 @@ p {
   white-space: nowrap;
 }
 
+/*
+ * Mini-badge de card — o que um card do Kanban diz sem ser aberto.
+ *
+ * Prazo, responsável, etapa, urgência e as respostas marcadas para aparecer na
+ * frente usam todos esta mesma pílula. Eram quatro estilos embutidos no
+ * componente do quadro, e cada um tinha derivado para um tamanho e um peso
+ * próprios; a informação muda, a moldura não.
+ *
+ * `color` fica em `--muted` porque o badge com significado próprio pinta o seu
+ * texto por cima — a urgência com a cor da prioridade, o prazo vencido com
+ * `--danger`.
+ */
+.card-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  max-width: 100%;
+  padding: 0.1rem 0.45rem;
+  border-radius: var(--radius-pill);
+  background: var(--card-bg);
+  border: 1px solid var(--card-border);
+  color: var(--muted);
+  font-size: var(--text-eyebrow);
+  line-height: 1.6;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 /* ---------------------------------------------------------------------------
    Selo de estado de uma integração
 

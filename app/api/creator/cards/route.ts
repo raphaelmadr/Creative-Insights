@@ -10,16 +10,53 @@
 import { NextResponse } from "next/server";
 import prisma from "@/lib/prisma";
 import { getCurrentUser } from "@/lib/auth";
-import { isPriority, parseValues, validateValues, parseDueDate, PRIORITY_LABEL, type Priority } from "@/lib/kanban";
+import {
+  isPriority,
+  parseValues,
+  validateValues,
+  parseDueDate,
+  startOfCurrentMonth,
+  PRIORITY_LABEL,
+  type Priority,
+} from "@/lib/kanban";
 import { intakeColumnId, topPosition, logActivity } from "@/lib/kanban-store";
+import { normalizeCardLink } from "@/lib/card-link";
 
-/** O histórico de um card, para o painel de acompanhamento. */
+/**
+ * O histórico de um card — e o arquivo do quadro.
+ *
+ * As duas leituras moram na mesma rota porque as duas respondem à mesma
+ * pergunta feita em escalas diferentes: "o que aconteceu com isto?". Com
+ * `cardId`, a linha do tempo de um card; com `boardId`, tudo que já saiu do
+ * quadro — arquivado à mão ou pela regra de fim de mês.
+ */
 export async function GET(request: Request) {
   const user = await getCurrentUser();
   if (!user) return NextResponse.json({ error: "Não autenticado." }, { status: 401 });
 
   try {
-    const cardId = new URL(request.url).searchParams.get("cardId");
+    const params = new URL(request.url).searchParams;
+    const boardId = params.get("boardId");
+
+    if (boardId) {
+      /*
+       * Ordenado pela última alteração, que para um card arquivado é o momento
+       * em que ele saiu do quadro — o que se procura no arquivo quase sempre é
+       * o que saiu por último.
+       *
+       * O teto de 200 existe porque esta lista só cresce; quando ele começar a
+       * ser atingido, o caminho é filtro por período, não um número maior.
+       */
+      const arquivados = await prisma.boardCard.findMany({
+        where: { boardId, archived: true },
+        orderBy: { updatedAt: "desc" },
+        take: 200,
+      });
+
+      return NextResponse.json({ success: true, cards: arquivados });
+    }
+
+    const cardId = params.get("cardId");
     if (!cardId) return NextResponse.json({ error: "cardId é obrigatório." }, { status: 400 });
 
     const activities = await prisma.cardActivity.findMany({
@@ -68,6 +105,10 @@ export async function POST(request: Request) {
         priority: isPriority(priority) ? priority : "MEDIA",
         dueDate: parseDueDate(dueDate),
         assigneeAcronym: assigneeAcronym?.trim()?.toUpperCase() || null,
+        // Um link inválido entra como nulo em vez de derrubar a abertura da
+        // demanda: perder o briefing inteiro por causa de uma URL mal colada
+        // seria desproporcional. A tela recusa antes, com a mensagem certa.
+        linkUrl: normalizeCardLink(body.linkUrl),
         // Quem abriu vem da sessão, nunca do corpo da requisição: um campo de
         // "solicitante" enviado pelo cliente é um campo que dá para forjar.
         requesterEmail: user.email,
@@ -144,6 +185,45 @@ export async function PUT(request: Request) {
       return NextResponse.json({ success: true });
     }
 
+    /*
+     * Tirar do arquivo.
+     *
+     * Uma entrega de mês passado não volta para a coluna de entrega: a regra de
+     * fim de mês a arquivaria de novo no próximo carregamento, e o botão
+     * pareceria quebrado. Ela volta **reaberta** — na coluna de entrada, sem
+     * data de conclusão —, que é o que alguém quer dizer ao trazer de volta uma
+     * peça já entregue: há trabalho a fazer nela outra vez.
+     */
+    if (body.restore) {
+      const { cardId } = body.restore;
+      if (!cardId) return NextResponse.json({ error: "cardId é obrigatório." }, { status: 400 });
+
+      const card = await prisma.boardCard.findUnique({ where: { id: cardId } });
+      if (!card) return NextResponse.json({ error: "Demanda não encontrada." }, { status: 404 });
+
+      const entregaVelha = !!card.completedAt && card.completedAt < startOfCurrentMonth();
+      const destino = entregaVelha ? await intakeColumnId(card.boardId) : card.columnId;
+
+      const restaurado = await prisma.boardCard.update({
+        where: { id: cardId },
+        data: {
+          archived: false,
+          ...(entregaVelha
+            ? { columnId: destino ?? card.columnId, completedAt: null, position: await topPosition(destino ?? card.columnId) }
+            : {}),
+        },
+      });
+
+      await logActivity(
+        cardId,
+        "UPDATED",
+        entregaVelha ? "tirou do arquivo e reabriu a demanda" : "tirou do arquivo",
+        user
+      );
+
+      return NextResponse.json({ success: true, card: restaurado, reopened: entregaVelha });
+    }
+
     /* Um comentário no acompanhamento. */
     if (body.comment) {
       const { cardId, text } = body.comment;
@@ -154,7 +234,7 @@ export async function PUT(request: Request) {
       return NextResponse.json({ success: true });
     }
 
-    const { id, title, description, priority, dueDate, assigneeAcronym, columnId } = body;
+    const { id, title, description, priority, dueDate, assigneeAcronym, columnId, linkUrl } = body;
     if (!id) return NextResponse.json({ error: "ID da demanda é obrigatório." }, { status: 400 });
 
     const current = await prisma.boardCard.findUnique({ where: { id } });
@@ -188,6 +268,8 @@ export async function PUT(request: Request) {
           ? { assigneeAcronym: assigneeAcronym ? String(assigneeAcronym).toUpperCase() : null }
           : {}),
         ...(columnId !== undefined ? { columnId } : {}),
+        // `null` explícito remove o link; ausente não mexe nele.
+        ...(linkUrl !== undefined ? { linkUrl: normalizeCardLink(linkUrl) } : {}),
         values,
       },
     });
@@ -205,6 +287,23 @@ export async function PUT(request: Request) {
         user
       );
     }
+    /*
+     * O link entra no histórico porque ele é o endereço das artes: "onde estão
+     * os arquivos?" é a pergunta que alguém faz semanas depois, e saber quem o
+     * trocou e quando responde antes de ter de perguntar.
+     */
+    if (linkUrl !== undefined) {
+      const novo = normalizeCardLink(linkUrl);
+      if (novo !== current.linkUrl) {
+        await logActivity(
+          id,
+          "UPDATED",
+          novo ? (current.linkUrl ? "trocou o link das artes" : "anexou o link das artes") : "removeu o link das artes",
+          user
+        );
+      }
+    }
+
     if (priority !== undefined && priority !== current.priority && isPriority(priority)) {
       await logActivity(
         id,

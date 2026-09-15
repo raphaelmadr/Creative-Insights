@@ -2,66 +2,16 @@
 
 import React, { useState, useEffect, useRef } from "react";
 import { Calendar as CalendarIcon, ChevronLeft, ChevronRight } from "lucide-react";
-
-// --- Date Utils ---
-function toDateInputValue(date: Date): string {
-  const y = date.getUTCFullYear();
-  const m = String(date.getUTCMonth() + 1).padStart(2, "0");
-  const d = String(date.getUTCDate()).padStart(2, "0");
-  return `${y}-${m}-${d}`;
-}
-
-function parseDateInput(str: string): Date {
-  const [y, m, d] = str.split("-").map(Number);
-  return new Date(Date.UTC(y, m - 1, d));
-}
-
-function formatDisplay(date: Date): string {
-  const d = String(date.getUTCDate()).padStart(2, "0");
-  const m = String(date.getUTCMonth() + 1).padStart(2, "0");
-  const y = date.getUTCFullYear();
-  return `${d}/${m}/${y}`;
-}
-
-function getDaysInMonth(year: number, month: number) {
-  return new Date(year, month + 1, 0).getDate();
-}
-
-function generateCalendarGrid(year: number, month: number) {
-  const daysInMonth = getDaysInMonth(year, month);
-  const firstDay = new Date(year, month, 1).getDay(); // 0 is Sunday
-  
-  const grid: (Date | null)[][] = [];
-  let currentWeek: (Date | null)[] = [];
-  
-  // Padding for first week
-  for (let i = 0; i < firstDay; i++) {
-    currentWeek.push(null);
-  }
-  
-  for (let day = 1; day <= daysInMonth; day++) {
-    currentWeek.push(new Date(Date.UTC(year, month, day)));
-    if (currentWeek.length === 7) {
-      grid.push(currentWeek);
-      currentWeek = [];
-    }
-  }
-  
-  if (currentWeek.length > 0) {
-    while (currentWeek.length < 7) {
-      currentWeek.push(null);
-    }
-    grid.push(currentWeek);
-  }
-  
-  return grid;
-}
-
-const MONTH_NAMES = [
-  "Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho",
-  "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro"
-];
-const WEEK_DAYS = ["do", "se", "te", "qu", "qu", "se", "sá"];
+// A grade e as conversões de data moram em `lib/calendar.ts` — o seletor de
+// data única do gerador de copy desenha o mesmo mês a partir delas.
+import {
+  MONTH_NAMES,
+  WEEK_DAYS,
+  formatDisplay,
+  generateCalendarGrid,
+  parseDateInput,
+  toDateInputValue,
+} from "@/lib/calendar";
 
 interface DateRangePickerProps {
   dateFrom: string;

@@ -320,3 +320,127 @@ export function isOverdue(dueDate: Date | string | null | undefined): boolean {
 
   return diaDoPrazo.getTime() < hoje.getTime();
 }
+
+/**
+ * O que o card mostra na frente, sem precisar ser aberto.
+ *
+ * Os campos definíveis já têm o seu `showOnCard` — isto é o equivalente para os
+ * quatro atributos que todo card tem de nascença e que nenhum formulário
+ * pergunta: prazo, dono, etapa e urgência. Sem essa configuração eles eram uma
+ * decisão tomada dentro do componente do quadro, igual para todo time: quem
+ * trabalha com prazo curto precisa da data em destaque, quem divide a fila por
+ * pessoa precisa do responsável, e quem só olha uma etapa por vez não precisa
+ * de nenhum dos dois.
+ */
+export const CARD_BADGES = [
+  {
+    key: "priority",
+    label: "Urgência",
+    hint: "A prioridade da demanda, na cor dela.",
+  },
+  {
+    key: "dueDate",
+    label: "Data",
+    hint: "O prazo de entrega — em vermelho quando vencido.",
+  },
+  {
+    key: "assignee",
+    label: "Responsável",
+    hint: "Quem assumiu o card, pelo avatar e pela sigla.",
+  },
+  {
+    key: "stage",
+    label: "Etapa",
+    hint: "A coluna em que o card está. Útil fora do quadro, na busca e no filtro.",
+  },
+] as const;
+
+export type CardBadgeKey = (typeof CARD_BADGES)[number]["key"];
+
+/** O que o quadro mostra enquanto ninguém escolheu — o card de sempre. */
+export const DEFAULT_CARD_BADGES: CardBadgeKey[] = ["priority", "dueDate", "assignee"];
+
+export function isCardBadge(value: unknown): value is CardBadgeKey {
+  return typeof value === "string" && CARD_BADGES.some((b) => b.key === value);
+}
+
+/** Na ordem do catálogo, sem repetição — a ordem de leitura não é opinião de quem clicou primeiro. */
+function canonicalOrder(keys: Iterable<string>): CardBadgeKey[] {
+  const chosen = new Set(Array.from(keys).filter(isCardBadge));
+  return CARD_BADGES.filter((b) => chosen.has(b.key)).map((b) => b.key);
+}
+
+/**
+ * A configuração gravada, de volta como lista.
+ *
+ * Nulo e lista vazia são coisas diferentes, e é por isso que a coluna aceita
+ * nulo: nulo é "nunca foi configurado", e vale o padrão; `[]` é uma escolha de
+ * alguém que quer o card limpo, só com o título. Tratar os dois como iguais
+ * faria os badges voltarem sozinhos no primeiro recarregamento.
+ */
+export function parseCardBadges(raw: string | null | undefined): CardBadgeKey[] {
+  if (raw === null || raw === undefined) return [...DEFAULT_CARD_BADGES];
+
+  try {
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return [...DEFAULT_CARD_BADGES];
+    return canonicalOrder(parsed.map(String));
+  } catch {
+    return [...DEFAULT_CARD_BADGES];
+  }
+}
+
+/** A lista vinda da tela, pronta para gravar. Sempre texto: `[]` precisa caber. */
+export function serializeCardBadges(value: unknown): string {
+  const list = Array.isArray(value) ? value.map(String) : [];
+  return JSON.stringify(canonicalOrder(list));
+}
+
+/**
+ * O instante em que o mês corrente começou, no fuso do negócio.
+ *
+ * O prazo de permanência das entregas é o **mês civil**, não uma contagem de
+ * dias: o quadro mostra o que foi entregue neste mês e vira a página quando o
+ * mês vira. Tomar o primeiro dia em UTC deixaria as últimas três horas de cada
+ * dia 31 contando como mês seguinte — uma entrega das 23h seria arquivada um
+ * mês inteiro antes da hora.
+ *
+ * O deslocamento é medido, não assumido. O Brasil não usa horário de verão desde
+ * 2019, mas um `-3` cravado no código é o tipo de constante que ninguém revisa
+ * quando a regra muda.
+ */
+export function startOfCurrentMonth(timeZone = "America/Sao_Paulo", agora = new Date()): Date {
+  const formatador = new Intl.DateTimeFormat("en-CA", {
+    timeZone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hourCycle: "h23",
+  });
+
+  /** O relógio de parede daquele fuso, relido como se fosse UTC. */
+  const relogioComoUtc = (instante: Date): number => {
+    const p = Object.fromEntries(
+      formatador.formatToParts(instante).map((x) => [x.type, x.value])
+    ) as Record<string, string>;
+
+    return Date.UTC(+p.year, +p.month - 1, +p.day, +p.hour, +p.minute, +p.second);
+  };
+
+  const hojeLa = new Date(relogioComoUtc(agora));
+
+  /*
+   * A ida e volta: o primeiro dia do mês tratado como UTC, medido o quanto o
+   * fuso o desloca naquele instante, e corrigido por esse tanto. `formatToParts`
+   * em vez de `toLocaleString` porque o texto do segundo depende do idioma e
+   * volta a ser interpretado no fuso da máquina — que é justamente o que não se
+   * pode assumir aqui.
+   */
+  const chute = Date.UTC(hojeLa.getUTCFullYear(), hojeLa.getUTCMonth(), 1, 0, 0, 0, 0);
+  const deslocamento = chute - relogioComoUtc(new Date(chute));
+
+  return new Date(chute + deslocamento);
+}

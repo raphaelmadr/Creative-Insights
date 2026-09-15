@@ -68,8 +68,122 @@ Os corpos foram espremidos por orçamento de caracteres (feed 90, stories 50) pa
 * **Resultado medido na mesma demanda.** Antes: *"Escolha o plano de 36 meses e receba em 15 dias."* Depois, seguindo o registro das peças reais: headline *"ain, mas comprando eu pago menos"*, corpo que desmonta a conta do cliente em seis linhas, e a justificativa citando de qual peça vencedora cada escolha veio.
 * **Botão "Transcrever peças vencedoras" em Configurações → IA,** ao lado do lote amplo. É o que mantém a referência viva: os criativos em destaque mudam toda semana, e a régua do gerador é a safra atual.
 
+### O card diz o que é, e o quadro escolhe o que mostrar (Setembro 2026)
+Um card do Kanban mostrava sempre as mesmas quatro coisas, decididas dentro do componente, e o card que vinha do gerador se chamava "Copy — iPhone 17 Pro Max": não dizia se era banner ou criativo, nem se eram três peças ou doze. Abrir o card para descobrir o que produzir é o oposto do que um quadro serve para fazer.
+
+* **Mini-badges configuráveis por quadro.** Urgência, prazo, responsável e etapa entram e saem da frente do card pelo botão **Card**, ao lado de Campos e Etapas — mesmo lugar, mesmo motivo: quem decide o que precisa ver no quadro é quem olha o quadro todo dia, não quem administra a plataforma. Quem trabalha com prazo curto quer a data em destaque; quem divide a fila por pessoa quer o responsável; quem só olha uma etapa por vez não precisa de nenhum dos dois.
+* **Nulo e lista vazia são coisas diferentes.** `cardBadges` nulo é "nunca foi configurado", e vale o conjunto de sempre; `[]` é a escolha de quem quer o card limpo, só com o título. Tratar os dois como iguais faria os badges voltarem sozinhos no primeiro recarregamento — e a pessoa desmarcaria de novo, todo dia.
+* **Uma pílula só, no CSS, para os cinco tipos de badge.** `.card-badge` substituiu quatro estilos embutidos no componente do quadro, cada um já derivado para um tamanho e um peso próprios. A cor fica de fora da classe porque o badge com significado próprio pinta o texto por cima: a urgência com a cor da prioridade, o prazo vencido com `--danger` — e este agora pinta também a borda, porque entre doze cards cinzas um texto vermelho de 0,65rem passa batido.
+* **Uma linha só, e não uma por grupo.** Os atributos embutidos e as respostas marcadas no formulário dividem a mesma fileira. A diferença entre um card de três linhas e um de cinco é quantos cabem na tela sem rolar.
+* **O título do card do gerador é pré-formatado:** `Criativos Feed e Stories • iPhone 17 • 12 Peças`. Nessa ordem porque é a ordem em que a pergunta é feita — é banner ou criativo? de quê? quantos? Cada formato traz o seu próprio nome de título (`Banners de categoria`, `Mini banners site`), em vez de colar um prefixo genérico num rótulo pensado para o formulário.
+* **A quantidade é contada no texto que vai ser gravado, não no que foi pedido à IA.** Quem revisou pode ter descartado variações antes de enviar; um card que promete doze peças e entrega nove vira discussão no dia da entrega.
+* **O título continua editável antes do envio,** e o campo guarda apenas o que foi digitado: enquanto ninguém o edita, ele acompanha a troca de formato, de produto e o descarte de uma variação. Apagar o que se escreveu traz o automático de volta, em vez de mandar um card sem nome ao quadro.
+* **O selo `12×` no quadro não aparece duas vezes.** Os cards novos já dizem a quantidade no título; os criados antes deste formato continuam precisando do selo. Daí a checagem, em vez de simplesmente remover um dos dois.
+
+### A IA deixou de ser o único caminho (Setembro 2026)
+O gerador pressupunha que toda copy nasce de um modelo. O copywriter que já sabe o que vai escrever tinha de gerar alguma coisa para poder apagar e escrever por cima — ou, mais provável, escrevia fora da ferramenta, e a demanda nunca virava card.
+
+* **A escolha é a primeira coisa da tela:** *Gerar com IA* ou *Escrever eu mesmo*. Ela está no topo porque muda o que o resto da tela pede — não adianta perguntar tom de voz e restrições a quem já está escrevendo.
+* **No modo manual, a quantidade de variações é a pilha de cards.** O mesmo deslizante que pedia N variações ao modelo agora monta N cards em branco, um por criativo, no `VariationCard` de sempre. Descer o número descarta os do fim, e pergunta antes quando o que sairia já tem texto — a pergunta acontece no gesto, e não num efeito de sincronia, senão o "cancelar" chegaria depois de o card já ter sumido.
+* **Público e objetivo deixam de ser obrigatórios no manual.** Eles existem para o modelo saber para quem escrever e por quê; sem modelo, exigi-los é cobrar o preenchimento de um briefing que ninguém vai ler. Produto continua obrigatório nos dois modos — é o que dá título ao card e preço à peça.
+* **O campo "Público" desaparece no modo manual.** A lista existe para dar ao modelo a segmentação real da conta como briefing; quem escreve à mão já partiu de uma análise de público antes de abrir a tela. E o que estava escolhido não viaja escondido: no manual o público não é enviado, para o card não exibir uma segmentação que ninguém escolheu para ele.
+* **O histórico do card diz quem escreveu:** *"escreveu 2 peça(s) à mão"* ou *"gerou 3 variação(ões) com 6 peça(s) vencedora(s) como referência"*. Meses depois, "esta copy foi da IA ou de alguém?" é a primeira pergunta de quem compara o desempenho das peças.
+* **O modo padrão continua sendo a IA.** Uma chamada que não conheça o campo se comporta exatamente como antes.
+
+### Referência anexada, e um popup para abri-la (Setembro 2026)
+Todo briefing vem com uma imagem junto — o print do concorrente, o layout aprovado, a arte da última veiculação. Sem lugar para ela, a referência ia para o Slack e o card ficava sendo metade do pedido.
+
+* **O arquivo vai para o mesmo cPanel que guarda a arte dos criativos.** Infraestrutura que já existe, já está paga e já serve por HTTPS; um segundo armazenamento seria um problema de operação novo para resolver o que já estava resolvido.
+* **O upload passa pelo servidor, não direto do navegador.** O segredo do cPanel é um só — entregá-lo ao cliente publicaria a chave de escrita do armazenamento para qualquer pessoa com o painel aberto.
+* **Só imagem, e a recusa é honesta.** O handler PHP renomeia para `.jpg` tudo que não reconhece **e responde `success` mesmo assim**: um PDF subiria, viraria `briefing.pdf.jpg` e abriria quebrado no quadro, sem erro em lugar nenhum. A plataforma aceita exatamente o que o servidor aceita de verdade, e diz isso antes do envio.
+* **Teto de 4 MB, que não é gosto:** o corpo de requisição de uma função sem servidor para em 4,5 MB, e a cota do cPanel já guarda a arte de 13 mil criativos.
+* **A URL só é aceita se vier do nosso host.** A tela devolve a lista de anexos ao criar o card, e lista de URLs vinda do cliente é lista escolhida por quem quiser. **Verificado:** de três anexos enviados numa requisição forjada — o nosso, um de terceiro e um `javascript:` —, só o nosso foi gravado.
+* **O upload acontece ao escolher o arquivo, não ao enviar o card.** Um anexo de 4 MB dentro do POST que cria a demanda faria o "Enviar ao Kanban" pensar por segundos sem dizer em que ponto está, e uma falha de rede levaria junto a copy recém-revisada.
+* **O popup é o mesmo dos criativos.** `MediaLightbox` — o que abre a arte de um anúncio na Home: mesmo fundo escurecido, mesmo botão de fechar, mesmo Esc, mesma trava de rolagem. Um segundo visualizador seria a mesma função com dois comportamentos, e o segundo esqueceria alguma coisa.
+* **Duas formas, uma lógica:** miniaturas no painel do card; um mini-badge de clipe no quadro, porque um cartão de 300px não comporta miniatura sem empurrar o resto para fora da tela. O clipe não passa pela configuração de badges — aqueles são atributos que todo card tem; este é conteúdo, e escondê-lo esconderia parte do pedido.
+* **Remover o anexo do card não apaga o arquivo do servidor.** Apagar exigiria uma rota de exclusão no handler, que hoje só sabe receber; um órfão de alguns KB é mais barato do que publicar a capacidade de apagar arquivos.
+
+### "Outro / especifique" virou opção da lista (Setembro 2026)
+Os campos livres de produto e público ficavam sempre visíveis abaixo das caixas suspensas. A tela oferecia dois jeitos de responder à mesma pergunta ao mesmo tempo, e quem já tinha escolhido do catálogo continuava vendo um campo pedindo que descrevesse a oferta.
+
+* **Agora é a primeira opção das duas listas,** e o campo de texto só existe depois que alguém a escolhe — já com o foco dentro dele.
+* **O tom de voz entrou na mesma regra.** O campo de observação vivia aberto embaixo da lista, e agora é a opção "Outro / especifique" que o abre — no fim da lista, e não no começo como nas caixas de busca: ali a lista é longa e rolável e a opção precisava estar sempre à vista; aqui os oito tons cabem na tela de uma vez, e a convenção de formulário é "Outro" fechando a lista.
+* **Sem tom da lista, o texto livre é o tom** — no prompt e na descrição do card. Rotulá-lo sempre como "observação" faria o único tom informado chegar ao modelo como nota de rodapé de um tom que não existe. Os dois juntos continuam aceitos, e aí o texto complementa o rótulo.
+* **O id sentinela nunca chega ao servidor como id.** A tela o converte em nulo e a rota o ignora de qualquer forma: sem isso, "outro" seria procurado no catálogo, não encontrado, e a pessoa receberia *"este produto não está mais disponível"* por ter dito justamente que ele não está lá.
+
+### O formato agora depende do canal (Setembro 2026)
+O canal era um campo de texto livre — "Meta Ads", "meta", "IG", conforme o dia — e o formato oferecia a lista inteira de uma vez, a maioria das linhas sem relação nenhuma com onde a peça ia rodar. Escolher "Banner de categoria" para uma campanha de stories era um clique tão possível quanto o certo.
+
+* **Canal virou lista e subiu para antes do formato.** Seis canais, o vocabulário que a plataforma já usa: Meta e TikTok (as fontes de `lib/channels.ts`), Google, Orgânico e CRM (os canais do formulário padrão do Kanban) e Site, que é de onde vêm os três formatos de banner.
+* **O formato mostra só os do canal escolhido,** e fica fechado enquanto não houver canal — com a caixa dizendo o motivo, em vez de uma lista vazia sem explicação. Trocar de canal derruba um formato que não seja dele: sem isso, o formato ficaria selecionado no estado e ausente da lista, e viajaria assim mesmo para o prompt e para o título do card.
+* **O id do formato carrega o canal no nome** (`meta-carrossel`, `tiktok-carrossel`). "Carrossel" existe nos dois, e dois formatos com o mesmo id fariam a busca devolver o primeiro que aparecesse.
+* **O servidor confere a combinação,** porque a tela não é a única porta: um pedido com formato de um canal e id de outro recebe *"Estático Feed" não é um formato de CRM* em vez de gerar copy de stories para um pedido de e-mail. Sem canal, mas com formato, o canal é deduzido do próprio formato — todo formato pertence a um.
+* **O canal entra no prompt com a sua instrução, não só com o nome.** "Canal: Meta" não diz ao modelo que o texto fica acima do criativo e é cortado perto dos 125 caracteres pelo "ver mais" — e são essas duas coisas que decidem onde o argumento precisa estar.
+* **Os formatos do Meta foram nomeados pelo time:** Estático Feed e Stories, Estático Feed, Estático Stories e Carrossel. Os dos outros cinco canais são uma proposta a ser corrigida por quem produz — mudar qualquer um deles é editar uma entrada de `COPY_FORMATS`, sem tocar em tela nem em rota.
+
+### A referência da IA passou a ser a categoria Winners (Setembro 2026)
+O gerador aprendia com "as 6 peças de maior receita líquida nos últimos 30 dias" — um critério que a operação não usa para nada. Por ele entravam peças de *Testando* que tiveram um bom mês e peças de *Validando* que ainda não provaram nada, e a copy saía modelada em material que o próprio time não considera aprovado.
+
+* **Agora a regra é a do painel, e existe num lugar só.** A categorização saiu de dentro de `app/api/db-ads/route.ts` para `lib/creative-categories.ts`, e o gerador consome a mesma função. "Esta peça é vencedora?" precisava ter uma resposta só — com duas, o card diz Winner na tela e a IA aprende com outra coisa. **Verificado:** a saída do painel ficou idêntica byte a byte depois da extração.
+* **Só a categoria Winners, e não as três de cima.** O percurso de um criativo aqui é validar, virar winner, escalar: o winner é a peça que provou um padrão repetível. *Super Winners* e *Prime Winners* são peças fora da curva — aprender com elas é aprender o acontecimento, não o método.
+* **Dois recortes de tempo, de propósito.** A categoria é calculada sobre a veiculação inteira, exatamente como na tela — é o que torna a peça vencedora. A janela de 30 dias diz quem ainda está entregando e ordena as escolhidas: entre winners, a mais relevante é a que converte agora.
+* **A categoria é reconhecida pelo id, com o nome exato como reserva.** `cat_winners` sobreviveu a todas as reconfigurações da tela de metas; e o nome precisa bater exato, porque "Super Winners" contém "Winners" — um `includes` traria de volta justamente o que a regra existe para deixar de fora.
+* **Sem categoria de referência configurada, o gerador fica sem referências** e o prompt diz isso. Cair de volta em "as de maior receita" seria desfazer a mudança em silêncio.
+* **Cada referência chega ao modelo etiquetada** (`"VD-ads-allu-Unboxing-agosto-V6-ez" [Winners]`), e o cabeçalho do bloco diz de onde elas saíram: peças aprovadas na validação, não as de maior faturamento do mês.
+* **Trocar a régua zerou a cobertura de transcrição — de novo.** As 6 novas referências tinham zero `visionTranscript`, o mesmo buraco de duas semanas atrás com outro conjunto. Transcritas na hora (12 peças, nenhuma falha), a copy voltou a sair no registro real das vencedoras. **Mudar a regra de seleção obriga a rodar o lote de vencedoras de novo** — em Configurações → IA, e o aviso da tela agora diz isso, inclusive para quando os limites de categoria mudarem em Metas.
+
+### O seletor de data é o da plataforma (Setembro 2026)
+Os três campos de data do módulo eram `<input type="date">` — o controle que cada navegador desenha de um jeito: calendário do sistema no Chrome, três caixinhas no Firefox, nada parecido com o resto da plataforma em nenhum dos dois. Ao lado de um `SearchSelect` e de um `.field-input`, era o único campo que não pertencia à tela.
+
+* **`components/DatePicker.tsx` junta duas peças que já existiam:** o gatilho é um `.field-input`, como no `SearchSelect` — dentro de um formulário, um controle precisa parecer com os campos ao lado —, e o mês é a mesma grade do `DateRangePicker` do painel, com os mesmos `.btn-day`, a mesma semana abreviada e a mesma navegação. Nenhum estilo novo: o que muda é a quantidade de datas, não o desenho delas.
+* **A grade saiu para `lib/calendar.ts`,** e o seletor de período do painel passou a importá-la de lá. Duas grades desenhadas em dois arquivos começam iguais e divergem no primeiro ajuste — a semana que começa no domingo num, na segunda no outro.
+* **As datas são montadas em UTC de propósito.** O que se escolhe é um dia civil, não um instante: `Date.UTC` mantém 30/09 sendo 30/09 em qualquer fuso, pelo mesmo motivo que `parseDueDate` ancora o prazo ao meio-dia na gravação.
+* **Hoje ganha contorno; a data escolhida, preenchimento.** Dois cheios na mesma grade fariam parecer que há duas seleções.
+* **Atalhos de prazo** (hoje, amanhã, 3 dias, 1 semana) nos dois campos que são prazo. O campo de data definível do quadro não os recebe: ali a data tanto pode ser futura quanto passada.
+* **O mês de abertura é decidido no gesto de abrir,** não num efeito de sincronia — senão quem navegasse até outubro e fechasse sem escolher nada voltaria a outubro na abertura seguinte, longe do prazo que está gravado.
+
+### O Kanban passou a se chamar Board Criativo (Setembro 2026)
+Só o nome: o menu, o título da página e o botão do gerador que manda a copy para lá. A rota continua `/creator/kanban` — ela já está em links compartilhados e no histórico de todo mundo, e trocá-la quebraria os dois em troca de nada.
+
+### O link das artes é um campo do card, não mais um campo definível (Setembro 2026)
+O endereço da pasta do Drive era o dado que mais circulava fora da ferramenta — colado no Slack, perdido na conversa — enquanto o card que pedia a peça ficava sem ele. Agora é coluna própria em `BoardCard`: todo card tem um, o quadro o mostra na frente e ele abre com um clique.
+
+* **Ele não se parece com os outros campos, de propósito.** Os demais são perguntas de briefing, respondidas uma vez e lidas depois; este é um destino, e o gesto que importa nele é **abrir**. Com link salvo, deixa de ser caixa de texto e vira um bloco com o azulejo da marca, o que o link é — "Google Drive · pasta", lido do próprio endereço, sem chamar o Google — e o botão de abrir em primeiro plano; editar fica atrás de um lápis.
+* **No quadro é uma âncora de verdade,** não um `span` com `onClick`: abre em aba nova, aparece no menu de contexto, dá para copiar. Na cor da marca lavada, para se distinguir da fileira cinza de badges sem gritar — e com o clique interrompido, senão abrir a pasta abriria também o painel da demanda.
+* **Só `http` e `https`.** Um `javascript:` gravado ali viraria um clique armado no quadro de todo mundo, e este campo existe justamente para ser clicado. **Verificado:** `javascript:alert(1)` entra como nulo. Sem esquema, assume `https` — quem copia da barra do navegador às vezes traz só `drive.google.com/...`.
+* **O que o link é sai do próprio endereço:** pasta, arquivo, planilha, documento, apresentação. "A pasta das artes" e "um arquivo solto" são pedidos diferentes, e a URL já diz qual é sem custar credencial de Drive à plataforma.
+* **Entra no histórico** ("anexou", "trocou", "removeu o link das artes"): "onde estão os arquivos?" é a pergunta de semanas depois, e o card responde antes de alguém ter de perguntar.
+* **Aparece também na abertura da demanda** — quem pede a peça costuma ter a pasta de referência antes de escrever o briefing.
+
+### O calendário aparecia cortado (Setembro 2026)
+No gerador de copy, o seletor da data de entrega abria pela metade: não dava para escolher o dia.
+
+* **A causa não era o calendário, era o cartão.** `.glass-panel` fecha em `overflow: hidden` — e `.modal-panel` também —, então um painel posicionado dentro dele é recortado na borda. O campo de data fica no pé do cartão de resultado, que é justamente onde o corte aparece inteiro.
+* **O painel foi para um portal,** preso ao gatilho por coordenadas medidas no clique. Além de escapar do recorte, ele agora **sobe sozinho** quando não há espaço embaixo, em vez de sair pela dobra da tela, e acompanha a rolagem — inclusive a rolagem de dentro de um diálogo, que só um ouvinte de captura enxerga.
+* **O clique fora passou a considerar o painel,** que deixou de estar dentro do campo: sem isso, clicar num dia fecharia o calendário antes de a escolha ser registrada.
+
+### As entregas saem do quadro quando o mês vira (Setembro 2026)
+A coluna de entrega só crescia. Em oito semanas ninguém mais rolava até o fim dela, e o que ela deveria responder — "o que a equipe entregou" — virava uma lista sem recorte.
+
+* **A permanência é o mês civil, não uma contagem de dias.** Uma entrega fica no quadro pelo mês inteiro em que aconteceu e sai quando o mês vira; a coluna passa a responder "o que produzimos este mês", que é o mesmo recorte das metas.
+* **A virada é medida no fuso do negócio.** Comparar com o primeiro dia em UTC deixaria as últimas três horas de cada dia 31 contando como mês seguinte — uma entrega das 23h seria arquivada um mês inteiro antes da hora. **Verificado:** entrega às 23h59 de 31/08 arquiva; às 00h01 de 01/09 fica. E o deslocamento do fuso é medido a cada chamada, não cravado em `-3`: é o tipo de constante que ninguém revisa quando a regra muda.
+* **Roda na leitura do quadro, não num cron,** pelo mesmo motivo de `ensureDefaultBoard`: regra que depende de disparador externo é regra que não valeu no dia em que o disparador falhou. E acontece **antes** da consulta dos cards — depois dela, a tela receberia nesta visita os cards recém-arquivados, que só sumiriam no recarregamento seguinte.
+* **`completedAt` é o critério, e ele já sabe voltar atrás:** é carimbado ao entrar na coluna de entrega e apagado ao sair dela, então um card que voltou para revisão não conta como entrega antiga.
+* **Arquivar não apaga.** Briefing, copy, anexos, link e histórico ficam intactos — e o histórico ganha a linha que explica o sumiço, sem autor, porque não houve um.
+* **A coluna se explica na tela,** pelo card do arquivo no fim dela: "Arquivo — entregas de meses anteriores". Card que some sem aviso é card que alguém vai procurar.
+
+### O arquivo tem tela (Setembro 2026)
+Com o quadro se esvaziando sozinho no fim do mês, "sumiu da tela" e "foi apagado" passariam a ser a mesma coisa para quem olha. Não são: o card sai do quadro inteiro — briefing, copy, referências, link e histórico.
+
+* **A porta é um card, não um botão.** No fim da coluna de entrega, porque o arquivo é a última etapa do mesmo percurso — a fazer, produção, revisão, entregue, arquivo. Mesma moldura, mesmo espaçamento e mesmo alvo de clique dos outros cards; traz a contagem do que está lá dentro.
+* **Esse card é permanente, e se anuncia como tal.** Não arrasta, não tem prioridade nem dono, não se arquiva nem se apaga — a borda tracejada e a cor apagada dizem isso antes de qualquer tentativa. Fica na coluna mesmo com o arquivo vazio: ele é a única porta para o que saiu do quadro, e uma porta que some quando não há o que ver é uma porta que ninguém encontra quando houver. Sem coluna de entrega marcada, ele vai para a última.
+* **A lista é de reconhecimento; o conteúdo se vê abrindo o card** — no mesmo `CardDialog` de sempre, que agora sabe se apresentar em modo somente-leitura, com um aviso no topo e o botão de arquivar trocado pelo de restaurar. Um segundo visualizador só para o arquivo divergiria do primeiro na primeira mudança, e quem abre um card arquivado quer ver exatamente o que via antes.
+* **Restaurar uma entrega de mês passado a reabre.** Devolvê-la à coluna de entrega seria devolvê-la à regra que a arquivou: ela sumiria de novo no carregamento seguinte e o botão pareceria quebrado. Ela volta para a coluna de entrada, sem data de conclusão — que é o que alguém quer dizer ao trazer de volta uma peça entregue: há trabalho a fazer nela outra vez. **Verificado:** restaurada, ela permanece no quadro depois de dois recarregamentos. Um card arquivado à mão volta para a coluna onde estava, sem reabrir.
+* **Abrir um card do arquivo fecha a lista.** Dois diálogos empilhados dividiriam o Esc — uma tecla fecharia os dois — e o de baixo continuaria travando a rolagem do de cima.
+* **Teto de 200, com aviso.** A lista só cresce; quando o teto começar a ser atingido, o caminho é filtro por período, não um número maior.
+
 ### Pendência conhecida
-* **A cobertura de transcrição ainda é baixa fora dos vencedores.** 45 de 13.559 criativos têm `visionTranscript`. Para o gerador de copy isso deixou de ser bloqueio — o botão "Transcrever peças vencedoras" cobre as peças que ele lê —, mas as análises individuais de qualquer outra peça continuam partindo do zero na primeira abertura.
+* **A cobertura de transcrição ainda é baixa fora dos vencedores.** 57 de 13.559 criativos têm `visionTranscript`. Para o gerador de copy isso deixou de ser bloqueio — o botão "Transcrever peças vencedoras" cobre as peças que ele lê —, mas as análises individuais de qualquer outra peça continuam partindo do zero na primeira abertura.
 * **A cota gratuita do Gemini limita o lote.** 20 requisições por dia no `gemini-3.6-flash`: uma das seis vencedoras não foi transcrita por isso. Transcrever a safra inteira de uma vez exige plano pago ou rodar ao longo de alguns dias.
 * **A entrega por Slack ficou de fora, por decisão.** A copy cai no Kanban, e não num canal. O token do Slack hoje só lê (`conversations.history`); publicar exigiria o escopo `chat:write`, que não foi pedido.
 

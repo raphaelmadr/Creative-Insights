@@ -12,14 +12,22 @@
 import prisma from "./prisma";
 import { generateWithFallback, normalizeAiOutput } from "./ai";
 import { ACTIVE_AD_STATUSES } from "./ad-status";
-import { clampVariations, findFormat, findTone } from "./copy-options";
+import { clampVariations, findChannel, findFormat, findTone } from "./copy-options";
 import { describePricing, type AlluProduct } from "./allu-catalog";
 import { describeAudience, type MetaAudience } from "./meta-audiences";
+import { loadCategories, matchCategoryIndex, referenceCategoryIndex } from "./creative-categories";
+import { type CreativeTotals } from "./creative-metrics";
 
 /** Quantas peças vencedoras entram como referência. */
 const REFERENCE_LIMIT = 6;
 
-/** A janela de onde as referências saem. */
+/**
+ * A janela de atualidade.
+ *
+ * Não é o que define quem é vencedor — isso são as categorias, calculadas sobre
+ * a veiculação inteira, como no painel. A janela define quem ainda está em jogo:
+ * um vencedor que não entrega há dois meses é modelo de uma safra que acabou.
+ */
 const REFERENCE_WINDOW_DAYS = 30;
 
 export interface CopyBrief {
@@ -47,10 +55,12 @@ export interface CopyBrief {
   /** Tom escrito à mão, quando nenhum da lista serve. */
   toneText?: string;
 
-  /** O id do formato — Feed, Stories, Banner de categoria… */
+  /** O id do formato — Estático Feed, Carrossel, Banner de categoria… */
   formatId?: string;
 
-  /** Onde a copy vai rodar. */
+  /** O id do canal — é ele que define quais formatos existem. */
+  channelId?: string;
+  /** O rótulo do canal, já resolvido. Vai para a descrição do card. */
   channel?: string;
   /** Quantas variações, de 1 a 12. */
   variations?: number;
@@ -70,6 +80,8 @@ export function briefAudienceName(brief: CopyBrief): string {
 
 export interface WinnerReference {
   adName: string;
+  /** A categoria da peça: "Prime Winners", "Super Winners", "Winners". */
+  category: string;
   spend: number;
   revenue: number;
   roas: number | null;
@@ -91,90 +103,144 @@ export interface WinnerReference {
  * conjunto diferente do que o gerador lê não resolveria nada. Uma seleção só,
  * dois consumidores.
  */
-export async function fetchWinnerAdIds(limit = REFERENCE_LIMIT): Promise<string[]> {
-  const since = new Date();
-  since.setDate(since.getDate() - REFERENCE_WINDOW_DAYS);
-
-  const totals = await prisma.adDailyMetrics.groupBy({
-    by: ["adCreativeId"],
-    where: { date: { gte: since } },
-    _sum: { riskApprovedValue: true },
-    orderBy: { _sum: { riskApprovedValue: "desc" } },
-    // Folga sobre o limite: parte dos mais rentáveis já saiu do ar, e esses não
-    // entram como referência — sem a folga, o conjunto chegaria incompleto.
-    take: limit * 3,
-  });
-
-  const ids = totals.map((t) => t.adCreativeId);
-  if (!ids.length) return [];
-
-  const ativos = await prisma.adCreative.findMany({
-    where: { id: { in: ids }, status: { in: [...ACTIVE_AD_STATUSES] } },
-    select: { id: true },
-  });
-
-  const vivos = new Set(ativos.map((a) => a.id));
-  return ids.filter((id) => vivos.has(id)).slice(0, limit);
-}
-
-export async function fetchWinnerReferences(limit = REFERENCE_LIMIT): Promise<WinnerReference[]> {
-  const since = new Date();
-  since.setDate(since.getDate() - REFERENCE_WINDOW_DAYS);
-
-  const totals = await prisma.adDailyMetrics.groupBy({
-    by: ["adCreativeId"],
-    where: { date: { gte: since } },
-    _sum: { spend: true, riskApprovedValue: true },
-    orderBy: { _sum: { riskApprovedValue: "desc" } },
-    take: limit * 3,
-  });
-
-  const ids = totals.map((t) => t.adCreativeId);
-  if (!ids.length) return [];
-
-  const creatives = await prisma.adCreative.findMany({
-    where: { id: { in: ids }, status: { in: [...ACTIVE_AD_STATUSES] } },
-    select: { id: true, adName: true, visionTranscript: true },
-  });
-
-  const byId = new Map(creatives.map((c) => [c.id, c]));
-
-  return totals
-    .map((t) => {
-      const creative = byId.get(t.adCreativeId);
-      if (!creative) return null;
-
-      const spend = t._sum.spend ?? 0;
-      const revenue = t._sum.riskApprovedValue ?? 0;
-
-      return {
-        adName: creative.adName,
-        spend,
-        revenue,
-        roas: spend > 0 ? revenue / spend : null,
-        transcript: creative.visionTranscript,
-      };
-    })
-    .filter((r): r is WinnerReference => r !== null && r.revenue > 0)
-    .slice(0, limit);
+/** Uma peça vencedora, com o que a seleção precisa saber sobre ela. */
+interface WinnerRow {
+  id: string;
+  adName: string;
+  category: string;
+  spend: number;
+  revenue: number;
+  /** Receita na janela — é por ela que as vencedoras são ordenadas. */
+  recentRevenue: number;
+  transcript: string | null;
 }
 
 /**
- * O bloco de referências — o molde que a copy tem de seguir.
+ * As peças que servem de modelo — e a única definição disso no gerador.
  *
- * Quando a peça tem transcrição, o texto dela vai **inteiro**, e não resumido:
- * o pedido é que a copy siga o modelo vencedor, e um resumo apaga exatamente o
- * que faz o modelo funcionar — a ordem em que o argumento aparece, o tipo de
- * gancho, o comprimento das frases.
+ * Antes eram as N de maior receita na janela de 30 dias, sem olhar categoria.
+ * Isso deixava entrar peça de "Testando" que teve um bom mês, e peça de
+ * "Validando" que ainda não provou nada — e a copy aprendia com material que a
+ * própria operação não considera aprovado. Agora a regra é a do painel, vinda de
+ * `lib/creative-categories.ts`: só a categoria **Winners**.
  *
- * Sem transcrição, o bloco diz isso na cara em vez de fingir que o nome do
- * arquivo é a peça. Um modelo que recebe `VD_allu_ads_unboxing_iphone_Feed`
- * como "referência de sucesso" preenche o vazio com lugar-comum publicitário —
- * que é exatamente o texto genérico que aparecia na tela.
+ * As duas coisas usam recortes diferentes de propósito. A categoria é calculada
+ * sobre a veiculação inteira, exatamente como na tela — é o que torna a peça
+ * vencedora. A janela de 30 dias diz quem ainda está entregando, e ordena: entre
+ * vencedoras, a mais relevante é a que está convertendo agora.
+ *
+ * `fetchWinnerAdIds` e `fetchWinnerReferences` saem daqui para não divergirem:
+ * a transcrição precisa mirar exatamente as peças que o prompt vai ler, e duas
+ * seleções paralelas iam parar em conjuntos diferentes no primeiro ajuste.
  */
+async function selectWinners(limit: number): Promise<WinnerRow[]> {
+  const since = new Date();
+  since.setDate(since.getDate() - REFERENCE_WINDOW_DAYS);
+
+  const settings = await prisma.systemSettings.findUnique({ where: { id: 1 } });
+  const categories = loadCategories(settings);
+  const alvo = referenceCategoryIndex(categories);
+
+  // Sem uma categoria de referência configurada não há como dizer quem venceu.
+  // Devolver "as de maior receita" aqui seria voltar, calado, ao critério que
+  // esta função existe para substituir.
+  if (alvo === -1) return [];
+
+  /* Quem entregou na janela — candidatas, e a ordenação. */
+  const janela = await prisma.adDailyMetrics.groupBy({
+    by: ["adCreativeId"],
+    where: {
+      date: { gte: since },
+      OR: [{ impressions: { gt: 0 } }, { spend: { gt: 0 } }],
+    },
+    _sum: { riskApprovedValue: true },
+  });
+
+  const candidatos = janela.map((j) => j.adCreativeId);
+  if (!candidatos.length) return [];
+
+  const ativos = await prisma.adCreative.findMany({
+    where: { id: { in: candidatos }, status: { in: [...ACTIVE_AD_STATUSES] } },
+    select: { id: true, adName: true, platform: true, visionTranscript: true },
+  });
+  if (!ativos.length) return [];
+
+  /* E os totais de veiculação inteira, que são o que a categoria enxerga. */
+  const vida = await prisma.adDailyMetrics.groupBy({
+    by: ["adCreativeId"],
+    where: {
+      adCreativeId: { in: ativos.map((a) => a.id) },
+      OR: [{ impressions: { gt: 0 } }, { spend: { gt: 0 } }],
+    },
+    _sum: {
+      spend: true,
+      grossValue: true,
+      riskApprovedValue: true,
+      impressions: true,
+      clicks: true,
+      purchases: true,
+      netOrders: true,
+    },
+  });
+
+  const totaisPorAd = new Map<string, CreativeTotals>(
+    vida.map((v) => [
+      v.adCreativeId,
+      {
+        spend: v._sum.spend ?? 0,
+        grossValue: v._sum.grossValue ?? 0,
+        riskApprovedValue: v._sum.riskApprovedValue ?? 0,
+        impressions: v._sum.impressions ?? 0,
+        clicks: v._sum.clicks ?? 0,
+        purchases: v._sum.purchases ?? 0,
+        netOrders: v._sum.netOrders ?? 0,
+      },
+    ])
+  );
+
+  const recentePorAd = new Map(janela.map((j) => [j.adCreativeId, j._sum.riskApprovedValue ?? 0]));
+
+  const vencedoras: WinnerRow[] = [];
+
+  for (const ad of ativos) {
+    const totais = totaisPorAd.get(ad.id);
+    if (!totais) continue;
+
+    if (matchCategoryIndex(totais, ad.platform, categories) !== alvo) continue;
+
+    vencedoras.push({
+      id: ad.id,
+      adName: ad.adName,
+      category: categories[alvo].name,
+      spend: totais.spend,
+      revenue: totais.riskApprovedValue,
+      recentRevenue: recentePorAd.get(ad.id) ?? 0,
+      transcript: ad.visionTranscript,
+    });
+  }
+
+  return vencedoras.sort((a, b) => b.recentRevenue - a.recentRevenue).slice(0, limit);
+}
+
+/** Os ids das peças de referência — é o que a transcrição visual mira. */
+export async function fetchWinnerAdIds(limit = REFERENCE_LIMIT): Promise<string[]> {
+  return (await selectWinners(limit)).map((w) => w.id);
+}
+
+export async function fetchWinnerReferences(limit = REFERENCE_LIMIT): Promise<WinnerReference[]> {
+  return (await selectWinners(limit)).map((w) => ({
+    adName: w.adName,
+    category: w.category,
+    spend: w.spend,
+    revenue: w.revenue,
+    roas: w.spend > 0 ? w.revenue / w.spend : null,
+    transcript: w.transcript,
+  }));
+}
+
 function buildReferenceBlock(winners: WinnerReference[]): string {
   if (!winners.length) {
-    return "REFERÊNCIAS DE PERFORMANCE: nenhuma peça com receita registrada nos últimos 30 dias. Escreva a partir do briefing apenas, e não invente números nem resultados anteriores.";
+    return "REFERÊNCIAS DE PERFORMANCE: nenhuma peça aprovada como Winner entregando nos últimos 30 dias. Escreva a partir do briefing apenas, e não invente números nem resultados anteriores.";
   }
 
   const money = (v: number) =>
@@ -184,7 +250,7 @@ function buildReferenceBlock(winners: WinnerReference[]): string {
 
   const lines = winners.map((w, i) => {
     const roas = w.roas !== null ? `${w.roas.toFixed(2)}x` : "sem base";
-    const head = `${i + 1}. "${w.adName}" — investimento ${money(w.spend)}, receita líquida ${money(w.revenue)}, ROAS ${roas}.`;
+    const head = `${i + 1}. "${w.adName}" [${w.category}] — investimento ${money(w.spend)}, receita líquida ${money(w.revenue)}, ROAS ${roas}.`;
     const body = w.transcript
       ? `   TEXTO DA PEÇA:\n   ${w.transcript.replace(/\s+/g, " ").trim()}`
       : "   TEXTO DA PEÇA: não transcrito. Use apenas o nome como pista de ângulo — NÃO suponha o que estava escrito nela.";
@@ -214,7 +280,14 @@ function buildReferenceBlock(winners: WinnerReference[]): string {
       ].join("\n");
 
   return [
-    `REFERÊNCIAS DE PERFORMANCE — as ${winners.length} peças com maior receita líquida nos últimos ${REFERENCE_WINDOW_DAYS} dias nesta conta:`,
+    /*
+     * O cabeçalho diz de onde as peças saíram, porque isso muda o que elas
+     * significam. "As de maior receita" incluiria o acaso de um mês bom; "as
+     * aprovadas como Winner" é uma peça que a operação já decidiu que funciona —
+     * e é justamente por serem o padrão repetível, e não o fora da curva, que
+     * elas servem de molde.
+     */
+    `REFERÊNCIAS DE PERFORMANCE — ${winners.length} peça(s) classificadas como **Winners** nesta conta (aprovadas na validação e ainda entregando nos últimos ${REFERENCE_WINDOW_DAYS} dias):`,
     ...lines,
     instrucao,
   ].join("\n");
@@ -277,17 +350,32 @@ export function buildCopyPrompt(brief: CopyBrief, winners: WinnerReference[]): s
   const variations = clampVariations(brief.variations);
   const formato = findFormat(brief.formatId);
   const tom = findTone(brief.toneId);
+  const canal = findChannel(brief.channelId);
 
   const briefLines = [
     ...buildProductBlock(brief),
     ...buildAudienceBlock(brief),
     `Objetivo da peça: ${brief.objective}`,
-    brief.channel ? `Canal: ${brief.channel}` : null,
+    /*
+     * O canal entra com a sua instrução, e não só com o nome. "Canal: Meta" não
+     * diz ao modelo que o texto é cortado em 125 caracteres pelo "ver mais", nem
+     * que ele fica acima do criativo — e são essas duas coisas que mudam onde o
+     * argumento precisa estar.
+     */
+    canal ? `Canal: ${canal.label} — ${canal.guidance}` : brief.channel ? `Canal: ${brief.channel}` : null,
     formato ? `Formato: ${formato.label} — ${formato.guidance}` : null,
     tom ? `Tom de voz: ${tom.label} — ${tom.guidance}` : null,
-    // O tom escrito à mão vem depois do da lista e não no lugar dele: quem
-    // escolheu um tom e ainda escreveu uma observação quer as duas coisas.
-    brief.toneText?.trim() ? `Observação sobre o tom: ${brief.toneText.trim()}` : null,
+    /*
+     * O texto livre é o tom quando não há um da lista — é o que a opção "Outro /
+     * especifique" produz. Rotulá-lo sempre como "observação" faria o único tom
+     * informado chegar ao modelo como nota de rodapé de um tom que não existe.
+     * Os dois juntos ainda são aceitos, e aí o texto complementa o rótulo.
+     */
+    brief.toneText?.trim()
+      ? tom
+        ? `Observação sobre o tom: ${brief.toneText.trim()}`
+        : `Tom de voz: ${brief.toneText.trim()}`
+      : null,
     brief.constraints ? `Restrições obrigatórias: ${brief.constraints}` : null,
   ].filter(Boolean);
 

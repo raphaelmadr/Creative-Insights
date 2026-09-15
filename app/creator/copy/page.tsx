@@ -2,15 +2,19 @@
 
 import React, { useEffect, useMemo, useState } from "react";
 import ReactMarkdown from "react-markdown";
-import { Wand2, Send, Copy as CopyIcon, Check, ArrowRight, Sparkles, RefreshCw, ExternalLink, CalendarDays } from "lucide-react";
+import { Wand2, Send, Copy as CopyIcon, Check, ArrowRight, Sparkles, RefreshCw, ExternalLink, CalendarDays, Tag, PenLine } from "lucide-react";
 import Link from "next/link";
 import SearchSelect, { type SearchSelectOption } from "@/components/creator/SearchSelect";
 import VariationCard from "@/components/creator/VariationCard";
+import AttachmentField from "@/components/creator/AttachmentField";
+import DatePicker from "@/components/DatePicker";
 import {
   parseCopyVariations,
   serializeCopyVariations,
+  emptyVariation,
   type CopyVariation,
 } from "@/lib/copy-parse";
+import { type CardAttachment } from "@/lib/attachments";
 import { PRIORITIES, PRIORITY_LABEL, type Priority } from "@/lib/kanban";
 import {
   COPY_FORMATS,
@@ -18,6 +22,14 @@ import {
   MAX_VARIATIONS,
   MIN_VARIATIONS,
   DEFAULT_VARIATIONS,
+  COPY_MODES,
+  COPY_CHANNELS,
+  OTHER_OPTION_ID,
+  OTHER_OPTION_LABEL,
+  buildCopyCardTitle,
+  formatsForChannel,
+  isOtherOption,
+  type CopyModeId,
 } from "@/lib/copy-options";
 
 interface Target {
@@ -47,6 +59,14 @@ interface MetaAudience {
   size: number | null;
 }
 
+/** A entrada fixa das duas listas — mesmo rótulo e mesma posição nos dois campos. */
+const OTHER_OPTION: SearchSelectOption = {
+  id: OTHER_OPTION_ID,
+  label: OTHER_OPTION_LABEL,
+  hint: "não está cadastrado — descrever à mão",
+  keywords: "outro especifique manual fora do catalogo nao cadastrado",
+};
+
 const brl = (v: number) => v.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 
 /**
@@ -61,12 +81,13 @@ const brl = (v: number) => v.toLocaleString("pt-BR", { style: "currency", curren
  * exatamente onde entra o preço de três meses atrás.
  */
 export default function CopyPage() {
+  const [mode, setMode] = useState<CopyModeId>("ai");
   const [productId, setProductId] = useState<string | null>(null);
   const [productName, setProductName] = useState("");
   const [audienceId, setAudienceId] = useState<string | null>(null);
   const [audienceText, setAudienceText] = useState("");
   const [objective, setObjective] = useState("");
-  const [channel, setChannel] = useState("");
+  const [channelId, setChannelId] = useState<string | null>(null);
   const [formatId, setFormatId] = useState<string | null>(null);
   const [toneId, setToneId] = useState<string | null>(null);
   const [toneText, setToneText] = useState("");
@@ -92,6 +113,8 @@ export default function CopyPage() {
   const [variations, setVariations] = useState<CopyVariation[]>([]);
   const [rawCopy, setRawCopy] = useState("");
   const [references, setReferences] = useState(0);
+  const [cardTitle, setCardTitle] = useState("");
+  const [attachments, setAttachments] = useState<CardAttachment[]>([]);
   const [dueDate, setDueDate] = useState("");
   const [generating, setGenerating] = useState(false);
   const [sending, setSending] = useState(false);
@@ -152,14 +175,56 @@ export default function CopyPage() {
       .catch(() => setTarget(null));
   }, [loadProducts, loadAudiences]);
 
+  const manual = mode === "manual";
+
+  /** Os formatos do canal escolhido. Sem canal, a caixa de formato fica fechada. */
+  const channelFormats = useMemo(() => formatsForChannel(channelId), [channelId]);
+
+  /*
+   * "Outro / especifique" é uma opção da lista, não um campo permanente abaixo
+   * dela. O id sentinela nunca vira id de produto: vira nulo no envio, e o campo
+   * de texto livre só existe enquanto ele estiver escolhido.
+   */
+  const productIsOther = isOtherOption(productId);
+  const audienceIsOther = isOtherOption(audienceId);
+  const toneIsOther = isOtherOption(toneId);
+
+  /*
+   * Escolhido da lista **ou** descrito à mão — as duas formas valem, e é por
+   * isso que a checagem não é pelo id. Exigir o catálogo deixaria de fora a
+   * campanha institucional e o produto que ainda não subiu no site.
+   */
+  const hasProduct = (!!productId && !productIsOther) || !!productName.trim();
+  const hasAudience = (!!audienceId && !audienceIsOther) || !!audienceText.trim();
+
   const selectedProduct = useMemo(
     () => products.find((p) => p.id === productId) ?? null,
     [products, productId]
   );
 
-  const productOptions: SearchSelectOption[] = useMemo(
+  /**
+   * O título que o card vai receber, montado sozinho.
+   *
+   * Vazio em `cardTitle` significa "use o automático", e é por isso que o campo
+   * não guarda o texto montado: assim ele acompanha a troca de formato, de
+   * produto e o descarte de uma variação enquanto ninguém o editou — e, se
+   * alguém apagar o que escreveu, o automático volta em vez de o card ir ao
+   * quadro sem nome.
+   */
+  const autoTitle = useMemo(
     () =>
-      products.map((p) => ({
+      buildCopyCardTitle({
+        formatId,
+        productName: selectedProduct?.name || productName,
+        variations: variations.length || variationCount,
+      }),
+    [formatId, selectedProduct, productName, variations.length, variationCount]
+  );
+
+  const productOptions: SearchSelectOption[] = useMemo(
+    () => [
+      OTHER_OPTION,
+      ...products.map((p) => ({
         id: p.id,
         label: p.name,
         hint: [p.category, p.availabilityLabel].filter(Boolean).join(" · ") || undefined,
@@ -167,40 +232,110 @@ export default function CopyPage() {
         // quanto custa obrigaria a abrir cada um para comparar.
         trailing: p.price !== null ? `${brl(p.price)}/mês` : undefined,
       })),
+    ],
     [products]
   );
 
   const audienceOptions: SearchSelectOption[] = useMemo(
-    () =>
-      audiences.map((a) => ({
+    () => [
+      OTHER_OPTION,
+      ...audiences.map((a) => ({
         id: a.id,
         label: a.name,
         hint: a.subtypeLabel,
         trailing: a.size !== null ? `~${a.size.toLocaleString("pt-BR")}` : undefined,
       })),
+    ],
     [audiences]
   );
 
   const payload = () => ({
-    productId,
-    productName,
-    audienceId,
-    audienceText,
+    mode,
+    productId: productIsOther ? null : productId,
+    productName: productIsOther ? productName : "",
+    // No manual o campo de público nem existe na tela: mandar o que sobrou de
+    // uma geração anterior poria no card um público que ninguém escolheu.
+    audienceId: manual || audienceIsOther ? null : audienceId,
+    audienceText: !manual && audienceIsOther ? audienceText : "",
     objective,
-    channel,
+    channelId,
     formatId,
-    toneId,
-    toneText,
+    toneId: toneIsOther ? null : toneId,
+    toneText: toneIsOther ? toneText : "",
     constraints,
     variations: variationCount,
   });
 
+  /** Uma variação escrita é uma que tem qualquer coisa em algum campo. */
+  const temTexto = (v: CopyVariation) =>
+    !!(v.headline.trim() || v.body.trim() || v.cta.trim() || v.angle.trim());
+
+  /**
+   * A quantidade e os cards andam juntos no modo manual.
+   *
+   * No modo IA o número é um pedido ao modelo; no manual ele **é** a pilha de
+   * cards em branco na tela, um por criativo. Subir acrescenta em branco no fim;
+   * descer tira do fim — e pergunta antes, se o que sairia já tem texto. O
+   * ajuste acontece aqui, no gesto, e não num efeito: com a lista sincronizada
+   * por efeito, o cancelar do aviso já teria chegado tarde.
+   */
+  const changeCount = (n: number) => {
+    if (manual && n < variations.length) {
+      const perdidas = variations.slice(n).filter(temTexto);
+      if (
+        perdidas.length &&
+        !confirm(
+          `${perdidas.length} variação(ões) do fim já têm texto e serão descartadas. Continuar?`
+        )
+      ) {
+        return;
+      }
+    }
+
+    setVariationCount(n);
+
+    if (manual) {
+      setVariations((prev) =>
+        n > prev.length
+          ? [...prev, ...Array.from({ length: n - prev.length }, emptyVariation)]
+          : prev.slice(0, n)
+      );
+    }
+  };
+
+  /*
+   * Trocar o canal derruba um formato que não seja dele.
+   *
+   * Sem isso, quem escolhesse "Estático Stories" no Meta e mudasse para o site
+   * ficaria com um formato invisível na caixa — selecionado no estado, ausente
+   * da lista —, e ele viajaria assim mesmo para o prompt e para o título do card.
+   */
+  const changeChannel = (next: string | null) => {
+    setChannelId(next);
+    if (formatId && !formatsForChannel(next).some((f) => f.id === formatId)) {
+      setFormatId(null);
+    }
+  };
+
+  const changeMode = (next: CopyModeId) => {
+    setMode(next);
+    setError(null);
+    setSent(null);
+
+    // Entrar no manual sem nada escrito já abre os cards em branco — é a tela
+    // inteira do modo. O que já estava escrito, gerado ou não, permanece.
+    if (next === "manual" && variations.length === 0) {
+      setRawCopy("");
+      setVariations(Array.from({ length: variationCount }, emptyVariation));
+    }
+  };
+
   const generate = async () => {
-    if (!productId && !productName.trim()) {
+    if (!hasProduct) {
       setError("Escolha um produto do catálogo ou descreva a oferta.");
       return;
     }
-    if (!audienceId && !audienceText.trim()) {
+    if (!hasAudience) {
       setError("Escolha um público ou descreva para quem é a peça.");
       return;
     }
@@ -249,6 +384,15 @@ export default function CopyPage() {
   const hasResult = variations.length > 0 || !!rawCopy.trim();
 
   const sendToBoard = async () => {
+    if (!hasProduct) {
+      setError("Escolha um produto do catálogo ou descreva a oferta.");
+      return;
+    }
+    if (manual && !variations.some(temTexto) && !rawCopy.trim()) {
+      setError("Escreva ao menos uma variação antes de enviar ao quadro.");
+      return;
+    }
+
     setSending(true);
     setError(null);
 
@@ -259,12 +403,14 @@ export default function CopyPage() {
         body: JSON.stringify({
           ...payload(),
           sendToBoard: true,
+          title: cardTitle.trim() || autoTitle,
           // A copy revisada na tela é a que vai para o card — reenviar só o
           // briefing faria o modelo escrever tudo de novo, e o texto que a
           // pessoa acabou de aprovar seria descartado.
           editedCopy: finalCopy(),
           priority,
           dueDate: dueDate || null,
+          attachments,
         }),
       });
       const data = await res.json();
@@ -305,11 +451,38 @@ export default function CopyPage() {
             gerador de copy<span className="dot-green">.</span>
           </h1>
           <p style={{ color: "var(--muted)", maxWidth: "600px", lineHeight: 1.6, margin: 0 }} className="lowercase-title">
-            produto e preço do catálogo do site, público da conta de anúncios, e as peças que mais converteram nos últimos 30 dias como referência.
+            produto e preço do catálogo do site, público da conta de anúncios, e as peças aprovadas como winners servindo de molde.
           </p>
         </div>
 
-        {!aiConfigured && (
+        {/*
+          Quem escreve — a primeira decisão, porque é ela que define o que o
+          resto da tela pede. O grupo é o `.btn-toggle` do design system, o mesmo
+          do alternador Dash/Creator no cabeçalho: um conjunto em que só uma
+          opção vale por vez.
+        */}
+        <div style={{ display: "flex", flexDirection: "column", gap: "0.35rem" }}>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: "0.35rem" }}>
+            {COPY_MODES.map((m) => (
+              <button
+                key={m.id}
+                type="button"
+                className="btn btn-toggle"
+                aria-pressed={mode === m.id}
+                onClick={() => changeMode(m.id)}
+                style={{ padding: "0.45rem 0.85rem", fontSize: "var(--text-control)" }}
+              >
+                {m.id === "manual" ? <PenLine size={14} /> : <Wand2 size={14} />}
+                {m.label}
+              </button>
+            ))}
+          </div>
+          <span className="field-hint">
+            {COPY_MODES.find((m) => m.id === mode)?.hint}
+          </span>
+        </div>
+
+        {!aiConfigured && !manual && (
           <div
             className="glass-panel"
             role="alert"
@@ -438,80 +611,126 @@ export default function CopyPage() {
               )}
 
               {/* Um produto que ainda não subiu no site, ou uma campanha
-                  institucional, não têm entrada no catálogo — e a peça existe
-                  do mesmo jeito. */}
-              {!productId && (
+                  institucional, não têm entrada no catálogo — e a peça existe do
+                  mesmo jeito. O campo aparece pela opção "Outro / especifique"
+                  da lista: fixo embaixo dela, ele pedia à pessoa que já tinha
+                  escolhido um produto que descrevesse a oferta de novo. */}
+              {productIsOther && (
                 <input
                   className="field-input"
                   value={productName}
-                  placeholder="Ou descreva a oferta, se não estiver no catálogo"
+                  placeholder="Descreva a oferta"
                   aria-label="Produto fora do catálogo"
+                  autoFocus
                   onChange={(e) => setProductName(e.target.value)}
                 />
               )}
             </div>
 
-            {/* Público */}
-            <div className="field">
-              <label
-                className="field-label"
-                htmlFor="copy-publico"
-                style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "0.5rem" }}
-              >
-                <span>
-                  Público <span style={{ color: "var(--danger)" }} aria-hidden="true">*</span>
-                </span>
-                <button
-                  type="button"
-                  className="btn btn-ghost"
-                  style={refreshBtn}
-                  title="Rebuscar os públicos da conta de anúncios"
-                  onClick={() => loadAudiences(true)}
-                  disabled={loadingAudiences}
+            {/*
+              Público — só no modo IA.
+
+              A lista existe para dar ao modelo a segmentação real da conta como
+              briefing. Quem escreve à mão já partiu de uma análise de público
+              antes de abrir a tela; repetir a pergunta aqui é pedir que a pessoa
+              formalize para ninguém uma decisão que ela já tomou.
+            */}
+            {!manual && (
+              <div className="field">
+                <label
+                  className="field-label"
+                  htmlFor="copy-publico"
+                  style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "0.5rem" }}
                 >
-                  <RefreshCw size={11} />
-                  Atualizar
-                </button>
-              </label>
+                  <span>
+                    Público{" "}
+                    {!manual && <span style={{ color: "var(--danger)" }} aria-hidden="true">*</span>}
+                  </span>
+                  <button
+                    type="button"
+                    className="btn btn-ghost"
+                    style={refreshBtn}
+                    title="Rebuscar os públicos da conta de anúncios"
+                    onClick={() => loadAudiences(true)}
+                    disabled={loadingAudiences}
+                  >
+                    <RefreshCw size={11} />
+                    Atualizar
+                  </button>
+                </label>
 
-              <SearchSelect
-                id="copy-publico"
-                options={audienceOptions}
-                value={audienceId}
-                onChange={setAudienceId}
-                loading={loadingAudiences}
-                placeholder="Escolha um público da conta…"
-                emptyLabel="Nenhum público com esse nome."
-              />
-
-              {audiencesError && (
-                <span className="field-hint" style={{ color: "var(--danger)" }}>
-                  {audiencesError}
-                </span>
-              )}
-
-              {!audienceId && (
-                <input
-                  className="field-input"
-                  value={audienceText}
-                  placeholder="Ou descreva o público, se não houver um cadastrado"
-                  aria-label="Público descrito à mão"
-                  onChange={(e) => setAudienceText(e.target.value)}
+                <SearchSelect
+                  id="copy-publico"
+                  options={audienceOptions}
+                  value={audienceId}
+                  onChange={setAudienceId}
+                  loading={loadingAudiences}
+                  placeholder="Escolha um público da conta…"
+                  emptyLabel="Nenhum público com esse nome."
                 />
-              )}
-            </div>
+
+                {audiencesError && (
+                  <span className="field-hint" style={{ color: "var(--danger)" }}>
+                    {audiencesError}
+                  </span>
+                )}
+
+                {audienceIsOther && (
+                  <input
+                    className="field-input"
+                    value={audienceText}
+                    placeholder="Descreva para quem é a peça"
+                    aria-label="Público descrito à mão"
+                    autoFocus
+                    onChange={(e) => setAudienceText(e.target.value)}
+                  />
+                )}
+              </div>
+            )}
 
             <div className="field">
               <label className="field-label" htmlFor="copy-objetivo">
-                Objetivo <span style={{ color: "var(--danger)" }} aria-hidden="true">*</span>
+                Objetivo{" "}
+                {!manual && <span style={{ color: "var(--danger)" }} aria-hidden="true">*</span>}
               </label>
               <textarea
                 id="copy-objetivo"
                 className="field-input field-prose"
                 value={objective}
-                placeholder="O que esta peça precisa provocar? Que objeção precisa quebrar?"
+                placeholder={
+                  manual
+                    ? "O que esta peça precisa provocar? Vai junto no card, para quem produzir."
+                    : "O que esta peça precisa provocar? Que objeção precisa quebrar?"
+                }
                 onChange={(e) => setObjective(e.target.value)}
               />
+            </div>
+
+            {/*
+              Canal antes de formato, porque formato depende dele.
+
+              O canal era texto livre ("Meta Ads", "meta", "IG") e o formato
+              oferecia os dezenove de uma vez, a maioria sem relação com onde a
+              peça ia rodar. Agora a segunda lista é a do canal escolhido — e
+              "Carrossel", que existe no Meta e no TikTok, deixa de ser ambíguo.
+            */}
+            <div className="field">
+              <label className="field-label" htmlFor="copy-canal">
+                Canal
+              </label>
+              <select
+                id="copy-canal"
+                className="field-input"
+                value={channelId ?? ""}
+                onChange={(e) => changeChannel(e.target.value || null)}
+              >
+                <option value="">Selecione…</option>
+                {COPY_CHANNELS.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {c.label}
+                  </option>
+                ))}
+              </select>
             </div>
 
             <div className="field">
@@ -522,73 +741,82 @@ export default function CopyPage() {
                 id="copy-formato"
                 className="field-input"
                 value={formatId ?? ""}
+                disabled={!channelId}
                 onChange={(e) => setFormatId(e.target.value || null)}
               >
-                <option value="">Selecione…</option>
-                {COPY_FORMATS.map((f) => (
+                <option value="">{channelId ? "Selecione…" : "Escolha o canal primeiro"}</option>
+                {channelFormats.map((f) => (
                   <option key={f.id} value={f.id}>
                     {f.label}
                   </option>
                 ))}
               </select>
+              {!channelId && (
+                <span className="field-hint">Cada canal tem os seus formatos.</span>
+              )}
             </div>
 
-            <div className="field">
-              <label className="field-label" htmlFor="copy-tom">
-                Tom de voz
-              </label>
-              <select
-                id="copy-tom"
-                className="field-input"
-                value={toneId ?? ""}
-                onChange={(e) => setToneId(e.target.value || null)}
-              >
-                <option value="">Selecione…</option>
-                {COPY_TONES.map((t) => (
-                  <option key={t.id} value={t.id}>
-                    {t.label}
-                  </option>
-                ))}
-              </select>
-              <input
-                className="field-input"
-                value={toneText}
-                placeholder="Observação sobre o tom, se precisar"
-                aria-label="Observação sobre o tom de voz"
-                onChange={(e) => setToneText(e.target.value)}
-              />
-            </div>
+            {/* Tom e restrições são instruções para o modelo. No modo manual não
+                há a quem instruir: quem escreve já está aplicando o tom. */}
+            {!manual && (
+              <>
+              <div className="field">
+                <label className="field-label" htmlFor="copy-tom">
+                  Tom de voz
+                </label>
+                <select
+                  id="copy-tom"
+                  className="field-input"
+                  value={toneId ?? ""}
+                  onChange={(e) => setToneId(e.target.value || null)}
+                >
+                  <option value="">Selecione…</option>
+                  {COPY_TONES.map((t) => (
+                    <option key={t.id} value={t.id}>
+                      {t.label}
+                    </option>
+                  ))}
+                  {/* No fim, e não no começo como nas caixas de busca: ali a
+                      lista é longa e rolável, e a opção precisava estar sempre à
+                      vista; aqui os oito tons cabem na tela de uma vez, e a
+                      convenção de formulário é "Outro" fechando a lista. */}
+                  <option value={OTHER_OPTION_ID}>{OTHER_OPTION_LABEL}</option>
+                </select>
 
-            <div className="field">
-              <label className="field-label" htmlFor="copy-canal">
-                Canal
-              </label>
-              <input
-                id="copy-canal"
-                className="field-input"
-                value={channel}
-                placeholder="Meta Ads"
-                onChange={(e) => setChannel(e.target.value)}
-              />
-            </div>
-
-            <div className="field">
-              <label className="field-label" htmlFor="copy-restricoes">
-                Restrições
-              </label>
-              <textarea
-                id="copy-restricoes"
-                className="field-input field-prose"
-                value={constraints}
-                placeholder="O que não pode ser dito, termos obrigatórios, limite de caracteres."
-                onChange={(e) => setConstraints(e.target.value)}
-              />
-            </div>
+                {toneIsOther && (
+                  <input
+                    className="field-input"
+                    value={toneText}
+                    placeholder="Descreva o tom de voz desta peça"
+                    aria-label="Tom de voz descrito à mão"
+                    autoFocus
+                    onChange={(e) => setToneText(e.target.value)}
+                  />
+                )}
+              </div>
+              <div className="field">
+                <label className="field-label" htmlFor="copy-restricoes">
+                  Restrições
+                </label>
+                <textarea
+                  id="copy-restricoes"
+                  className="field-input field-prose"
+                  value={constraints}
+                  placeholder="O que não pode ser dito, termos obrigatórios, limite de caracteres."
+                  onChange={(e) => setConstraints(e.target.value)}
+                />
+              </div>
+              </>
+            )}
 
             {/*
               Até 12 variações. Doze pílulas ocupariam a largura toda do painel,
               então o controle é um deslizante com o número à vista — e o aviso
               aparece só quando o número começa a apertar o teto de saída da IA.
+
+              No modo manual o mesmo controle monta a pilha de cards em branco,
+              um por criativo: é a quantidade de peças que o card do quadro vai
+              pedir.
             */}
             <div className="field">
               <label
@@ -605,20 +833,30 @@ export default function CopyPage() {
                 min={MIN_VARIATIONS}
                 max={MAX_VARIATIONS}
                 value={variationCount}
-                onChange={(e) => setVariationCount(Number(e.target.value))}
+                onChange={(e) => changeCount(Number(e.target.value))}
                 style={{ accentColor: "var(--primary)", width: "100%" }}
               />
-              {variationCount >= 8 && (
+              {manual ? (
                 <span className="field-hint">
-                  Com muitas variações a IA fica mais concisa para caber no limite de resposta.
+                  Um card em branco por criativo, ao lado. Descer o número descarta os do fim.
                 </span>
+              ) : (
+                variationCount >= 8 && (
+                  <span className="field-hint">
+                    Com muitas variações a IA fica mais concisa para caber no limite de resposta.
+                  </span>
+                )
               )}
             </div>
 
-            <button className="btn btn-primary btn-block" onClick={generate} disabled={generating || !aiConfigured}>
-              <Wand2 size={15} className={generating ? "spin" : ""} />
-              {generating ? "Escrevendo…" : hasResult ? "Gerar de novo" : "Gerar copy"}
-            </button>
+            {/* No manual não há o que gerar: os cards já estão ao lado, e o
+                caminho até o quadro é o botão de enviar, no outro painel. */}
+            {!manual && (
+              <button className="btn btn-primary btn-block" onClick={generate} disabled={generating || !aiConfigured}>
+                <Wand2 size={15} className={generating ? "spin" : ""} />
+                {generating ? "Escrevendo…" : hasResult ? "Gerar de novo" : "Gerar copy"}
+              </button>
+            )}
 
             {error && (
               <span className="field-hint" role="alert" style={{ color: "var(--danger)" }}>
@@ -633,9 +871,9 @@ export default function CopyPage() {
             style={{ padding: "var(--pad-card-lg)", display: "flex", flexDirection: "column", gap: "var(--gap-stack)" }}
           >
             <div className="section-header" style={{ marginBottom: 0 }}>
-              <span className="section-title">resultado</span>
-              {references > 0 && (
-                <span className="section-subtitle">{references} peça(s) vencedora(s) como referência</span>
+              <span className="section-title">{manual ? "peças" : "resultado"}</span>
+              {!manual && references > 0 && (
+                <span className="section-subtitle">{references} winner(s) como referência</span>
               )}
             </div>
 
@@ -654,7 +892,9 @@ export default function CopyPage() {
                 }}
               >
                 <Sparkles size={26} />
-                Preencha o briefing e gere as variações.
+                {manual
+                  ? "Escolha quantas peças e escreva cada uma."
+                  : "Preencha o briefing e gere as variações."}
               </div>
             ) : (
               <>
@@ -695,6 +935,28 @@ export default function CopyPage() {
                   </>
                 )}
 
+                <AttachmentField attachments={attachments} onChange={setAttachments} />
+
+                <div className="field">
+                  <label
+                    className="field-label"
+                    htmlFor="copy-titulo"
+                    style={{ display: "flex", alignItems: "center", gap: "0.4rem" }}
+                  >
+                    <Tag size={14} />
+                    Título no quadro
+                  </label>
+                  <input
+                    id="copy-titulo"
+                    className="field-input"
+                    value={cardTitle || autoTitle}
+                    onChange={(e) => setCardTitle(e.target.value)}
+                  />
+                  <span className="field-hint">
+                    Tipo de peça • produto • quantidade. Edite se quiser; em branco, volta ao automático.
+                  </span>
+                </div>
+
                 <div className="field">
                   <label
                     className="field-label"
@@ -704,12 +966,11 @@ export default function CopyPage() {
                     <CalendarDays size={14} />
                     Data de entrega
                   </label>
-                  <input
+                  <DatePicker
                     id="copy-entrega"
-                    type="date"
-                    className="field-input"
                     value={dueDate}
-                    onChange={(e) => setDueDate(e.target.value)}
+                    onChange={setDueDate}
+                    placeholder="Sem prazo definido"
                   />
                   <span className="field-hint">
                     Vira o prazo do card no quadro. Em branco, a demanda entra sem prazo.
@@ -759,7 +1020,7 @@ export default function CopyPage() {
                     }
                   >
                     <Send size={15} />
-                    {sending ? "Enviando…" : "Enviar ao Kanban"}
+                    {sending ? "Enviando…" : "Enviar ao Board"}
                   </button>
                 </div>
 

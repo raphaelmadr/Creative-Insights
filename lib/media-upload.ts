@@ -213,83 +213,104 @@ export async function persistRemoteMedia(
     extensionFromContentType(response.headers.get("content-type"))
   );
 
-  if (config.uploadUrl && config.uploadSecret) {
-    /** Última causa observada, para o log final não dizer só "falhou". */
-    let lastFailure = "";
+  return uploadToStorage(blob, filename, config);
+}
 
-    for (let attempt = 1; attempt <= 3; attempt++) {
-      try {
-        const formData = new FormData();
-        formData.append("file", blob, filename);
-        formData.append("filename", filename);
+/**
+ * Entrega um arquivo ao servidor externo e devolve a URL pública.
+ *
+ * Separado de `persistRemoteMedia` porque agora há duas origens: a mídia que o
+ * sync baixa da plataforma e o anexo que alguém escolhe no computador. O que
+ * elas têm em comum é tudo o que dá errado — cota cheia, limite de requisições,
+ * host recusando envio simultâneo — e era justamente essa parte que estaria
+ * duplicada, com uma das cópias fatalmente perdendo alguma correção da outra.
+ *
+ * `operation` entra no log porque "subir a arte do criativo" não descreve o
+ * anexo de uma demanda, e um log que não distingue as duas coisas manda alguém
+ * investigar o sync por causa de um upload manual que falhou.
+ */
+export async function uploadToStorage(
+  blob: Blob,
+  filename: string,
+  config: ResolvedStorageConfig,
+  operation = "subir a arte do criativo"
+): Promise<string | null> {
+  const { uploadUrl, uploadSecret } = config;
+  if (!uploadUrl || !uploadSecret) return null;
 
-        const uploadRes = await fetch(config.uploadUrl, {
-          method: "POST",
-          headers: { Authorization: `Bearer ${config.uploadSecret}` },
-          body: formData,
+  /** Última causa observada, para o log final não dizer só "falhou". */
+  let lastFailure = "";
+
+  for (let attempt = 1; attempt <= 3; attempt++) {
+    try {
+      const formData = new FormData();
+      formData.append("file", blob, filename);
+      formData.append("filename", filename);
+
+      const uploadRes = await fetch(uploadUrl, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${uploadSecret}` },
+        body: formData,
+      });
+
+      if (uploadRes.ok) {
+        const result = await uploadRes.json();
+        if (result?.success && result?.url) return result.url as string;
+        console.warn(`[media-upload] Upload recusado pelo servidor: ${JSON.stringify(result).slice(0, 200)}`);
+        await logExternalFailure({
+          service: "cPanel",
+          operation,
+          error: new Error(result?.error || result?.message || JSON.stringify(result).slice(0, 300)),
+          endpoint: uploadUrl,
+          context: { arquivo: filename },
         });
-
-        if (uploadRes.ok) {
-          const result = await uploadRes.json();
-          if (result?.success && result?.url) return result.url as string;
-          console.warn(`[media-upload] Upload recusado pelo servidor: ${JSON.stringify(result).slice(0, 200)}`);
-          await logExternalFailure({
-            service: "cPanel",
-            operation: "subir a arte do criativo",
-            error: new Error(result?.error || result?.message || JSON.stringify(result).slice(0, 300)),
-            endpoint: config.uploadUrl,
-            context: { arquivo: filename },
-          });
-          return null;
-        }
-
-        // 401/400 são de configuração — insistir não resolve.
-        if (uploadRes.status === 401 || uploadRes.status === 400) {
-          console.warn(`[media-upload] Upload rejeitado (HTTP ${uploadRes.status}). Verifique cpanelUploadSecret.`);
-          await logExternalFailure({
-            service: "cPanel",
-            operation: "subir a arte do criativo",
-            error: Object.assign(new Error(`HTTP ${uploadRes.status} ${uploadRes.statusText}`), { status: uploadRes.status }),
-            endpoint: config.uploadUrl,
-            context: { arquivo: filename },
-          });
-          return null;
-        }
-
-        // Demais status (503, 507, 429...) são transitórios ou de capacidade:
-        // vale repetir, mas a causa precisa sobreviver até o log final.
-        lastFailure = `HTTP ${uploadRes.status} ${uploadRes.statusText}`.trim();
-      } catch (error) {
-        lastFailure = (error as Error).message;
-        console.warn(`[media-upload] Erro no upload (tentativa ${attempt}): ${lastFailure}`);
+        return null;
       }
-      if (attempt < 3) await delay(500 * Math.pow(2, attempt - 1));
-    }
 
-    /*
-     * As três tentativas acabaram sem sucesso e sem resposta conclusiva —
-     * servidor fora do ar, tempo esgotado, cota cheia (507), excesso de
-     * requisições (429).
-     *
-     * Este `return null` era mudo, e era o buraco mais caro do módulo: uma
-     * execução relatava "601 falharam" e não havia uma linha sequer em
-     * Configurações › Logs dizendo por quê. Falha sem causa registrada é
-     * indistinguível de bug nosso.
-     */
-    await logExternalFailure({
-      service: "cPanel",
-      operation: "subir a arte do criativo",
-      error: new Error(
-        `Três tentativas sem sucesso. Última resposta: ${lastFailure || "sem detalhe"}. ` +
-        `Causas típicas: cota de disco cheia, limite de requisições do servidor, ou o host recusando ` +
-        `uploads simultâneos.`
-      ),
-      endpoint: config.uploadUrl,
-      context: { arquivo: filename },
-    });
-    return null;
+      // 401/400 são de configuração — insistir não resolve.
+      if (uploadRes.status === 401 || uploadRes.status === 400) {
+        console.warn(`[media-upload] Upload rejeitado (HTTP ${uploadRes.status}). Verifique cpanelUploadSecret.`);
+        await logExternalFailure({
+          service: "cPanel",
+          operation,
+          error: Object.assign(new Error(`HTTP ${uploadRes.status} ${uploadRes.statusText}`), { status: uploadRes.status }),
+          endpoint: uploadUrl,
+          context: { arquivo: filename },
+        });
+        return null;
+      }
+
+      // Demais status (503, 507, 429...) são transitórios ou de capacidade:
+      // vale repetir, mas a causa precisa sobreviver até o log final.
+      lastFailure = `HTTP ${uploadRes.status} ${uploadRes.statusText}`.trim();
+    } catch (error) {
+      lastFailure = (error as Error).message;
+      console.warn(`[media-upload] Erro no upload (tentativa ${attempt}): ${lastFailure}`);
+    }
+    if (attempt < 3) await delay(500 * Math.pow(2, attempt - 1));
   }
 
+  /*
+   * As três tentativas acabaram sem sucesso e sem resposta conclusiva —
+   * servidor fora do ar, tempo esgotado, cota cheia (507), excesso de
+   * requisições (429).
+   *
+   * Este `return null` era mudo, e era o buraco mais caro do módulo: uma
+   * execução relatava "601 falharam" e não havia uma linha sequer em
+   * Configurações › Logs dizendo por quê. Falha sem causa registrada é
+   * indistinguível de bug nosso.
+   */
+  await logExternalFailure({
+    service: "cPanel",
+    operation,
+    error: new Error(
+      `Três tentativas sem sucesso. Última resposta: ${lastFailure || "sem detalhe"}. ` +
+      `Causas típicas: cota de disco cheia, limite de requisições do servidor, ou o host recusando ` +
+      `uploads simultâneos.`
+    ),
+    endpoint: uploadUrl,
+    context: { arquivo: filename },
+  });
   return null;
 }
 

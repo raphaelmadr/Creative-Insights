@@ -2,6 +2,8 @@
 
 import React, { useEffect, useState } from "react";
 import Modal from "@/components/Modal";
+import DatePicker from "@/components/DatePicker";
+import CardLinkField from "./CardLinkField";
 import FieldInput, { type FieldDefinition } from "./FieldInput";
 import { PRIORITIES, PRIORITY_LABEL, type Priority } from "@/lib/kanban";
 
@@ -43,6 +45,7 @@ export default function DemandDialog({
   const [priority, setPriority] = useState<Priority>("MEDIA");
   const [dueDate, setDueDate] = useState("");
   const [assignee, setAssignee] = useState("");
+  const [linkUrl, setLinkUrl] = useState<string | null>(null);
   const [values, setValues] = useState<Record<string, unknown>>({});
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -56,6 +59,7 @@ export default function DemandDialog({
     setPriority("MEDIA");
     setDueDate("");
     setAssignee("");
+    setLinkUrl(null);
     setValues({});
     setError(null);
   }, [open]);
@@ -80,6 +84,7 @@ export default function DemandDialog({
           priority,
           dueDate: dueDate || null,
           assigneeAcronym: assignee || null,
+          linkUrl,
           values,
         }),
       });
@@ -165,12 +170,11 @@ export default function DemandDialog({
           <label className="field-label" htmlFor="demanda-prazo">
             Prazo
           </label>
-          <input
+          <DatePicker
             id="demanda-prazo"
-            type="date"
-            className="field-input"
             value={dueDate}
-            onChange={(e) => setDueDate(e.target.value)}
+            onChange={setDueDate}
+            placeholder="Sem prazo"
           />
         </div>
 
@@ -194,6 +198,16 @@ export default function DemandDialog({
           <span className="field-hint">A mesma sigla que identifica o criador nos anúncios.</span>
         </div>
       </div>
+
+      {/* O link pode já existir na abertura — quem pede a peça costuma ter a
+          pasta de referência antes de escrever o briefing. */}
+      <CardLinkField
+        id="demanda-link"
+        value={linkUrl}
+        onSave={setLinkUrl}
+        busy={saving}
+        hint="A pasta do Drive com as imagens, se já existir."
+      />
 
       {fields.map((field) => (
         <FieldInput

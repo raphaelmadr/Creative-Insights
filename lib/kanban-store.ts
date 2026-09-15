@@ -8,7 +8,7 @@
  */
 
 import prisma from "./prisma";
-import { DEFAULT_BOARD, uniqueFieldKey } from "./kanban";
+import { DEFAULT_BOARD, startOfCurrentMonth, uniqueFieldKey } from "./kanban";
 
 /** O quadro inteiro, do jeito que a tela consome. */
 export const BOARD_INCLUDE = {
@@ -154,4 +154,57 @@ export async function copyTargetBoard() {
 
   const columnId = await intakeColumnId(board.id);
   return columnId ? { board, columnId } : null;
+}
+
+/**
+ * Arquiva o que foi entregue em meses anteriores.
+ *
+ * A regra é a do negócio: uma entrega fica no quadro pelo mês inteiro em que
+ * aconteceu — é o que deixa a coluna final responder "o que a equipe produziu
+ * este mês" — e sai quando o mês vira. Sem isso a coluna de entrega só cresce, e
+ * em oito semanas ninguém mais rola até o fim dela.
+ *
+ * Roda na leitura do quadro, e não num cron, pelo mesmo motivo de
+ * `ensureDefaultBoard`: uma regra que depende de um disparador externo é uma
+ * regra que não valeu no dia em que o disparador falhou. Aqui ela vale sempre
+ * que alguém olha — que é exatamente quando ela precisa estar valendo.
+ *
+ * Arquivar não apaga: o card sai do quadro com briefing, copy, anexos e
+ * histórico intactos.
+ */
+export async function archiveDeliveredBeforeThisMonth(boardId: string): Promise<number> {
+  const inicioDoMes = startOfCurrentMonth();
+
+  const vencidos = await prisma.boardCard.findMany({
+    where: {
+      boardId,
+      archived: false,
+      // `completedAt` é carimbado ao entrar na coluna de entrega e apagado ao
+      // sair dela: um card que voltou para revisão não é uma entrega antiga.
+      completedAt: { lt: inicioDoMes },
+    },
+    select: { id: true },
+  });
+
+  if (!vencidos.length) return 0;
+
+  const ids = vencidos.map((c) => c.id);
+
+  await prisma.$transaction([
+    prisma.boardCard.updateMany({ where: { id: { in: ids } }, data: { archived: true } }),
+    /*
+     * O histórico diz por que o card sumiu do quadro. Sem autor, porque não
+     * houve um: um evento assinado por quem por acaso abriu a página naquele
+     * segundo seria pior do que evento nenhum.
+     */
+    prisma.cardActivity.createMany({
+      data: ids.map((cardId) => ({
+        cardId,
+        type: "UPDATED",
+        message: "arquivada automaticamente — entrega de um mês anterior",
+      })),
+    }),
+  ]);
+
+  return ids.length;
 }

@@ -9,7 +9,8 @@
 import { NextResponse } from "next/server";
 import prisma from "@/lib/prisma";
 import { getCurrentUser } from "@/lib/auth";
-import { ensureDefaultBoard, BOARD_INCLUDE } from "@/lib/kanban-store";
+import { ensureDefaultBoard, archiveDeliveredBeforeThisMonth, BOARD_INCLUDE } from "@/lib/kanban-store";
+import { serializeCardBadges } from "@/lib/kanban";
 
 export async function GET(request: Request) {
   const user = await getCurrentUser();
@@ -36,6 +37,15 @@ export async function GET(request: Request) {
       ? await prisma.board.findUnique({ where: { id: activeId }, include: BOARD_INCLUDE })
       : null;
 
+    /*
+     * As entregas de meses anteriores saem do quadro antes de ele ser lido.
+     *
+     * Antes da consulta, e não depois: lendo primeiro, a tela receberia nesta
+     * visita os cards que acabaram de ser arquivados, e eles só desapareceriam
+     * no recarregamento seguinte.
+     */
+    if (activeId) await archiveDeliveredBeforeThisMonth(activeId);
+
     const cards = activeId
       ? await prisma.boardCard.findMany({
           where: { boardId: activeId, archived: false },
@@ -43,7 +53,16 @@ export async function GET(request: Request) {
         })
       : [];
 
-    return NextResponse.json({ success: true, boards, board, cards });
+    /*
+     * Quantos cards estão no arquivo — o card fixo do quadro mostra esse número
+     * sem precisar abrir a lista. Uma contagem é mais barata que trazer as
+     * linhas, e é tudo o que a frente do quadro precisa saber.
+     */
+    const archivedCount = activeId
+      ? await prisma.boardCard.count({ where: { boardId: activeId, archived: true } })
+      : 0;
+
+    return NextResponse.json({ success: true, boards, board, cards, archivedCount });
   } catch (error: any) {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
@@ -94,7 +113,7 @@ export async function PUT(request: Request) {
   if (!user) return NextResponse.json({ error: "Não autenticado." }, { status: 401 });
 
   try {
-    const { id, name, description, receivesCopy } = await request.json();
+    const { id, name, description, receivesCopy, cardBadges } = await request.json();
     if (!id) return NextResponse.json({ error: "ID do quadro é obrigatório." }, { status: 400 });
 
     /*
@@ -116,6 +135,14 @@ export async function PUT(request: Request) {
         ...(name !== undefined ? { name: String(name).trim() } : {}),
         ...(description !== undefined ? { description: String(description).trim() || null } : {}),
         ...(receivesCopy !== undefined ? { receivesCopy: !!receivesCopy } : {}),
+        /*
+         * A lista chega da tela e é normalizada aqui — chaves desconhecidas
+         * caem fora e a ordem vira a do catálogo. `serializeCardBadges` sempre
+         * devolve texto, inclusive `[]`: gravar nulo para "nenhum badge" faria
+         * o quadro entender que ninguém configurou nada e trazer o padrão de
+         * volta na próxima leitura.
+         */
+        ...(cardBadges !== undefined ? { cardBadges: serializeCardBadges(cardBadges) } : {}),
       },
       include: BOARD_INCLUDE,
     });

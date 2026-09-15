@@ -2,6 +2,7 @@
 
 import React from "react";
 import { parseOptions, type FieldType } from "@/lib/kanban";
+import DatePicker from "@/components/DatePicker";
 
 /**
  * Um campo definível, desenhado.
@@ -174,12 +175,14 @@ export default function FieldInput({
       return (
         <div className="field">
           {label}
-          <input
+          {/* Um campo de data qualquer do formulário pode ser passado ou
+              futuro — aniversário de campanha, data de veiculação —, então aqui
+              os atalhos de prazo ficam de fora. */}
+          <DatePicker
             id={id}
-            type="date"
-            className="field-input"
             value={typeof value === "string" ? value.slice(0, 10) : ""}
-            onChange={(e) => onChange(e.target.value)}
+            onChange={onChange}
+            presets={false}
           />
           {hint}
         </div>

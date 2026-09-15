@@ -33,7 +33,9 @@ const DASH_LINKS = [
 ];
 
 const CREATOR_LINKS = [
-  { href: "/creator/kanban", label: "Kanban", exact: false },
+  // O nome na navegação é "Board Criativo"; a rota continua `/creator/kanban`,
+  // que é o que já está em links compartilhados e no histórico de todo mundo.
+  { href: "/creator/kanban", label: "Board Criativo", exact: false },
   { href: "/creator/copy", label: "Gerador de Copy", exact: false },
 ];
 

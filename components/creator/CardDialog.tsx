@@ -2,13 +2,16 @@
 
 import React, { useEffect, useState } from "react";
 import ReactMarkdown from "react-markdown";
-import { Trash2, Send, History, Copy as CopyIcon, Check, ChevronsDownUp, ChevronsUpDown } from "lucide-react";
+import { Trash2, Send, History, Copy as CopyIcon, Check, ChevronsDownUp, ChevronsUpDown, ArchiveRestore, Archive } from "lucide-react";
 import Modal from "@/components/Modal";
 import { Avatar } from "@/components/Avatar";
 import { type FieldDefinition, formatFieldValue } from "./FieldInput";
 import { type ColumnDefinition } from "./ColumnsDialog";
 import VariationCard from "./VariationCard";
+import AttachmentGallery from "./AttachmentGallery";
+import CardLinkField from "./CardLinkField";
 import { parseCopyVariations } from "@/lib/copy-parse";
+import { parseAttachments } from "@/lib/attachments";
 import type { CreatorOption } from "./DemandDialog";
 import { PRIORITIES, PRIORITY_LABEL, parseValues } from "@/lib/kanban";
 
@@ -26,8 +29,16 @@ export interface CardData {
   values: string | null;
   origin: string;
   copyText: string | null;
+  /** JSON dos anexos — cru, como está no banco. Ver `parseAttachments`. */
+  attachments: string | null;
+  /** O link das artes — a pasta do Drive. Ver `lib/card-link.ts`. */
+  linkUrl: string | null;
+  /** Fora do quadro: arquivada à mão ou pela regra de fim de mês. */
+  archived: boolean;
   completedAt: string | null;
   createdAt: string;
+  /** Última alteração. Num card arquivado, é quando ele saiu do quadro. */
+  updatedAt: string;
 }
 
 interface Activity {
@@ -108,6 +119,17 @@ export default function CardDialog({
    * de a copy sumir da tela.
    */
   const variations = card.copyText ? parseCopyVariations(card.copyText) : [];
+  const anexos = parseAttachments(card.attachments);
+
+  /*
+   * O mesmo painel serve ao card do quadro e ao card arquivado — um segundo
+   * visualizador só para o arquivo divergiria do primeiro na primeira mudança, e
+   * quem abre um card arquivado quer ver exatamente o que via antes: briefing,
+   * copy, referências e histórico. O que muda é que nada disso se edita, e o
+   * botão de arquivar dá lugar ao de tirar do arquivo.
+   */
+  const arquivado = card.archived;
+  const travado = busy || arquivado;
   const allOpen = variations.length > 0 && openVariations.size === variations.length;
 
   const patch = async (body: object) => {
@@ -158,28 +180,42 @@ export default function CardDialog({
       width="min(760px, 100%)"
       footer={
         <>
-          <button
-            type="button"
-            className="btn btn-danger"
-            disabled={busy}
-            onClick={async () => {
-              if (!confirm("Arquivar esta demanda?\n\nEla sai do quadro, mas o histórico é preservado.")) return;
-              setBusy(true);
-              const res = await fetch("/api/creator/cards", {
-                method: "DELETE",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ id: card.id }),
-              });
-              setBusy(false);
-              if (res.ok) {
-                onChanged();
-                onClose();
-              }
-            }}
-          >
-            <Trash2 size={14} />
-            Arquivar
-          </button>
+          {arquivado ? (
+            <button
+              type="button"
+              className="btn btn-primary"
+              disabled={busy}
+              onClick={async () => {
+                if (await patch({ restore: { cardId: card.id } })) onClose();
+              }}
+            >
+              <ArchiveRestore size={14} />
+              Restaurar
+            </button>
+          ) : (
+            <button
+              type="button"
+              className="btn btn-danger"
+              disabled={busy}
+              onClick={async () => {
+                if (!confirm("Arquivar esta demanda?\n\nEla sai do quadro, mas continua no arquivo — com briefing, copy e histórico.")) return;
+                setBusy(true);
+                const res = await fetch("/api/creator/cards", {
+                  method: "DELETE",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({ id: card.id }),
+                });
+                setBusy(false);
+                if (res.ok) {
+                  onChanged();
+                  onClose();
+                }
+              }}
+            >
+              <Trash2 size={14} />
+              Arquivar
+            </button>
+          )}
           <button type="button" className="btn btn-secondary" onClick={onClose}>
             Fechar
           </button>
@@ -197,7 +233,7 @@ export default function CardDialog({
             id="card-etapa"
             className="field-input"
             value={card.columnId}
-            disabled={busy}
+            disabled={travado}
             onChange={(e) => patch({ id: card.id, columnId: e.target.value })}
           >
             {columns.map((c) => (
@@ -216,7 +252,7 @@ export default function CardDialog({
             id="card-responsavel"
             className="field-input"
             value={card.assigneeAcronym || ""}
-            disabled={busy}
+            disabled={travado}
             onChange={(e) => patch({ id: card.id, assigneeAcronym: e.target.value || null })}
           >
             <option value="">A definir</option>
@@ -238,7 +274,7 @@ export default function CardDialog({
               type="button"
               className="btn btn-toggle"
               aria-pressed={card.priority === p}
-              disabled={busy}
+              disabled={travado}
               style={{ padding: "0.35rem 0.7rem", fontSize: "var(--text-caption)" }}
               onClick={() => patch({ id: card.id, priority: p })}
             >
@@ -248,12 +284,61 @@ export default function CardDialog({
         </div>
       </div>
 
+      {arquivado && (
+        <div
+          role="status"
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: "0.5rem",
+            padding: "0.6rem 0.7rem",
+            borderRadius: "var(--radius-block)",
+            background: "var(--surface-sunken)",
+            border: "1px solid var(--surface-sunken-border)",
+            fontSize: "var(--text-control)",
+            color: "var(--muted)",
+          }}
+        >
+          <Archive size={15} style={{ flexShrink: 0 }} />
+          <span style={{ flex: 1, minWidth: 0 }}>
+            Esta demanda está no arquivo. Tudo continua aqui; para voltar a mexer nela, restaure.
+          </span>
+        </div>
+      )}
+
+      {/*
+        O link fica no topo, junto do que muda todo dia, e não lá embaixo com o
+        briefing: quem abre o card de uma demanda em produção quase sempre está
+        atrás de uma coisa só — onde estão os arquivos.
+
+        A `key` amarra o estado do campo ao card: sem ela, abrir outro card
+        reaproveitaria o rascunho do anterior, já que o diálogo é o mesmo.
+      */}
+      <CardLinkField
+        key={card.id}
+        id="card-link"
+        value={card.linkUrl}
+        busy={travado}
+        hint="A pasta do Drive onde as imagens desta demanda estão."
+        onSave={(url) => patch({ id: card.id, linkUrl: url })}
+      />
+
       {card.description && (
         <div className="field">
           <span className="field-label">Contexto</span>
           <div style={{ ...block, fontSize: "var(--text-body)", lineHeight: 1.55 }}>
             <ReactMarkdown>{card.description}</ReactMarkdown>
           </div>
+        </div>
+      )}
+
+      {/* As referências ficam acima do briefing: elas são a parte do pedido que
+          se entende antes de ler qualquer coisa. Clicar abre a imagem inteira no
+          mesmo popup que abre a arte de um criativo. */}
+      {anexos.length > 0 && (
+        <div className="field">
+          <span className="field-label">Referências</span>
+          <AttachmentGallery attachments={anexos} />
         </div>
       )}
 
@@ -369,7 +454,8 @@ export default function CardDialog({
             className="field-input"
             style={{ flex: 1, minWidth: 0 }}
             value={comment}
-            placeholder="Escreva uma atualização…"
+            disabled={travado}
+            placeholder={arquivado ? "Arquivada — sem novas atualizações." : "Escreva uma atualização…"}
             aria-label="Novo comentário"
             onChange={(e) => setComment(e.target.value)}
             onKeyDown={async (e) => {
@@ -381,7 +467,7 @@ export default function CardDialog({
           <button
             type="button"
             className="btn btn-primary"
-            disabled={busy || !comment.trim()}
+            disabled={travado || !comment.trim()}
             onClick={async () => {
               if (await patch({ comment: { cardId: card.id, text: comment } })) setComment("");
             }}

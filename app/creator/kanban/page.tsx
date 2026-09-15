@@ -1,14 +1,17 @@
 "use client";
 
 import React, { useCallback, useEffect, useState } from "react";
-import { Plus, SlidersHorizontal, Columns3, LayoutGrid } from "lucide-react";
+import { Plus, SlidersHorizontal, Columns3, LayoutGrid, Tags } from "lucide-react";
 import KanbanBoard from "@/components/creator/KanbanBoard";
 import DemandDialog, { type CreatorOption } from "@/components/creator/DemandDialog";
 import FieldsDialog from "@/components/creator/FieldsDialog";
 import ColumnsDialog, { type ColumnDefinition } from "@/components/creator/ColumnsDialog";
+import BadgesDialog from "@/components/creator/BadgesDialog";
+import ArchiveDialog from "@/components/creator/ArchiveDialog";
 import CardDialog, { type CardData } from "@/components/creator/CardDialog";
 import { type FieldDefinition } from "@/components/creator/FieldInput";
 import { Skeleton } from "@/components/Skeleton";
+import { parseCardBadges } from "@/lib/kanban";
 
 interface BoardSummary {
   id: string;
@@ -20,6 +23,8 @@ interface BoardSummary {
 interface BoardDetail extends BoardSummary {
   columns: ColumnDefinition[];
   fields: FieldDefinition[];
+  /** JSON dos mini-badges — cru, como está no banco. Ver `parseCardBadges`. */
+  cardBadges: string | null;
 }
 
 /**
@@ -33,6 +38,7 @@ export default function KanbanPage() {
   const [boards, setBoards] = useState<BoardSummary[]>([]);
   const [board, setBoard] = useState<BoardDetail | null>(null);
   const [cards, setCards] = useState<CardData[]>([]);
+  const [archivedCount, setArchivedCount] = useState(0);
   const [creators, setCreators] = useState<CreatorOption[]>([]);
   const [activeId, setActiveId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -41,6 +47,8 @@ export default function KanbanPage() {
   const [newDemand, setNewDemand] = useState(false);
   const [editFields, setEditFields] = useState(false);
   const [editColumns, setEditColumns] = useState(false);
+  const [editBadges, setEditBadges] = useState(false);
+  const [showArchive, setShowArchive] = useState(false);
   const [openCard, setOpenCard] = useState<CardData | null>(null);
 
   const load = useCallback(
@@ -58,6 +66,7 @@ export default function KanbanPage() {
         setBoards(data.boards || []);
         setBoard(data.board || null);
         setCards(data.cards || []);
+        setArchivedCount(data.archivedCount || 0);
         setActiveId(data.board?.id ?? null);
         setError(null);
       } catch {
@@ -122,7 +131,7 @@ export default function KanbanPage() {
               style={{ fontSize: "var(--text-page)", fontWeight: 800, margin: 0, wordBreak: "break-word" }}
               className="lowercase-title"
             >
-              kanban<span className="dot-green">.</span>
+              board criativo<span className="dot-green">.</span>
             </h1>
             <p style={{ color: "var(--muted)", maxWidth: "600px", lineHeight: 1.6, margin: 0 }} className="lowercase-title">
               {board?.description || "demandas da equipe criativa, do briefing à entrega."}
@@ -175,6 +184,16 @@ export default function KanbanPage() {
                 <Columns3 size={14} />
                 Etapas
               </button>
+              <button
+                className="btn btn-secondary"
+                style={headerButton}
+                onClick={() => setEditBadges(true)}
+                disabled={!board}
+                title="Escolher o que o card mostra sem ser aberto"
+              >
+                <Tags size={14} />
+                Card
+              </button>
             </span>
           </div>
         </div>
@@ -208,7 +227,10 @@ export default function KanbanPage() {
             cards={cards}
             fields={board.fields}
             creators={creators}
+            badges={parseCardBadges(board.cardBadges)}
+            archivedCount={archivedCount}
             onOpenCard={setOpenCard}
+            onOpenArchive={() => setShowArchive(true)}
             onMove={move}
           />
         ) : (
@@ -256,6 +278,30 @@ export default function KanbanPage() {
             onClose={() => setEditColumns(false)}
             boardId={board.id}
             columns={board.columns}
+            onChanged={() => load(activeId)}
+          />
+
+          <BadgesDialog
+            open={editBadges}
+            onClose={() => setEditBadges(false)}
+            boardId={board.id}
+            badges={parseCardBadges(board.cardBadges)}
+            onChanged={() => load(activeId)}
+          />
+
+          {/*
+            Abrir um card do arquivo fecha a lista: dois diálogos empilhados
+            dividiriam o Esc — uma tecla fecharia os dois de uma vez — e o de
+            baixo continuaria travando a rolagem do de cima.
+          */}
+          <ArchiveDialog
+            open={showArchive}
+            onClose={() => setShowArchive(false)}
+            boardId={board.id}
+            onOpenCard={(card) => {
+              setShowArchive(false);
+              setOpenCard(card);
+            }}
             onChanged={() => load(activeId)}
           />
 

@@ -1,14 +1,26 @@
 "use client";
 
 import React, { useMemo, useState } from "react";
-import { Clock, Wand2, AlertTriangle } from "lucide-react";
+import { Clock, Wand2, AlertTriangle, Link2, Archive } from "lucide-react";
 import { Avatar } from "@/components/Avatar";
 import { type FieldDefinition, formatFieldValue } from "./FieldInput";
 import { type ColumnDefinition } from "./ColumnsDialog";
 import { type CardData } from "./CardDialog";
 import type { CreatorOption } from "./DemandDialog";
-import { parseValues, isOverdue, PRIORITY_COLOR, PRIORITY_LABEL, type Priority } from "@/lib/kanban";
+import {
+  parseValues,
+  isOverdue,
+  PRIORITY_COLOR,
+  PRIORITY_LABEL,
+  DEFAULT_CARD_BADGES,
+  type CardBadgeKey,
+  type Priority,
+} from "@/lib/kanban";
 import { parseCopyVariations } from "@/lib/copy-parse";
+import { titleShowsPieceCount } from "@/lib/copy-options";
+import { parseAttachments } from "@/lib/attachments";
+import { describeCardLink } from "@/lib/card-link";
+import AttachmentGallery from "./AttachmentGallery";
 
 /**
  * O quadro.
@@ -24,14 +36,22 @@ export default function KanbanBoard({
   cards,
   fields,
   creators,
+  badges = DEFAULT_CARD_BADGES,
+  archivedCount = 0,
   onOpenCard,
+  onOpenArchive,
   onMove,
 }: {
   columns: ColumnDefinition[];
   cards: CardData[];
   fields: FieldDefinition[];
   creators: CreatorOption[];
+  /** Os atributos embutidos que este quadro mostra na frente do card. */
+  badges?: CardBadgeKey[];
+  /** Quantas demandas estão no arquivo, para o card fixo mostrar. */
+  archivedCount?: number;
   onOpenCard: (card: CardData) => void;
+  onOpenArchive?: () => void;
   onMove: (cardId: string, columnId: string, order: string[]) => void;
 }) {
   const [draggingId, setDraggingId] = useState<string | null>(null);
@@ -49,6 +69,20 @@ export default function KanbanBoard({
 
   /** Os campos marcados para aparecer na frente do card. */
   const frontFields = useMemo(() => fields.filter((f) => f.showOnCard), [fields]);
+
+  const shows = useMemo(() => new Set(badges), [badges]);
+
+  /*
+   * Onde o card do arquivo mora: no fim da coluna de entrega, porque é a
+   * continuação natural do fluxo — backlog, produção, revisão, entregue,
+   * arquivo. Sem coluna de entrega marcada, vai para a última: o card não pode
+   * simplesmente não aparecer, já que ele é a única porta para o que saiu do
+   * quadro.
+   */
+  const archiveColumnId = useMemo(() => {
+    const done = columns.find((c) => c.isDone);
+    return done?.id ?? columns[columns.length - 1]?.id ?? null;
+  }, [columns]);
 
   /*
    * Quantas variações cada copy carrega.
@@ -170,6 +204,9 @@ export default function KanbanBoard({
               // dentro do card — é a informação que muda o que se faz agora.
               const due = card.dueDate ? new Date(card.dueDate) : null;
               const late = !card.completedAt && isOverdue(card.dueDate);
+              const pecas = variationCounts.get(card.id) ?? 0;
+              const anexos = parseAttachments(card.attachments);
+              const link = describeCardLink(card.linkUrl);
 
               return (
                 <article
@@ -214,10 +251,12 @@ export default function KanbanBoard({
 
                     {/* Quantas peças de texto há para produzir ali dentro — a
                         diferença entre uma demanda e doze não deveria exigir
-                        abrir o card. */}
-                    {(variationCounts.get(card.id) ?? 0) > 1 && (
+                        abrir o card. Os cards criados pelo gerador já dizem isso
+                        no título ("… • 12 Peças"); o selo é para os de antes do
+                        formato, e não aparece duas vezes no mesmo card. */}
+                    {pecas > 1 && !titleShowsPieceCount(card.title, pecas) && (
                       <span
-                        title={`${variationCounts.get(card.id)} variações de copy`}
+                        title={`${pecas} variações de copy`}
                         style={{
                           flexShrink: 0,
                           fontSize: "var(--text-eyebrow)",
@@ -228,88 +267,213 @@ export default function KanbanBoard({
                           color: "var(--primary)",
                         }}
                       >
-                        {variationCounts.get(card.id)}×
+                        {pecas}×
                       </span>
                     )}
                   </div>
 
-                  {frontFields.length > 0 && (
-                    <div style={{ display: "flex", flexWrap: "wrap", gap: "0.25rem" }}>
-                      {frontFields.map((field) => {
-                        const value = values[field.key];
-                        if (value === undefined || value === null || value === "") return null;
-                        return (
-                          <span
-                            key={field.id}
-                            title={`${field.label}: ${formatFieldValue(field, value)}`}
-                            style={{
-                              fontSize: "var(--text-eyebrow)",
-                              padding: "0.1rem 0.45rem",
-                              borderRadius: "var(--radius-pill)",
-                              background: "var(--card-bg)",
-                              border: "1px solid var(--card-border)",
-                              color: "var(--muted)",
-                              maxWidth: "100%",
-                              overflow: "hidden",
-                              textOverflow: "ellipsis",
-                              whiteSpace: "nowrap",
-                            }}
-                          >
-                            {formatFieldValue(field, value)}
-                          </span>
-                        );
-                      })}
-                    </div>
-                  )}
+                  {/*
+                    A fila de mini-badges.
 
-                  <div style={{ display: "flex", alignItems: "center", gap: "0.4rem" }}>
-                    <span
-                      title={`Prioridade ${PRIORITY_LABEL[priority]}`}
-                      style={{
-                        fontSize: "var(--text-eyebrow)",
-                        fontWeight: 600,
-                        color: PRIORITY_COLOR[priority],
-                        textTransform: "uppercase",
-                        letterSpacing: "0.5px",
-                      }}
-                    >
-                      {PRIORITY_LABEL[priority]}
-                    </span>
-
-                    {due && (
+                    Os quatro atributos embutidos — urgência, prazo, responsável
+                    e etapa — saem da configuração do quadro, e as respostas do
+                    formulário, do `showOnCard` de cada campo. Numa linha só, e
+                    não uma por grupo: a diferença entre um card de três linhas e
+                    um de cinco é quantos cabem na tela sem rolar.
+                  */}
+                  <div
+                    style={{
+                      display: "flex",
+                      flexWrap: "wrap",
+                      alignItems: "center",
+                      gap: "0.25rem",
+                    }}
+                  >
+                    {shows.has("priority") && (
                       <span
-                        title={late ? "Prazo vencido" : "Prazo"}
+                        className="card-badge"
+                        title={`Prioridade ${PRIORITY_LABEL[priority]}`}
                         style={{
-                          display: "inline-flex",
-                          alignItems: "center",
-                          gap: "0.2rem",
-                          fontSize: "var(--text-eyebrow)",
-                          color: late ? "var(--danger)" : "var(--muted)",
-                          fontWeight: late ? 600 : 400,
+                          color: PRIORITY_COLOR[priority],
+                          fontWeight: 600,
+                          textTransform: "uppercase",
+                          letterSpacing: "0.5px",
                         }}
+                      >
+                        {PRIORITY_LABEL[priority]}
+                      </span>
+                    )}
+
+                    {shows.has("dueDate") && due && (
+                      <span
+                        className="card-badge"
+                        title={
+                          late
+                            ? `Prazo vencido em ${due.toLocaleDateString("pt-BR")}`
+                            : `Prazo: ${due.toLocaleDateString("pt-BR")}`
+                        }
+                        // O prazo vencido também pinta a borda: entre doze cards
+                        // cinzas, texto vermelho de 0,65rem passa batido.
+                        style={
+                          late
+                            ? { color: "var(--danger)", borderColor: "var(--danger)", fontWeight: 600 }
+                            : undefined
+                        }
                       >
                         <Clock size={10} />
                         {due.toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit" })}
                       </span>
                     )}
 
-                    <span style={{ marginLeft: "auto", display: "flex", alignItems: "center" }}>
-                      {card.assigneeAcronym ? (
-                        <Avatar
-                          name={assignee?.name || card.assigneeAcronym}
-                          src={assignee?.avatarUrl}
-                          size="xs"
-                        />
+                    {shows.has("assignee") &&
+                      (card.assigneeAcronym ? (
+                        <span
+                          className="card-badge"
+                          title={assignee?.name || card.assigneeAcronym}
+                          style={{ paddingLeft: "0.15rem", fontWeight: 600, letterSpacing: "0.04em" }}
+                        >
+                          <Avatar
+                            name={assignee?.name || card.assigneeAcronym}
+                            src={assignee?.avatarUrl}
+                            size="xs"
+                          />
+                          {card.assigneeAcronym}
+                        </span>
                       ) : (
-                        <span style={{ fontSize: "var(--text-eyebrow)", color: "var(--muted)" }}>
+                        <span className="card-badge" title="Ninguém assumiu esta demanda">
                           sem dono
                         </span>
-                      )}
-                    </span>
+                      ))}
+
+                    {shows.has("stage") && (
+                      <span className="card-badge" title={`Etapa: ${column.name}`}>
+                        <span
+                          aria-hidden="true"
+                          style={{
+                            width: "6px",
+                            height: "6px",
+                            borderRadius: "var(--radius-pill)",
+                            background: column.color || "var(--muted)",
+                            flexShrink: 0,
+                          }}
+                        />
+                        {column.name}
+                      </span>
+                    )}
+
+                    {/*
+                      O link não é um badge como os outros: os demais informam, e
+                      este leva a algum lugar. Por isso é uma âncora de verdade —
+                      abre em aba nova, aparece no menu de contexto, dá para
+                      copiar — e não um `span` com `onClick`. Na cor da marca,
+                      lavada, para se distinguir da fileira cinza sem gritar.
+                    */}
+                    {link && card.linkUrl && (
+                      <a
+                        href={card.linkUrl}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="card-badge"
+                        title={`Abrir ${link.label}${link.detail ? ` · ${link.detail}` : ""}`}
+                        // O card inteiro é um botão que abre o painel da demanda:
+                        // sem parar o clique aqui, abrir a pasta abriria as duas
+                        // coisas ao mesmo tempo.
+                        onClick={(e) => e.stopPropagation()}
+                        style={{
+                          fontWeight: 600,
+                          color: link.isDrive ? "#4285F4" : "var(--primary)",
+                          borderColor: link.isDrive ? "rgba(66,133,244,0.38)" : "var(--primary)",
+                          background: link.isDrive ? "rgba(66,133,244,0.12)" : "var(--primary-glow)",
+                        }}
+                      >
+                        <Link2 size={10} />
+                        {link.isDrive ? "Drive" : link.label}
+                      </a>
+                    )}
+
+                    {/* O clipe não passa pela configuração de badges: aqueles
+                        são atributos que todo card tem e que cada quadro decide
+                        mostrar; este só existe quando há algo anexado, e
+                        escondê-lo esconderia conteúdo do card, não um enfeite. */}
+                    <AttachmentGallery attachments={anexos} variant="badge" />
+
+                    {frontFields.map((field) => {
+                      const value = values[field.key];
+                      if (value === undefined || value === null || value === "") return null;
+                      return (
+                        <span
+                          key={field.id}
+                          className="card-badge"
+                          title={`${field.label}: ${formatFieldValue(field, value)}`}
+                        >
+                          {formatFieldValue(field, value)}
+                        </span>
+                      );
+                    })}
                   </div>
                 </article>
               );
             })}
+
+            {/*
+              O card do arquivo.
+
+              É um card, e não um botão na barra: quem trabalha aqui lê o quadro
+              como uma fileira de cartões, e o arquivo é a última etapa do mesmo
+              percurso — backlog, produção, revisão, entregue, arquivo. Tem a
+              mesma moldura, o mesmo espaçamento e o mesmo alvo de clique dos
+              outros.
+
+              O que o distingue é o que ele é: permanente. Não arrasta, não tem
+              prioridade nem dono, não se arquiva nem se apaga — a borda
+              tracejada e a cor apagada dizem isso antes de qualquer tentativa.
+              E ele fica na coluna mesmo quando não há nada arquivado: some só
+              quando a porta some junto, e a porta não some.
+            */}
+            {column.id === archiveColumnId && onOpenArchive && (
+              <article
+                role="button"
+                tabIndex={0}
+                title="Ver tudo que saiu do quadro"
+                onClick={onOpenArchive}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" || e.key === " ") {
+                    e.preventDefault();
+                    onOpenArchive();
+                  }
+                }}
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "0.5rem",
+                  padding: "0.7rem",
+                  borderRadius: "var(--radius-block)",
+                  background: "transparent",
+                  border: "1px dashed var(--card-border)",
+                  cursor: "pointer",
+                  transition: "border-color 0.2s ease",
+                }}
+                onMouseOver={(e) => (e.currentTarget.style.borderColor = "var(--primary)")}
+                onMouseOut={(e) => (e.currentTarget.style.borderColor = "var(--card-border)")}
+              >
+                <Archive size={15} style={{ color: "var(--muted)", flexShrink: 0 }} />
+
+                <span style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", gap: "0.1rem" }}>
+                  <span style={{ fontSize: "var(--text-control)", fontWeight: 600, color: "var(--muted)" }}>
+                    Arquivo
+                  </span>
+                  <span style={{ fontSize: "var(--text-eyebrow)", color: "var(--muted)" }}>
+                    entregas de meses anteriores
+                  </span>
+                </span>
+
+                {archivedCount > 0 && (
+                  <span className="card-badge" style={{ flexShrink: 0 }}>
+                    {archivedCount}
+                  </span>
+                )}
+              </article>
+            )}
           </section>
         );
       })}
