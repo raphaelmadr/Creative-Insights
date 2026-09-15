@@ -3,7 +3,7 @@
 import React, { useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Moon, Sun, Bell, Settings, RefreshCw, Image as ImageIcon, Sparkles, Menu, X, CheckCheck } from "lucide-react";
+import { Moon, Sun, Bell, Settings, RefreshCw, Image as ImageIcon, Sparkles, Menu, X, CheckCheck, LayoutDashboard, PenTool } from "lucide-react";
 import { useSession } from "next-auth/react";
 import { useTheme } from "./ThemeProvider";
 import { useNotifications } from "./NotificationProvider";
@@ -12,6 +12,30 @@ import UserMenu from "./UserMenu";
 import styles from "./TopBar.module.css";
 
 type IntegrationState = "conectado" | "desconectado" | "em-breve";
+
+/**
+ * As duas visões da plataforma.
+ *
+ * "Dash" é o painel de performance, que sempre existiu. "Creator" é o módulo de
+ * produção — a demanda, o quadro e a copy. São visões e não abas porque cada
+ * uma tem a sua própria navegação: mostrar Kanban ao lado de Insights daria uma
+ * barra com seis destinos sem nenhuma relação entre si.
+ */
+const VIEWS = [
+  { id: "dash", label: "Dash", home: "/", icon: LayoutDashboard },
+  { id: "creator", label: "Creator", home: "/creator/kanban", icon: PenTool },
+] as const;
+
+const DASH_LINKS = [
+  { href: "/", label: "Início", exact: true },
+  { href: "/insights", label: "Insights", exact: false },
+  { href: "/equipe", label: "Equipe", exact: false },
+];
+
+const CREATOR_LINKS = [
+  { href: "/creator/kanban", label: "Kanban", exact: false },
+  { href: "/creator/copy", label: "Gerador de Copy", exact: false },
+];
 
 const STATE_LABEL: Record<IntegrationState, string> = {
   conectado: "Conectado",
@@ -84,6 +108,8 @@ function IntegrationChip({
 
 export default function TopBar() {
   const pathname = usePathname();
+  const isCreator = pathname.startsWith("/creator");
+  const navLinks = isCreator ? CREATOR_LINKS : DASH_LINKS;
   const { theme, toggleTheme } = useTheme();
   const { data: session } = useSession();
   const isAdmin = session?.user?.role === "ADMIN";
@@ -198,6 +224,41 @@ export default function TopBar() {
     </div>
   );
 
+  /**
+   * O alternador de visão.
+   *
+   * `.btn-toggle` do design system, que é exatamente o papel aqui: um grupo em
+   * que só uma opção vale por vez. Cada visão leva à sua tela inicial, e não à
+   * rota equivalente da outra — não existe "o Kanban do Dash".
+   */
+  const viewSwitcher = (
+    <div
+      role="group"
+      aria-label="Alternar visão"
+      style={{ display: "flex", gap: "0.25rem" }}
+    >
+      {VIEWS.map((view) => {
+        const active = view.id === "creator" ? isCreator : !isCreator;
+        const Icon = view.icon;
+        return (
+          <Link
+            key={view.id}
+            href={view.home}
+            className="btn btn-toggle"
+            aria-pressed={active}
+            aria-current={active ? "page" : undefined}
+            title={`Visão ${view.label}`}
+            onClick={() => setIsMobileMenuOpen(false)}
+            style={{ padding: "0.4rem 0.75rem" }}
+          >
+            <Icon size={15} />
+            {view.label}
+          </Link>
+        );
+      })}
+    </div>
+  );
+
   const integrationsIcons = (
     <>
       <IntegrationChip name="Meta Ads" state={integrations.meta ? "conectado" : "desconectado"} tint="var(--info)" tintBg="rgba(59, 130, 246, 0.15)">
@@ -236,10 +297,22 @@ export default function TopBar() {
             <img src="/logo.png" alt="allu.mkt creative insights" style={{ height: "32px", width: "auto" }} />
           </Link>
 
-          <nav className={styles.desktopNav} style={{ display: "flex", gap: "1.5rem", alignItems: "center", marginLeft: "2rem" }}>
-            <Link href="/" className={`${styles.navLink} ${pathname === "/" ? styles.active : ""}`}>Início</Link>
-            <Link href="/insights" className={`${styles.navLink} ${pathname.startsWith("/insights") ? styles.active : ""}`}>Insights</Link>
-            <Link href="/equipe" className={`${styles.navLink} ${pathname.startsWith("/equipe") ? styles.active : ""}`}>Equipe</Link>
+          <div className={styles.desktopNav} style={{ marginLeft: "0.5rem" }}>
+            {viewSwitcher}
+          </div>
+
+          <nav className={styles.desktopNav} style={{ display: "flex", gap: "1.5rem", alignItems: "center", marginLeft: "1.5rem" }}>
+            {navLinks.map((link) => (
+              <Link
+                key={link.href}
+                href={link.href}
+                className={`${styles.navLink} ${
+                  (link.exact ? pathname === link.href : pathname.startsWith(link.href)) ? styles.active : ""
+                }`}
+              >
+                {link.label}
+              </Link>
+            ))}
           </nav>
         </div>
 
@@ -253,10 +326,25 @@ export default function TopBar() {
                   <X size={24} />
                 </button>
               </div>
+            {/* A visão vem antes dos destinos: é ela que define quais destinos
+                existem logo abaixo. */}
+            <div style={{ paddingBottom: "0.75rem", marginBottom: "0.25rem", borderBottom: "1px solid var(--sidebar-border)" }}>
+              {viewSwitcher}
+            </div>
+
             <nav style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
-              <Link href="/" className={`${styles.navLink} ${pathname === "/" ? styles.active : ""}`}>Início</Link>
-              <Link href="/insights" className={`${styles.navLink} ${pathname.startsWith("/insights") ? styles.active : ""}`}>Insights</Link>
-              <Link href="/equipe" className={styles.navLink} onClick={() => setIsMobileMenuOpen(false)}>Equipe</Link>
+              {navLinks.map((link) => (
+                <Link
+                  key={link.href}
+                  href={link.href}
+                  className={`${styles.navLink} ${
+                    (link.exact ? pathname === link.href : pathname.startsWith(link.href)) ? styles.active : ""
+                  }`}
+                  onClick={() => setIsMobileMenuOpen(false)}
+                >
+                  {link.label}
+                </Link>
+              ))}
             </nav>
             
             <div style={{ padding: "0.5rem 0", display: "flex", gap: "1rem" }}>

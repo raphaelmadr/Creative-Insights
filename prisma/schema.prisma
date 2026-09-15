@@ -168,6 +168,14 @@ model SystemSettings {
   tavilySearchQuery    String? @db.Text
   marketInsightsPrompt String? @db.Text
 
+  /// SEM USO desde a reversão dos limites de caracteres do gerador de copy.
+  ///
+  /// Guardava um orçamento por formato que o prompt impunha. A régua saiu: com
+  /// o corpo espremido, a copy virava etiqueta de preço e perdia o argumento —
+  /// o comprimento certo é o das peças que converteram, não um número redondo.
+  /// A coluna fica porque tem valores digitados à mão; pode ser derrubada.
+  copyCharLimits String? @db.Text
+
   metaAdAccountId String?
   metaAppId       String?
   metaAppSecret   String? @db.Text
@@ -299,4 +307,179 @@ model VerificationToken {
   expires    DateTime
 
   @@unique([identifier, token])
+}
+
+// ---------------------------------------------------------------------------
+// MÓDULO CREATOR — Kanban de demandas e gerador de copy
+//
+// Vive no mesmo banco e no mesmo aplicativo que o painel de performance porque
+// a proposta é justamente parar de pular entre ferramentas: a demanda nasce
+// aqui, o criador entrega aqui, e a copy é escrita com os dados de performance
+// que já estão a uma consulta de distância.
+// ---------------------------------------------------------------------------
+
+/// Um quadro — um fluxo de trabalho, com as suas colunas e os seus campos.
+///
+/// São vários de propósito: "Criativos", "Copy", "Social" têm etapas e
+/// perguntas diferentes, e um quadro único obrigaria todos a preencher o
+/// formulário do outro.
+model Board {
+  id          String  @id @default(cuid())
+  name        String
+  description String? @db.Text
+  position    Int     @default(0)
+  archived    Boolean @default(false)
+
+  /// O quadro para onde as copys geradas caem automaticamente.
+  ///
+  /// Só um vale por vez — a rota que gera a copy precisa de um destino certo,
+  /// sem perguntar, e "escolha o quadro" a cada geração é atrito para uma
+  /// decisão que muda uma vez por ano. Ver `lib/kanban.ts`.
+  receivesCopy Boolean @default(false)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  columns BoardColumn[]
+  fields  BoardField[]
+  cards   BoardCard[]
+}
+
+/// Uma etapa do fluxo. A ordem na tela é `position`, não a data de criação.
+model BoardColumn {
+  id       String @id @default(cuid())
+  boardId  String
+  name     String
+  position Int    @default(0)
+
+  /// Token semântico da cor do topo da coluna (ex.: `var(--warning)`).
+  color String?
+
+  /// A coluna onde cai tudo que chega pelo formulário e pelo gerador de copy.
+  ///
+  /// Sem ela a demanda nova precisaria adivinhar uma coluna, e "a primeira"
+  /// quebra no dia em que alguém reordenar o quadro.
+  isIntake Boolean @default(false)
+
+  /// A coluna que significa "entregue" — é dela que sai a contagem de
+  /// concluídos e o tempo de ciclo do card.
+  isDone Boolean @default(false)
+
+  /// Limite de cards simultâneos. Nulo é sem limite; o quadro avisa, não bloqueia.
+  wipLimit Int?
+
+  board Board       @relation(fields: [boardId], references: [id], onDelete: Cascade)
+  cards BoardCard[]
+
+  @@index([boardId])
+}
+
+/// Um campo definível do formulário daquele quadro.
+///
+/// É o que permite a cada time perguntar o que de fato precisa saber sem que
+/// alguém mexa no código: o formulário de entrada e o verso do card são
+/// gerados a partir desta tabela. Ver `lib/kanban.ts` para os tipos aceitos.
+model BoardField {
+  id      String @id @default(cuid())
+  boardId String
+  label   String
+
+  /// Chave estável usada no JSON de valores do card.
+  ///
+  /// Separada do rótulo porque renomear "Prazo" para "Data de entrega" não
+  /// pode apagar o que já foi respondido em cem cards.
+  key String
+
+  /// TEXT, TEXTAREA, SELECT, MULTISELECT, NUMBER, DATE, URL ou CHECKBOX.
+  type String @default("TEXT")
+
+  /// Opções do SELECT/MULTISELECT, em JSON. Vazio nos demais tipos.
+  options String? @db.Text
+
+  placeholder String?
+  helpText    String? @db.Text
+  required    Boolean @default(false)
+
+  /// Mostrar o valor na frente do card, sem precisar abri-lo.
+  showOnCard Boolean @default(false)
+
+  position Int @default(0)
+
+  board Board @relation(fields: [boardId], references: [id], onDelete: Cascade)
+
+  @@unique([boardId, key])
+  @@index([boardId])
+}
+
+/// Uma demanda.
+model BoardCard {
+  id          String  @id @default(cuid())
+  boardId     String
+  columnId    String
+  title       String
+  description String? @db.Text
+
+  /// Ordem dentro da coluna. Reescrita em bloco a cada arrasto.
+  position Int @default(0)
+
+  /// BAIXA, MEDIA, ALTA ou URGENTE.
+  priority String @default("MEDIA")
+
+  dueDate DateTime?
+
+  /// Quem abriu a demanda. Guardado como e-mail e nome, e não como vínculo com
+  /// `User`, porque o card precisa continuar legível depois que a pessoa sai
+  /// da empresa e a conta é removida.
+  requesterEmail String?
+  requesterName  String?
+
+  /// A sigla do criador responsável — o mesmo vocabulário que liga um anúncio
+  /// ao seu dono em `AdCreative.designer`. Ver `lib/designer-match.ts`.
+  assigneeAcronym String?
+
+  /// As respostas dos campos definíveis, em JSON, no mesmo espírito de
+  /// `User.preferences`: o conjunto de campos muda com o quadro, e em colunas
+  /// cada campo novo de cada time viraria uma migração.
+  values String? @db.Text
+
+  /// "FORM" (aberta no formulário) ou "COPY" (nasceu do gerador de copy).
+  origin String @default("FORM")
+
+  /// O texto gerado pela IA, quando a demanda veio do gerador.
+  copyText String? @db.Text
+
+  archived    Boolean   @default(false)
+  completedAt DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  board      Board          @relation(fields: [boardId], references: [id], onDelete: Cascade)
+  column     BoardColumn    @relation(fields: [columnId], references: [id], onDelete: Cascade)
+  activities CardActivity[]
+
+  @@index([boardId, archived])
+  @@index([columnId])
+}
+
+/// O histórico do card: criação, movimentações e comentários.
+///
+/// É o "acompanhamento" — sem ele, um card que voltou duas vezes de "Revisão"
+/// chega ao fim parecendo igual a um que passou direto.
+model CardActivity {
+  id     String @id @default(cuid())
+  cardId String
+
+  /// CREATED, MOVED, UPDATED, ASSIGNED ou COMMENT.
+  type String
+
+  message String @db.Text
+
+  authorEmail String?
+  authorName  String?
+
+  createdAt DateTime @default(now())
+
+  card BoardCard @relation(fields: [cardId], references: [id], onDelete: Cascade)
+
+  @@index([cardId])
 }

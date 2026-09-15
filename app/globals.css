@@ -826,6 +826,18 @@ p {
   resize: vertical;
 }
 
+/* Campo de várias linhas para texto corrido — briefing, comentário, copy.
+   `.field-textarea` é a variante de código, e ela existe porque prompt e JSON
+   se leem melhor em monoespaçada; um briefing, não. Mesma moldura, a fonte da
+   interface. */
+.field-prose {
+  min-height: 90px;
+  font-family: inherit;
+  font-size: var(--text-control);
+  line-height: 1.5;
+  resize: vertical;
+}
+
 .field-input:focus-visible {
   border-color: var(--primary);
 }

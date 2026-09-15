@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import prisma from "@/lib/prisma";
+import { fetchWinnerAdIds } from "@/lib/creator-copy";
 import { readStoredTranscript, transcribeCreative, transcribeMany } from "@/lib/creative-vision";
 import { isAiConfigured } from "@/lib/ai";
 
@@ -53,6 +54,28 @@ export async function POST(req: Request) {
     }
 
     let targets: string[] = Array.isArray(adIds) ? adIds.filter((v: unknown) => typeof v === "string") : [];
+
+    /*
+     * As peças que alimentam o gerador de copy como referência.
+     *
+     * O escopo "active" pega até 200 criativos ativos sem transcrição, em
+     * ordem qualquer — e as peças de maior receita, que são as únicas que o
+     * gerador lê, podiam nunca entrar no lote. Sem elas transcritas, o modelo
+     * recebe nome e números no lugar da copy que converteu, e escreve genérico.
+     */
+    if (targets.length === 0 && scope === "winners") {
+      const winners = await fetchWinnerAdIds(Math.min(Number(limit) || 12, 40));
+
+      if (force) {
+        targets = winners;
+      } else {
+        const semTexto = await prisma.adCreative.findMany({
+          where: { id: { in: winners }, visionTranscript: null },
+          select: { id: true },
+        });
+        targets = semTexto.map((c) => c.id);
+      }
+    }
 
     if (targets.length === 0 && scope === "active") {
       // Só peças ativas, com mídia, e ainda sem transcrição: um lote que não

@@ -45,14 +45,22 @@ export default function IAPage() {
    */
   const [transcribing, setTranscribing] = useState(false);
 
-  const handleTranscribeBatch = async () => {
+  /**
+   * `scope` escolhe o lote: "winners" são as peças de maior receita — as que o
+   * gerador de copy lê como referência —, "active" é a varredura ampla.
+   *
+   * A distinção importa: sem transcrição, o gerador recebe o NOME do anúncio no
+   * lugar do texto que converteu, e escreve genérico. O lote amplo pega até 200
+   * criativos em ordem qualquer e podia nunca alcançar os vencedores.
+   */
+  const handleTranscribeBatch = async (scope: "active" | "winners" = "active") => {
     if (transcribing) return;
     setTranscribing(true);
     try {
       const res = await fetch("/api/creatives/vision", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ scope: "active" }),
+        body: JSON.stringify({ scope }),
       });
       const data = await res.json();
       alert(data.message || data.error || "Transcrição concluída.");
@@ -155,13 +163,21 @@ export default function IAPage() {
             </span>
             <textarea value={settings.visionPrompt} onChange={e => setSettings({...settings, visionPrompt: e.target.value})} placeholder="Em branco usa o prompt padrão de transcrição." className="field-input field-textarea" style={{ minHeight: "120px" }} />
             <div style={{ display: "flex", alignItems: "center", gap: "0.75rem", flexWrap: "wrap" }}>
-              <button type="button" onClick={handleTranscribeBatch} disabled={transcribing} className="btn btn-primary" >
+              <button type="button" onClick={() => handleTranscribeBatch("winners")} disabled={transcribing} className="btn btn-primary" >
                 {transcribing ? <Loader2 size={15} className="spin" /> : <Sparkles size={15} />}
-                {transcribing ? "Transcrevendo..." : "Transcrever peças ativas agora"}
+                {transcribing ? "Transcrevendo..." : "Transcrever peças vencedoras"}
               </button>
-              <span style={{ fontSize: "var(--text-caption)", color: "var(--muted)", opacity: 0.8 }}>
-                Processa em lote as peças ativas que ainda não têm transcrição, deixando as análises prontas de antemão.
-                Sob demanda isso já acontece sozinho na primeira análise de cada peça.
+              <button type="button" onClick={() => handleTranscribeBatch("active")} disabled={transcribing} className="btn btn-secondary" >
+                {transcribing ? <Loader2 size={15} className="spin" /> : <Sparkles size={15} />}
+                Transcrever peças ativas
+              </button>
+              <span style={{ fontSize: "var(--text-caption)", color: "var(--muted)", opacity: 0.8, lineHeight: 1.5 }}>
+                <strong>Vencedoras</strong> transcreve as peças de maior receita dos últimos 30 dias — são exatamente
+                as que o <strong>gerador de copy</strong> usa como referência. Sem elas transcritas, o modelo recebe o
+                nome do anúncio no lugar do texto que converteu, e a copy sai genérica. Vale rodar de novo quando os
+                criativos em destaque mudarem.
+                <br />
+                <strong>Ativas</strong> é a varredura ampla, para deixar as análises individuais prontas de antemão.
               </span>
             </div>
           </label>
