@@ -229,10 +229,115 @@ No painel do card, escolher alguém em "Responsável" não pegava: a caixa volta
 * **As etapas dividem a largura disponível** em vez de ter 300px cravados. Com quatro colunas numa tela larga sobrava vazio; com seis, a última ficava fora da vista. O piso é 200px — onde um card ainda se lê —, e abaixo disso a fileira volta a rolar.
 * **Dois tokens novos, `--pad-compact` e `--gap-compact`,** para a densidade alta desta tela. Não substituem os de sempre: são a exceção de uma tela que é uma grade de muitas colunas, e ficam no design system em vez de virar números soltos dentro do componente.
 
+### O responsável é do grupo, não da etapa (Setembro 2026)
+A equipe estava cadastrada em cada etapa. "Produção" nomeia um conjunto de pessoas tanto quanto um trecho do fluxo, e repetir a mesma equipe nas três etapas de um time era descrever três vezes o mesmo fato — com a garantia de que um dia as três divergiriam.
+
+* **A equipe mudou de eixo: vive no grupo.** Uma função-ponte, `ownershipOf`, é o único lugar que responde "de quem é esta etapa?". Foi ela que permitiu mover o eixo sem reescrever as regras que dependem dele.
+* **"Fase" virou "Grupo" em toda a interface.** O modelo no banco já se chamava `BoardGroup`; era o vocabulário da tela que dizia outra coisa.
+* **Todos os usuários cadastrados podem assumir uma demanda, não só os criadores.** Quem toca uma peça pode ser de mídia paga, de conteúdo ou de revisão — gente que não desenha e que, por isso, não tem ficha de `Creator`. `GET /api/creator/people` é aberta a qualquer autenticado, ao contrário de `/api/users`, que é de administrador.
+* **A estrela saiu.** Marcar quem assume por padrão era uma segunda pergunta sobre a mesma lista; agora o primeiro da ordem é quem assume, e a ordem é a de quem clicou.
+* **A demanda nasce do time inteiro, e vai para o backlog.** Ninguém foi eleito ainda — o que aconteceu é que há trabalho novo na fila daquele time. Quando alguém move o card para produção, os demais saem: foi ali que a demanda ganhou dono. Atribuir e remover à mão continua possível.
+* **Bug encontrado ao fazer isso: a atribuição automática funcionava e a tela não sabia.** A rota devolvia `{ success: true }` e o cliente só olhava o `res.ok`; o crachá só aparecia no recarregamento seguinte. Passou a devolver os donos, e a tela adota o que voltou em vez de recarregar o quadro inteiro para atualizar um crachá.
+* **Bug encontrado ao fazer isso: o formulário mandava a sigla depois de o servidor ter passado a ler o e-mail.** O responsável escolhido era silenciosamente ignorado.
+* **Bug encontrado ao fazer isso: `CardDialog` nunca recebia `groups`.** Com `groups = []` como padrão, o painel oferecia toda a lista de pessoas em vez da equipe do grupo, e a dica de quem responde pela etapa nunca aparecia — sem erro, sem aviso. As propriedades perderam o valor padrão: faltar informação passou a ser erro de compilação.
+
+### Só grupos no formulário de demanda (Setembro 2026)
+O campo "Responsável" oferecia `Padrão do quadro (Backlog)`. Backlog é uma **coluna**, num campo que pergunta por um time — quem abre a demanda não tem como saber que aquilo não é uma equipe.
+
+* **A lista é de grupos, e escolher é obrigatório.** Sem grupo, a demanda cai na entrada do quadro, que é uma etapa, e etapa não tem equipe para assumir nada.
+* **Grupo sem etapa nenhuma não é oferecido.** "Parcerias" existia sem uma única coluna: escolhê-lo mandava o card para o backlog da Criação, com a equipe da Criação junto, sem nada na tela dizendo que foi isso que aconteceu. Nas telas de configuração todos continuam aparecendo — é lá que um grupo vazio ganha a primeira etapa.
+* **O gerador de copy ganhou o mesmo campo.** Até então a copy entrava no quadro **sem dono nenhum**: chegava na esteira e ficava esperando alguém reparar nela. Vem marcado com o grupo dono da entrada do quadro, então não mexer em nada faz o que sempre fez.
+* **Uma regra só para as duas portas.** `groupIntake` responde onde a demanda entra e quem assume, e é chamada pelo formulário e pelo gerador. Escrita duas vezes, ela divergiria — e já divergiu antes, quando o formulário mandava um campo que o servidor tinha deixado de ler.
+* **O card do gerador deixou de ser de segunda classe.** Ele tinha canal e formato e não os guardava onde o resto do quadro procura; "mostrar o canal" não mostrava nada nele. Agora escreve essas respostas nos campos do formulário — mas só onde `matchOption` reconhece sem ambiguidade. Palpite gravaria no card uma resposta que ninguém deu.
+* **O campo dependente entrou no formulário.** Canal escolhe o formato: Meta mostra Feed e Story, TikTok mostra 9:16, Banner Site mostra as medidas do site. Trocar o canal limpa o formato — a combinação anterior quase nunca continua válida.
+* **A entrada do quadro tinha derivado para o backlog da Growth.** Estava sendo escolhida pela posição da *coluna*, e a posição 0 não é necessariamente do primeiro grupo. Passou a sair da posição do **grupo**.
+
+### Etiquetas que ninguém marca (Setembro 2026)
+A etiqueta não é um texto digitado card a card: é uma **regra** sobre o que a demanda já respondeu. "Vídeo" acende porque o formato escolhido é de vídeo. Marcada à mão, ela envelheceria na primeira vez que o formato mudasse e ninguém voltasse para corrigir.
+
+* **Três já vêm prontas** — Vídeo, Feed e Stories —, com nome, cor e os termos que as acendem editáveis em *Etiquetas*. "Feed e Stories" aparece como **as duas etiquetas juntas**: o campo de formato aceita mais de uma escolha, e duas pílulas dizem mais do que uma etiqueta composta.
+* **A comparação é por conteúdo, sem acento e sem caixa.** `video` acha "Vídeo 1:1", "Vídeo 9:16" e o "Vídeo 4:5" que ainda não existe. Igualdade exata precisaria ser reeditada a cada formato novo — quer dizer, ficaria desatualizada em silêncio.
+* **As cores são tokens do design system**, não hexadecimais escolhidos na hora: um azul literal que funciona no tema claro some no escuro.
+* **Os crachás de quem assumiu foram para o rodapé, à direita.** Antes a posição mudava de card para card conforme o que viesse antes — com prazo e link, descia; sem eles, subia. Procurar "o que é meu" numa coluna era ler card por card.
+
+### Uma tela só para o que o card mostra (Setembro 2026)
+A resposta a "o que aparece no card?" estava repartida em três: os atributos de nascença numa tela, o `showOnCard` de cada campo em outra, e briefing, peças de copy, link e anexos **em lugar nenhum** — eram decisão cravada no componente do quadro.
+
+* **Briefing, peças, link e anexos viraram opções.** Não havia botão em lugar algum; quem quisesse enxugar o card tinha de mexer em código.
+* **O formato de gravação virou um mapa de decisões.** A lista do que está ligado não distingue "desliguei isto" de "isto ainda não existia quando configurei" — com ela, todo item novo nasceria desligado nos quadros já configurados, e o card perderia link e anexos sem ninguém pedir. **Verificado** contra a configuração real: o que estava desligado continuou desligado, e os itens novos chegaram nos seus padrões.
+* **Os campos do formulário continuam gravando no próprio `showOnCard`.** Duas chaves para a mesma pergunta acabariam discordando, e a tela de campos, que mostra "visível no card" ao lado de cada um, passaria a mentir.
+* **Cada resposta aparece na forma do que ela é.** Tudo virava pílula, inclusive um briefing de três parágrafos espremido numa linha com reticência ao lado de "Meta Ads". A pílula promete que o conteúdo é uma etiqueta; ali o conteúdo era uma frase. Texto vira texto, cortado em **250 caracteres** na última palavra inteira; escolha vira pílula; escolha múltipla vira **uma pílula por escolha** — colada numa só, o que se perdia no corte era justamente a segunda; data, número e sim/não levam o rótulo na frente, porque "12" não diz nada sozinho.
+
+### O quadro se atualiza sozinho (Setembro 2026)
+O Kanban é uma esteira: o card sai da mão de um e cai na de outro. Quem estava com a tela aberta continuava vendo o card na etapa antiga até apertar F5 — e quem recebia o trabalho não sabia que ele havia chegado.
+
+* **Conexão aberta por aba foi descartada pela hospedagem, não por gosto.** A conta tem **20 processos de entrada**; vinte abas com SSE tomariam todos e o site pararia de responder para o resto.
+* **A tela pergunta só "mudou?".** `boardPulse` devolve uma impressão digital curta do quadro; se ela não mudou, não trafega mais nada. O pulso sai junto com os dados na leitura do quadro — lido depois, a tela recarregaria por causa da própria leitura, em laço.
+* **Etapa não tem `updatedAt`**, então as linhas inteiras entram numa soma de verificação. São poucas, e ler todas evita manter uma lista de campos que alguém esqueceria de atualizar ao criar o próximo.
+* **Fica calada nos momentos certos:** enquanto se arrasta, enquanto uma gravação está a caminho, com um diálogo aberto e com a aba escondida — voltar para a aba confere na hora.
+* **Falha de rede na conferência não aparece.** A pessoa não pediu nada: trocar o quadro por uma mensagem de erro porque uma requisição automática tropeçou apagaria o trabalho de vista sem que ninguém tivesse tocado em nada.
+
+### Configuração deixou de gravar sozinha (Setembro 2026)
+Não era só a falta do botão. Cada clique montava a requisição a partir das **propriedades**, que só mudam depois de o quadro inteiro recarregar. Marcar duas pessoas seguidas num grupo mandava, no segundo clique, uma lista que ainda não tinha a primeira — **a primeira era desfeita, sem aviso**, e só se descobria reabrindo a tela.
+
+* **Etapas, Grupos, Card e Etiquetas passaram a ter rascunho e botão de salvar.** O segundo clique parte do primeiro, não de uma cópia velha do servidor. Fechar com pendência pergunta antes; o botão vira *Cancelar*.
+* **Os campos de texto eram soltos no DOM e gravavam ao sair do campo.** Fechar a janela com o cursor dentro levava o que estava escrito junto.
+* **Criar e remover continuam valendo na hora**, mas gravam o que estiver pendente antes — é o que permite adotar a lista nova em seguida sem declarar salvo algo que não foi.
+* **Marcar uma etapa como Entrada desmarca as outras na hora**, como o servidor já fazia ao gravar. Antes a tela mostrava duas entradas marcadas até alguém salvar e descobrir qual venceu.
+* **Bug introduzido e corrigido na mesma rodada: o `Modal` roubava o foco a cada tecla.** O efeito que prende o Esc dependia da identidade de `onClose`, e a função passou a ser recriada a cada tecla digitada; a cada letra o efeito se desmontava, a limpeza devolvia o foco ao botão que abriu o diálogo e a remontagem jogava o cursor no primeiro campo. O `Modal` passou a guardar o `onClose` mais recente numa referência — a correção vale para todos os diálogos da plataforma.
+
+### O quadro ganhou a largura da tela, e a barra de rolagem sumiu do caminho (Setembro 2026)
+* **As etapas se reordenam arrastando**, para qualquer ponto, e a lista rola na horizontal conforme a esteira cresce.
+* **O container do quadro perdeu o teto de 1400px.** Os 1400px servem a telas de leitura, onde linha comprida cansa a vista; o Kanban é o oposto — cada etapa a mais disputa largura com as outras.
+* **A barra horizontal estava grossa** porque a regra global definia só `width`, que vale para a vertical. A horizontal ficava na espessura padrão do sistema, quase três vezes maior — a única barra gorda da interface.
+* **E estava no fim da página, não da tela.** A página crescia com a coluna mais alta e a barra ia junto: para alcançá-la era preciso rolar por todos os cards. Agora quem rola é o quadro, que ocupa o que sobra da altura da janela. Só no desktop — no celular não há barra para alcançar, e prender a altura ali só apertaria a tela.
+* **O arquivar virou botão no card.** Como coluna, ele gastava largura que as etapas de trabalho precisavam.
+
+### Esvaziar o arquivo (Setembro 2026)
+* **Só administrador.** Não é rigor de segurança, é proporção: as demais configurações do quadro se desfazem clicando de novo, e esta não se desfaz de jeito nenhum — briefing, copy, anexos e histórico vão juntos, por cascata.
+* **Rota própria, e não mais um ramo do `DELETE` de `/api/creator/cards`** — aquele verbo ali significa **arquivar**. Duas operações opostas atrás do mesmo endereço seria pedir para alguém apagar o arquivo inteiro achando que estava arquivando um card.
+* **O filtro `archived: true` mora no servidor.** Sem ele, a chamada apaga o quadro em uso. **Verificado** em quadros descartáveis: o card vivo fica, o arquivado do outro quadro fica, o histórico vai por cascata.
+* **Fica registrado em Logs, com nome e número.** É a única operação do quadro que não deixa rastro onde aconteceu — os cards apagados levam o próprio histórico junto.
+
 ### Pendência conhecida
 * **A cobertura de transcrição ainda é baixa fora dos vencedores.** 57 de 13.559 criativos têm `visionTranscript`. Para o gerador de copy isso deixou de ser bloqueio — o botão "Transcrever peças vencedoras" cobre as peças que ele lê —, mas as análises individuais de qualquer outra peça continuam partindo do zero na primeira abertura.
 * **A cota gratuita do Gemini limita o lote.** 20 requisições por dia no `gemini-3.6-flash`: uma das seis vencedoras não foi transcrita por isso. Transcrever a safra inteira de uma vez exige plano pago ou rodar ao longo de alguns dias.
 * **A entrega por Slack ficou de fora, por decisão.** A copy cai no Kanban, e não num canal. O token do Slack hoje só lê (`conversations.history`); publicar exigiria o escopo `chat:write`, que não foi pedido.
+* **Há duas listas de formato, e elas não se encontram.** O gerador de copy fala em "Estático Feed e Stories", "Estático Feed", "Vídeo In-Feed"; o formulário de demanda fala em "Feed 1:1", "Story/Reels 9:16", "Vídeo 9:16". Só "Carrossel" existe nos dois. Consequência: **as etiquetas não acendem nos cards vindos do gerador**, porque o formato não encontra correspondente. Unificar muda o que o formulário oferece a quem abre uma peça — é decisão de produto, não de código, e está aguardando.
+* **Esvaziar o arquivo não apaga os anexos do servidor de arquivos.** As imagens continuam ocupando disco, sem nada apontando para elas. Uma varredura que remova só o que nenhum card referencia resolveria; apagar mídia a partir da exclusão de um card não é operação para fazer por dedução.
+* **`FieldsDialog` não edita `dependsOn`.** Os mapas de canal → formato foram semeados direto no banco; criar um campo dependente pela tela ainda não é possível.
+* **O pacote de deploy dobrou de tamanho.** 142 MB na última medição registrada, 262 MB agora. Não impede a publicação, mas na hospedagem com teto de 5 MB/s a puxada demora proporcionalmente. Falta descobrir o que cresceu.
+* **Limpeza de schema pendente para depois do corte.** `BoardCard.assigneeAcronym`, `BoardColumn.assignees`, `BoardColumn.defaultAssignee`, `BoardColumn.requiresAssignee` e `BoardGroup.defaultAssignee` continuam no banco só porque a versão publicada ainda os lê. Saem quando o build novo estiver no ar.
+* **Os crons ainda apontam para a Vercel.** O de sincronização precisa ser reapontado para o domínio da hospedagem, e o de notícias (`/api/insights/news/cron`, diário) nunca foi recriado fora do `vercel.json` — que só deve ser apagado depois disso.
+
+## 🚚 Saída da Vercel: a Hospedagem Roda, o GitHub Publica (Setembro 2026)
+O plano gratuito começou a esbarrar nos próprios limites conforme o projeto cresceu. A troca foi para o cPanel que já existia — mas a razão de peso nunca foi custo, e sim **latência de banco**: a sincronização levava 288s contra um teto de 300s, e ~272s disso era espera de rede com o MySQL.
+
+* **A premissa estava errada, e descobrir isso mudou o plano.** O banco não estava nem na Vercel nem na hospedagem: vivia num **terceiro servidor**. Nenhuma mudança de hospedagem, sozinha, colocaria aplicação e banco na mesma máquina. O banco foi migrado para a hospedagem, e só então a co-locação passou a existir — 20 tabelas, 7 criadores, 627 entregas, 11 usuários e as credenciais do Google conferidas depois da migração.
+* **A hospedagem não constrói.** Com 1 núcleo, 2 GB e teto de 5 MB/s de E-S, `npm install` de ~700 MB demora o que quiser e o `next build` provavelmente não termina. Quem constrói é o runner do GitHub: push na `main`, a esteira em `.github/workflows/deploy.yml` builda e publica o resultado no branch **`deploy`**, que é o que a hospedagem espelha. A `main` nunca recebe binário.
+* **O `.env` vazou para o primeiro branch `deploy` e foi purgado antes de qualquer push.** `next build` copia o `.env` para dentro de `.next/standalone`, e um `git add -f` passou por cima do `.gitignore`. O branch foi apagado, o reflog expirado e o objeto coletado; nada saiu da máquina. O script de build ganhou remoção explícita e uma trava que **falha o build** se encontrar um `.env` no pacote.
+* **A esteira publicava builds velhos relatando sucesso.** `git worktree add saida refs/heads/deploy` nasce com HEAD destacado: os commits ficavam fora do branch, o push mandava um `deploy` que não tinha mudado, e a execução terminava verde. Falha silenciosa, a pior espécie. `-B deploy` nomeia o branch explicitamente. Descoberto simulando a esteira inteira contra um repositório local.
+* **`rsync -a` pulava arquivo alterado do mesmo tamanho.** É o caso do `.next/BUILD_ID`, que tem comprimento fixo e muda a cada build — um BUILD_ID velho servido contra chunks novos dá 404 em tudo que a página carrega depois. Passou a esvaziar e copiar.
+* **`/configuracoes` saiu do pré-render.** Além de quebrar o build na esteira, era um bug real: a checagem de administrador estava sendo congelada no momento do build.
+* **`config-check` parou de engolir o erro do banco.** A rota de diagnóstico reportava tudo certo quando o Prisma não conectava; agora o banco é o primeiro problema da lista, com a mensagem crua.
+* **O segredo do NextAuth escrito no `next.config.ts` foi removido.** Estava versionado no Git. Faltar a variável faz o NextAuth falhar — e falhar alto é melhor que assinar sessão com segredo público.
+* **Um chamado aberto na hospedagem por bloqueio de IP, com a causa mais provável declarada.** O 403 em produção veio logo depois de ~5 tentativas de autenticação MySQL falhas a partir da nossa rede — palpites de senha meus. O chamado foi corrigido para dizer isso, em vez de descrever o sintoma e deixar o suporte procurar no lugar errado.
+
+### A sincronização caía com "Network error", e o log não acusava nada (Setembro 2026)
+O erro aparecia na tela e não existia em lugar nenhum do servidor. Não era contradição: nada tinha falhado.
+
+* **A Cloudflare está na frente do site e corta a conexão depois de ~100s sem receber byte algum da origem.** O progresso da sincronização é irregular por natureza — uma fonte pode ficar minutos buscando na API da rede antes de ter o que reportar. Era nesses silêncios que o navegador recebia "network error" no meio da leitura, enquanto o servidor seguia sincronizando sozinho e terminava sem ninguém para contar.
+* **Uma batida de vida a cada 15s** mantém a linha ocupada. O cliente ignora o quadro que não sabe ler, então ela não aparece na barra de progresso.
+* **`/api/sync-media` virou stream pelo mesmo motivo.** Ela ficava minutos em silêncio absoluto e mandava um JSON só no fim — atrás da Cloudflare, esse formato não tinha como funcionar; a queda era garantida, não intermitente. De quebra, a tela passou a mostrar o andamento das artes em vez de uma frase parada.
+
+### As imagens iam à internet para chegar à pasta ao lado (Setembro 2026)
+Cada arte saía do Node, subia até a Cloudflare, voltava ao mesmo servidor, acordava um PHP e só então virava arquivo — para chegar a uma pasta no mesmo disco. Por peça: um TLS novo e dois trechos de rede. Multiplicado pelos ~1.200 criativos de uma fila de mídia, é o próprio tempo da sincronização.
+
+* **A gravação passou a ser direta no disco**, quando a pasta pública está na mesma máquina. As URLs públicas e os nomes de arquivo não mudam.
+* **A verificação não é "a pasta existe": é o `cpanel-upload.php` estar dentro dela.** Esse arquivo grava no próprio diretório, então encontrá-lo ali prova que gravar ali é a mesma coisa. Sem a prova, acertar a pasta vira palpite — e o palpite errado é pior que a lentidão, porque grava num lugar que o Apache não serve e todas as artes ficam quebradas. `MEDIA_LOCAL_DIR` força o caminho quando o arranjo de pastas for outro.
+* **Escreve em nome temporário e renomeia.** O Apache serve essa pasta enquanto escrevemos: um `writeFile` direto pode ser lido pela metade e entregar uma imagem truncada, que o banco então guardaria como definitiva.
+* **O envio por HTTP continua**, para todo o resto e como rede de segurança quando o disco recusa — cota cheia, permissão. O handler PHP roda com outro usuário e ainda pode dar certo por lá.
+* **O nome do arquivo é higienizado de novo aqui.** A regex do PHP mantém o ponto, então `..` passava inteiro por ela — o que nunca importou enquanto o destino era o `__DIR__` de um script isolado, e passaria a importar gravando com o processo do app.
 
 ## ⏱️ Mídia em Passada Própria, Sob um Só Cron (Setembro 2026)
 A fase de mídia era a última de uma execução que já gastava todo o tempo antes de chegar nela. Nos logs: **100 inícios, 2 conclusões**. Ela não estava lenta — ela quase nunca rodava.

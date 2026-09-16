@@ -65,11 +65,20 @@ export const SOURCES: SourceDefinition[] = [
         media.withoutSource > 0 && `${media.withoutSource} sem imagem na origem`,
       ].filter(Boolean);
 
+      // A leitura do mês é fatiada entre passadas — ver a fase 1 de `meta-sync`.
+      // Sem dizer quantos dias entraram, um resumo honesto de meia leitura é
+      // indistinguível de uma sincronização que perdeu dados.
+      const diasParte =
+        result.daysTotal > 0 && result.daysRead < result.daysTotal
+          ? ` / ${result.daysRead} de ${result.daysTotal} dias do mês nesta passada`
+          : "";
+
       return {
         reachedLimit: result.reachedLimit,
         summary:
           `${result.syncedAds} criativos / ${result.syncedMetrics} métricas` +
-          (mediaParts.length > 0 ? ` / ${mediaParts.join(", ")}` : ""),
+          (mediaParts.length > 0 ? ` / ${mediaParts.join(", ")}` : "") +
+          diasParte,
       };
     },
   },

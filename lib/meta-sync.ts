@@ -50,6 +50,16 @@ import {
  */
 const REATTRIBUTION_WINDOW_DAYS = 7;
 
+/**
+ * Quantos dias recentes são lidos em TODA passada, antes de qualquer outro.
+ *
+ * Dois: hoje e ontem. Hoje porque é o número que a tela mostra e o que o
+ * operador confere; ontem porque ainda recebe receita aprovada com atraso de
+ * horas. Os demais dias do mês entram por rodízio — ver a montagem da ordem de
+ * leitura na fase 1.
+ */
+const HEAD_DAYS = 2;
+
 /** Uploads simultâneos de mídia. Equilibra vazão e educação com o cPanel. */
 const MEDIA_UPLOAD_CONCURRENCY = 4;
 
@@ -195,7 +205,7 @@ export async function runMetaSync(
 
   const insightFields = "ad_id,ad_name,adset_id,adset_name,campaign_name,spend,purchase_roas,actions,action_values,cpm,ctr,cpc,impressions,clicks,reach,frequency,date_start,date_stop,video_p25_watched_actions,video_p50_watched_actions,video_p75_watched_actions,video_p100_watched_actions,video_play_actions";
 
-  const days = eachDayYmd(sinceYmd, untilYmd);
+  const allDays = eachDayYmd(sinceYmd, untilYmd);
 
   /**
    * Quais dias já têm métricas DESTE canal.
@@ -205,7 +215,7 @@ export async function runMetaSync(
    * Também era uma query por dia; agora é uma só.
    */
   const daysWithData = new Set<string>();
-  if (days.length > 0) {
+  if (allDays.length > 0) {
     const grouped = await withDbRetry(() => prisma.adDailyMetrics.groupBy({
       by: ["date"],
       where: {
@@ -219,19 +229,72 @@ export async function runMetaSync(
     });
   }
 
-  let skippedDays = 0;
+  /*
+   * A ordem de leitura — e por que o mês inteiro não cabe mais numa passada.
+   *
+   * O laço lia do dia 1º para frente e parava quando o relógio estourava, de
+   * modo que o sacrificado era sempre o fim da fila: o dia corrente. Medido em
+   * 16/09/2026, ler o mês custou 187,9s contra um teto de 180s — e o custo
+   * cresce ~11s por dia que passa no calendário, então o corte chega mais cedo
+   * a cada dia do mês e desaparece sozinho no dia 1º seguinte. Era por isso que
+   * o painel ficava sem os números de hoje enquanto ontem estava inteiro.
+   *
+   * Reordenar não resolve o estouro, só escolhe quem perde. Então a leitura
+   * passa a ser dividida, como já são métricas e mídia:
+   *
+   *   - CABEÇA: os dias mais recentes, lidos em TODA passada. São os que a tela
+   *     mostra e os únicos que ainda mudam de hora em hora.
+   *   - CAUDA: o resto do mês, em fatias que revezam entre as passadas,
+   *     retomando de onde a anterior parou (`lastBackfillDayYmd`).
+   *
+   * O mês continua sendo relido por inteiro — exigência da reatribuição
+   * documentada no topo deste arquivo —, só que ao longo de algumas passadas em
+   * vez de uma. Com as métricas rodando a cada 30 min, a cauda fecha um ciclo a
+   * cada ~1h30, folgado para um atraso que se mede em dias.
+   */
+  const newestFirst = [...allDays].reverse();
+  const head = newestFirst.slice(0, HEAD_DAYS);
+  const tail = newestFirst.slice(HEAD_DAYS);
 
-  for (const dayYmd of days) {
+  const resumeAt = tail.indexOf(settings?.lastBackfillDayYmd || "");
+  const rotatedTail = resumeAt > 0 ? [...tail.slice(resumeAt), ...tail.slice(0, resumeAt)] : tail;
+
+  const orderedDays = [...head, ...rotatedTail];
+
+  let skippedDays = 0;
+  let tailProcessed = 0;
+  let daysRead = 0;
+
+  for (let i = 0; i < orderedDays.length; i++) {
+    const dayYmd = orderedDays[i];
+    const isTail = i >= head.length;
+
     const isWithinReattribution = isCurrentMonth || dayYmd > reattributionCutoffYmd;
 
     if (!isWithinReattribution && daysWithData.has(dayYmd)) {
       skippedDays++;
+      if (isTail) tailProcessed++;
       continue;
+    }
+
+    /*
+     * O piso de tempo, que existia em todas as fases de leitura menos nesta.
+     *
+     * Sem ele, esta fase só parava quando a própria chamada à Meta estourava os
+     * 180s — ou seja, consumia o orçamento inteiro e não sobrava chão para
+     * enumerar os anúncios no ar, resolver vídeos e subir as artes. Esses
+     * passos vinham sendo pulados em silêncio, a cada execução.
+     */
+    if (wallClockRemainingMs() < READ_PHASE_FLOOR_MS) {
+      if (onProgress) {
+        onProgress("Fatia de dias concluída; o resto do mês entra na próxima passada.", 26);
+      }
+      break;
     }
 
     try {
       if (onProgress) {
-        onProgress(`Buscando insights de ${dayYmd}...`, 6 + Math.floor((days.indexOf(dayYmd) / days.length) * 20));
+        onProgress(`Buscando insights de ${dayYmd}...`, 6 + Math.floor((i / orderedDays.length) * 20));
       }
 
       const timeRangeStr = encodeURIComponent(JSON.stringify({ since: dayYmd, until: dayYmd }));
@@ -243,6 +306,9 @@ export async function runMetaSync(
         insightRows.push(...(metaData.data || []));
         metaUrl = metaData.paging?.next || null;
       }
+
+      daysRead++;
+      if (isTail) tailProcessed++;
     } catch (err: any) {
       if (isRateOrTimeLimit(err)) {
         if (onProgress) onProgress("Teto de tempo/taxa atingido. Salvando o progresso obtido...", 26);
@@ -251,6 +317,25 @@ export async function runMetaSync(
       }
       throw err;
     }
+  }
+
+  /*
+   * Onde a cauda retoma na próxima passada.
+   *
+   * Gravado só para o mês corrente: um backfill de mês passado passa por aqui
+   * com outra janela e deixaria o cursor apontando para um dia que o ciclo
+   * normal nem enxerga.
+   */
+  if (isCurrentMonth && rotatedTail.length > 0) {
+    const nextTailDay = rotatedTail[tailProcessed % rotatedTail.length];
+    await withDbRetry(() => prisma.systemSettings.update({
+      where: { id: 1 },
+      data: { lastBackfillDayYmd: nextTailDay },
+    })).catch((err: any) => {
+      // Perder o cursor custa repetir uma fatia, não a corretude: na pior das
+      // hipóteses a próxima passada recomeça a cauda pelo dia mais recente.
+      console.warn("[Meta Sync] Não foi possível gravar o cursor da cauda:", err?.message);
+    });
   }
 
   if (skippedDays > 0) {
@@ -1083,5 +1168,15 @@ export async function runMetaSync(
     if (onProgress) onProgress("Meta: teto de tempo/taxa atingido. O progresso foi salvo; rode novamente para continuar.", 100);
   }
 
-  return { syncedAds, syncedMetrics, reachedLimit: reachedWallClock, media: mediaReport };
+  return {
+    syncedAds,
+    syncedMetrics,
+    reachedLimit: reachedWallClock,
+    media: mediaReport,
+    // Quantos dias do mês esta passada leu, de quantos existem. A leitura é
+    // fatiada de propósito, então `daysRead < daysTotal` é o estado normal —
+    // e o resumo precisa dizer isso, senão parece dado faltando.
+    daysRead,
+    daysTotal: allDays.length,
+  };
 }
