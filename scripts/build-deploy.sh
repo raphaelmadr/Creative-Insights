@@ -33,6 +33,27 @@ cp -r public "$SAIDA/public"
 mkdir -p "$SAIDA/.next"
 cp -r .next/static "$SAIDA/.next/static"
 
+# O `package.json` do projeto não pode viajar.
+#
+# O `standalone` copia o do repositório inteiro — com as 22 dependências, as 9
+# de desenvolvimento, um `postinstall: prisma generate` e um
+# `@next/swc-darwin-arm64` que é binário de macOS. O pacote não precisa de nada
+# disso: o `node_modules` já vai resolvido, e `server.js` só é executado.
+#
+# Deixá-lo ali é um convite que a hospedagem aceita: o cPanel oferece "Run NPM
+# Install" na mesma tela, e um clique dispara ~700 MB de download num host com
+# teto de 5 MB/s, para então rodar `prisma generate` sem o `prisma` instalado.
+cat > "$SAIDA/package.json" <<'JSON'
+{
+  "name": "creative-insights",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "start": "node server.js"
+  }
+}
+JSON
+
 # O schema viaja junto para que `prisma migrate deploy` e `db push` possam ser
 # rodados de lá, se um dia precisarem.
 mkdir -p "$SAIDA/prisma"
