@@ -1,0 +1,459 @@
+"use client";
+
+import React, { useState } from "react";
+import Link from "next/link";
+import { usePathname } from "next/navigation";
+import { Moon, Sun, Bell, Settings, RefreshCw, Image as ImageIcon, Sparkles, Menu, X, CheckCheck, LayoutDashboard, PenTool } from "lucide-react";
+import { useSession } from "next-auth/react";
+import { useTheme } from "./ThemeProvider";
+import { useNotifications } from "./NotificationProvider";
+import OnlineUsers from "./OnlineUsers";
+import UserMenu from "./UserMenu";
+import styles from "./TopBar.module.css";
+
+type IntegrationState = "conectado" | "desconectado" | "em-breve";
+
+/**
+ * As duas visões da plataforma.
+ *
+ * "Dash" é o painel de performance, que sempre existiu. "Creator" é o módulo de
+ * produção — a demanda, o quadro e a copy. São visões e não abas porque cada
+ * uma tem a sua própria navegação: mostrar Kanban ao lado de Insights daria uma
+ * barra com seis destinos sem nenhuma relação entre si.
+ */
+const VIEWS = [
+  { id: "dash", label: "Dash", home: "/", icon: LayoutDashboard },
+  { id: "creator", label: "Creator", home: "/creator/kanban", icon: PenTool },
+] as const;
+
+const DASH_LINKS = [
+  { href: "/", label: "Início", exact: true },
+  { href: "/insights", label: "Insights", exact: false },
+  { href: "/equipe", label: "Equipe", exact: false },
+];
+
+const CREATOR_LINKS = [
+  // O nome na navegação é "Board Criativo"; a rota continua `/creator/kanban`,
+  // que é o que já está em links compartilhados e no histórico de todo mundo.
+  { href: "/creator/kanban", label: "Board Criativo", exact: false },
+  { href: "/creator/copy", label: "Gerador de Copy", exact: false },
+];
+
+const STATE_LABEL: Record<IntegrationState, string> = {
+  conectado: "Conectado",
+  desconectado: "Não conectado",
+  "em-breve": "Em breve",
+};
+
+/**
+ * O ícone de uma rede, com o estado à vista.
+ *
+ * O estado ficava só no `title` do navegador: demora a aparecer, não tem
+ * estilo e no toque não aparece nunca. O popup abre no passar do mouse, no foco
+ * pelo teclado e no clique — este último é o que faz funcionar no celular.
+ *
+ * Nada marca o estado no ícone em repouso, de propósito: um ponto colorido em
+ * cada uma das três redes é ruído permanente na barra para uma informação que
+ * quase nunca muda. Quem quer saber, aponta.
+ */
+function IntegrationChip({
+  name, state, tint, tintBg, children,
+}: {
+  name: string;
+  state: IntegrationState;
+  /** Cor do ícone quando conectado. */
+  tint: string;
+  /** O mesmo tom diluído, para o fundo. Vem separado porque `var(--info)26` não
+   *  é CSS: não dá para grudar alfa hexadecimal no fim de uma variável. */
+  tintBg: string;
+  children: React.ReactNode;
+}) {
+  const [open, setOpen] = useState(false);
+  const connected = state === "conectado";
+  const dot = connected ? "var(--success)" : state === "em-breve" ? "var(--muted)" : "var(--danger)";
+  const label = STATE_LABEL[state];
+
+  return (
+    <div
+      className="status-chip"
+      onMouseEnter={() => setOpen(true)}
+      onMouseLeave={() => setOpen(false)}
+    >
+      <button
+        type="button"
+        className="btn btn-icon"
+        aria-label={`${name}: ${label}`}
+        aria-expanded={open}
+        onClick={() => setOpen((v) => !v)}
+        onFocus={() => setOpen(true)}
+        onBlur={() => setOpen(false)}
+        onKeyDown={(e) => { if (e.key === "Escape") setOpen(false); }}
+        style={{
+          width: "32px", height: "32px", borderRadius: "var(--radius-pill)",
+          background: connected ? tintBg : "rgba(128, 128, 128, 0.15)",
+          color: connected ? tint : "var(--muted)",
+          opacity: connected ? 1 : 0.65,
+        }}
+      >
+        {children}
+      </button>
+
+      {open && (
+        <span className="status-chip-pill" role="status">
+          <span style={{ width: "6px", height: "6px", borderRadius: "var(--radius-pill)", background: dot, flexShrink: 0 }} />
+          {name} · {label}
+        </span>
+      )}
+    </div>
+  );
+}
+
+export default function TopBar() {
+  const pathname = usePathname();
+  const isCreator = pathname.startsWith("/creator");
+  const navLinks = isCreator ? CREATOR_LINKS : DASH_LINKS;
+  const { theme, toggleTheme } = useTheme();
+  const { data: session } = useSession();
+  const isAdmin = session?.user?.role === "ADMIN";
+  const { unreadCount, isSyncingAll, lastSyncAt, nextAutoSyncAt, syncAll, updates, isSyncingMeta, syncMessage, syncProgress, isSearching, loadingText, markAllAsRead } = useNotifications();
+
+  const formatSyncStamp = (value: string) =>
+    new Date(value).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' });
+
+  /**
+   * Uma janela já vencida não significa "atrasado": o disparador externo bate a
+   * cada 15 minutos e a próxima batida sincroniza. Dizer uma hora no passado
+   * pareceria defeito.
+   */
+  const formatNextSync = (value: string) =>
+    new Date(value).getTime() <= Date.now() ? 'a qualquer momento' : formatSyncStamp(value);
+  const [isNotificationsOpen, setIsNotificationsOpen] = useState(false);
+  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+  const [integrations, setIntegrations] = useState({ meta: true, tiktok: false, google: false });
+
+  React.useEffect(() => {
+    /*
+     * O estado vem de `integrations`, que são booleanos, e não dos tokens em
+     * `data`: o cabeçalho só precisa saber se o canal está conectado, e as
+     * credenciais agora só saem do servidor para quem administra.
+     */
+    fetch('/api/settings')
+      .then(res => res.json())
+      .then(res => {
+        if (res.success && Array.isArray(res.integrations)) {
+          const configured = (id: string) =>
+            !!res.integrations.find((i: { id: string; configured: boolean }) => i.id === id)?.configured;
+
+          setIntegrations({
+            meta: configured('META'),
+            tiktok: configured('TIKTOK'),
+            google: false
+          });
+        }
+      })
+      .catch(err => console.error("Error fetching integrations:", err));
+  }, []);
+
+  const notificationsContent = (
+    <div className={styles.notificationsPopup}>
+      <div style={{ padding: '1rem', borderBottom: '1px solid var(--card-border)', fontWeight: 600, display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '0.5rem' }}>
+        <span style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+          Notificações
+          {unreadCount > 0 && <span style={{ fontSize: '0.75rem', background: 'var(--primary)', color: '#fff', padding: '0.1rem 0.5rem', borderRadius: '10px' }}>{unreadCount} novas</span>}
+        </span>
+
+        {/* Limpar aqui é marcar como lidas, não apagar: as novidades são as
+            mesmas para todo o time, e apagá-las tiraria de todo mundo. O que é
+            de cada pessoa é o ponto de leitura. */}
+        {unreadCount > 0 && (
+          <button onClick={(e) => { e.stopPropagation(); markAllAsRead(); }} title="Marcar todas as notificações como lidas" className="btn btn-primary" >
+            <CheckCheck size={13} />
+            Limpar todas
+          </button>
+        )}
+      </div>
+    
+      <div style={{ maxHeight: '300px', overflowY: 'auto' }}>
+        {(isSyncingAll || isSyncingMeta || isSearching) && (
+          <div style={{ padding: '1rem', borderBottom: '1px solid var(--card-border)', background: 'rgba(16, 185, 129, 0.05)' }}>
+            <div style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--success)', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+              <RefreshCw size={14} className="spin" style={{ animation: "spin 2s linear infinite" }} />
+              Sincronização em andamento
+            </div>
+            <div style={{ fontSize: '0.75rem', color: 'var(--muted)', marginTop: '0.5rem' }}>
+              {isSyncingMeta ? syncMessage : (isSearching ? loadingText : 'Processando...')}
+            </div>
+            {isSyncingMeta && (
+              <div style={{ width: "100%", height: "4px", background: "var(--card-border)", borderRadius: "10px", overflow: "hidden", marginTop: '0.5rem' }}>
+                <div style={{ width: `${syncProgress}%`, height: "100%", background: "var(--success)", transition: "width 0.3s ease" }} />
+              </div>
+            )}
+          </div>
+        )}
+        
+        {updates.length === 0 ? (
+          <div style={{ padding: '2rem 1rem', textAlign: 'center', color: 'var(--muted)', fontSize: '0.85rem' }}>
+            Nenhuma novidade no momento.
+          </div>
+        ) : (
+          updates.slice(0, 5).map(update => {
+            const isSystemUpdate = update.category?.toLowerCase() === 'sistema';
+            
+            const innerContent = (
+              <div style={{ padding: '1rem', borderBottom: '1px solid var(--card-border)', display: 'flex', flexDirection: 'column', gap: '0.25rem', background: unreadCount > 0 ? 'rgba(255,255,255,0.02)' : 'transparent', cursor: isSystemUpdate ? 'default' : 'pointer', transition: 'background 0.2s' }} onMouseOver={(e) => { if(!isSystemUpdate) e.currentTarget.style.background = 'rgba(255,255,255,0.05)' }} onMouseOut={(e) => { if(!isSystemUpdate) e.currentTarget.style.background = unreadCount > 0 ? 'rgba(255,255,255,0.02)' : 'transparent' }}>
+                <span style={{ fontSize: '0.8rem', fontWeight: 600 }}>{update.title}</span>
+                <span style={{ fontSize: '0.75rem', color: 'var(--muted)', display: '-webkit-box', WebkitLineClamp: 3, WebkitBoxOrient: 'vertical', overflow: 'hidden', textOverflow: 'ellipsis', lineHeight: '1.4' }}>{update.content}</span>
+                <span style={{ fontSize: '0.65rem', color: 'var(--primary)', marginTop: '0.25rem' }}>
+                   {new Date(update.timestamp).toLocaleDateString('pt-BR', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })}
+                </span>
+              </div>
+            );
+
+            return isSystemUpdate ? (
+              <div key={update.id}>{innerContent}</div>
+            ) : (
+              <Link key={update.id} href={`/insights#update-${update.id}`} onClick={() => setIsNotificationsOpen(false)} style={{ textDecoration: 'none', color: 'inherit' }}>
+                {innerContent}
+              </Link>
+            );
+          })
+        )}
+      </div>
+      
+      <Link href="/insights" onClick={() => setIsNotificationsOpen(false)} style={{ padding: '0.75rem', textAlign: 'center', background: 'rgba(255,255,255,0.02)', color: 'var(--foreground)', fontSize: '0.8rem', fontWeight: 600, textDecoration: 'none', borderTop: '1px solid var(--card-border)', transition: 'background 0.2s' }} onMouseOver={(e) => e.currentTarget.style.background = 'rgba(255,255,255,0.05)'} onMouseOut={(e) => e.currentTarget.style.background = 'rgba(255,255,255,0.02)'}>
+        Ver todas as novidades
+      </Link>
+    </div>
+  );
+
+  /**
+   * O alternador de visão.
+   *
+   * `.btn-toggle` do design system, que é exatamente o papel aqui: um grupo em
+   * que só uma opção vale por vez. Cada visão leva à sua tela inicial, e não à
+   * rota equivalente da outra — não existe "o Kanban do Dash".
+   */
+  const viewSwitcher = (
+    <div
+      role="group"
+      aria-label="Alternar visão"
+      style={{ display: "flex", gap: "0.25rem" }}
+    >
+      {VIEWS.map((view) => {
+        const active = view.id === "creator" ? isCreator : !isCreator;
+        const Icon = view.icon;
+        return (
+          <Link
+            key={view.id}
+            href={view.home}
+            className="btn btn-toggle"
+            aria-pressed={active}
+            aria-current={active ? "page" : undefined}
+            title={`Visão ${view.label}`}
+            onClick={() => setIsMobileMenuOpen(false)}
+            style={{ padding: "0.4rem 0.75rem" }}
+          >
+            <Icon size={15} />
+            {view.label}
+          </Link>
+        );
+      })}
+    </div>
+  );
+
+  const integrationsIcons = (
+    <>
+      <IntegrationChip name="Meta Ads" state={integrations.meta ? "conectado" : "desconectado"} tint="var(--info)" tintBg="rgba(59, 130, 246, 0.15)">
+        <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" fill="currentColor" viewBox="0 0 24 24">
+          <path d="M6.915 4.03c-1.968 0-3.683 1.28-4.871 3.113C.704 9.208 0 11.883 0 14.449c0 .706.07 1.369.21 1.973a6.624 6.624 0 0 0 .265.86 5.297 5.297 0 0 0 .371.761c.696 1.159 1.818 1.927 3.593 1.927 1.497 0 2.633-.671 3.965-2.444.76-1.012 1.144-1.626 2.663-4.32l.756-1.339.186-.325c.061.1.121.196.183.3l2.152 3.595c.724 1.21 1.665 2.556 2.47 3.314 1.046.987 1.992 1.22 3.06 1.22 1.075 0 1.876-.355 2.455-.843a3.743 3.743 0 0 0 .81-.973c.542-.939.861-2.127.861-3.745 0-2.72-.681-5.357-2.084-7.45-1.282-1.912-2.957-2.93-4.716-2.93-1.047 0-2.088.467-3.053 1.308-.652.57-1.257 1.29-1.82 2.05-.69-.875-1.335-1.547-1.958-2.056-1.182-.966-2.315-1.303-3.454-1.303zm10.16 2.053c1.147 0 2.188.758 2.992 1.999 1.132 1.748 1.647 4.195 1.647 6.4 0 1.548-.368 2.9-1.839 2.9-.58 0-1.027-.23-1.664-1.004-.496-.601-1.343-1.878-2.832-4.358l-.617-1.028a44.908 44.908 0 0 0-1.255-1.98c.07-.109.141-.224.211-.327 1.12-1.667 2.118-2.602 3.358-2.602zm-10.201.553c1.265 0 2.058.791 2.675 1.446.307.327.737.871 1.234 1.579l-1.02 1.566c-.757 1.163-1.882 3.017-2.837 4.338-1.191 1.649-1.81 1.817-2.486 1.817-.524 0-1.038-.237-1.383-.794-.263-.426-.464-1.13-.464-2.046 0-2.221.63-4.535 1.66-6.088.454-.687.964-1.226 1.533-1.533a2.264 2.264 0 0 1 1.088-.285z"/>
+        </svg>
+      </IntegrationChip>
+
+      <IntegrationChip name="TikTok Ads" state={integrations.tiktok ? "conectado" : "desconectado"} tint="#00F2EA" tintBg="rgba(0, 242, 234, 0.15)">
+        <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" fill="currentColor" viewBox="0 0 24 24">
+          <path d="M12.525.02c1.31-.02 2.61-.01 3.91-.02.08 1.53.63 3.09 1.75 4.17 1.12 1.11 2.7 1.62 4.24 1.79v4.03c-1.44-.05-2.89-.35-4.2-.97-.57-.26-1.1-.59-1.62-.93-.01 2.92.01 5.84-.02 8.75-.08 1.4-.54 2.79-1.35 3.94-1.31 1.92-3.58 3.17-5.91 3.21-1.43.08-2.86-.31-4.08-1.03-2.02-1.19-3.44-3.37-3.65-5.71-.02-.5-.03-1-.01-1.49.18-1.9 1.12-3.72 2.58-4.96 1.66-1.44 3.98-2.13 6.15-1.72.02 1.48-.04 2.96-.04 4.44-.99-.32-2.15-.23-3.02.37-.63.41-1.11 1.04-1.36 1.75-.21.51-.15 1.07-.14 1.61.24 1.64 1.82 3.02 3.5 2.87 1.12-.01 2.19-.66 2.77-1.61.19-.33.4-.67.41-1.06.1-1.79.06-3.57.07-5.36.01-4.03-.01-8.05.02-12.07z"/>
+        </svg>
+      </IntegrationChip>
+
+      <IntegrationChip name="Google Ads" state="em-breve" tint="#4285F4" tintBg="rgba(66, 133, 244, 0.15)">
+        <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" fill="currentColor" viewBox="0 0 24 24">
+          <path d="M12.48 10.92v3.28h7.84c-.24 1.84-.853 3.187-1.787 4.133-1.147 1.147-2.933 2.4-6.053 2.4-4.827 0-8.6-3.893-8.6-8.72s3.773-8.72 8.6-8.72c2.6 0 4.507 1.027 5.907 2.347l2.307-2.307C18.747 1.44 16.133 0 12.48 0 5.867 0 .307 5.387.307 12s5.56 12 12.173 12c3.573 0 6.267-1.173 8.373-3.36 2.16-2.16 2.84-5.213 2.84-7.667 0-.76-.053-1.467-.173-2.053H12.48z"/>
+        </svg>
+      </IntegrationChip>
+    </>
+  );
+
+  return (
+    <>
+      <header className={styles.topbar}>
+        <div style={{ display: "flex", alignItems: "center", gap: "1rem" }}>
+          <button 
+            className={styles.mobileMenuBtn} 
+            onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
+            title="Menu"
+          >
+            {isMobileMenuOpen ? <X size={24} /> : <Menu size={24} />}
+          </button>
+
+          <Link href="/" className={styles.logo} style={{ textDecoration: "none", display: "flex", alignItems: "center" }}>
+            <img src="/logo.png" alt="allu.mkt creative insights" style={{ height: "32px", width: "auto" }} />
+          </Link>
+
+          <div className={styles.desktopNav} style={{ marginLeft: "0.5rem" }}>
+            {viewSwitcher}
+          </div>
+
+          <nav className={styles.desktopNav} style={{ display: "flex", gap: "1.5rem", alignItems: "center", marginLeft: "1.5rem" }}>
+            {navLinks.map((link) => (
+              <Link
+                key={link.href}
+                href={link.href}
+                className={`${styles.navLink} ${
+                  (link.exact ? pathname === link.href : pathname.startsWith(link.href)) ? styles.active : ""
+                }`}
+              >
+                {link.label}
+              </Link>
+            ))}
+          </nav>
+        </div>
+
+        {isMobileMenuOpen && (
+          <>
+            <div className={styles.mobileBackdrop} onClick={() => setIsMobileMenuOpen(false)} />
+            <div className={styles.mobileMenuOverlay}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "1rem" }}>
+                <span style={{ fontWeight: 600, fontSize: "var(--text-metric)" }}>Menu</span>
+                <button onClick={() => setIsMobileMenuOpen(false)} className="btn btn-icon" style={{ color: "var(--foreground)" }}>
+                  <X size={24} />
+                </button>
+              </div>
+            {/* A visão vem antes dos destinos: é ela que define quais destinos
+                existem logo abaixo. */}
+            <div style={{ paddingBottom: "0.75rem", marginBottom: "0.25rem", borderBottom: "1px solid var(--sidebar-border)" }}>
+              {viewSwitcher}
+            </div>
+
+            <nav style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
+              {navLinks.map((link) => (
+                <Link
+                  key={link.href}
+                  href={link.href}
+                  className={`${styles.navLink} ${
+                    (link.exact ? pathname === link.href : pathname.startsWith(link.href)) ? styles.active : ""
+                  }`}
+                  onClick={() => setIsMobileMenuOpen(false)}
+                >
+                  {link.label}
+                </Link>
+              ))}
+            </nav>
+            
+            <div style={{ padding: "0.5rem 0", display: "flex", gap: "1rem" }}>
+              {integrationsIcons}
+            </div>
+            
+            <div style={{ borderTop: "1px solid var(--sidebar-border)", paddingTop: "1rem", marginTop: "0.5rem", display: "flex", flexDirection: "column", gap: "1rem" }}>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem', width: '100%' }}>
+                {/* Mesmo botão e mesmo comportamento do desktop: sincronização
+                    profunda de todas as redes, sempre no mês corrente. */}
+                <button onClick={() => { syncAll(); setIsMobileMenuOpen(false); }} disabled={isSyncingAll} className="btn btn-secondary" style={{ color: isSyncingAll ? 'var(--muted)' : 'var(--foreground)', width: '100%' }} >
+                  <RefreshCw size={16} className={isSyncingAll ? "spin" : ""} style={{ animation: isSyncingAll ? "spin 2s linear infinite" : "none" }} />
+                  {isSyncingAll ? "Sincronizando..." : "Sincronizar Redes"}
+                </button>
+                {(lastSyncAt || nextAutoSyncAt) && (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '0.1rem', fontSize: '0.65rem', color: 'var(--muted)', textAlign: 'center', opacity: 0.7 }}>
+                    {lastSyncAt && <span>Última att: {formatSyncStamp(lastSyncAt)}</span>}
+                    {nextAutoSyncAt && <span>Próxima automática: {formatNextSync(nextAutoSyncAt)}</span>}
+                  </div>
+                )}
+              </div>
+              </div>
+            </div>
+          </>
+        )}
+        <div className={styles.actions} style={{ display: 'flex', alignItems: 'center', gap: '1rem', marginLeft: 'auto' }}>
+          {/* Quem está com o painel aberto agora. Some sozinho quando não há
+              ninguém — ver OnlineUsers. */}
+          <div className={styles.desktopOnly} style={{ marginRight: '0.25rem', paddingRight: '1rem', borderRight: '1px solid var(--sidebar-border)' }}>
+            <OnlineUsers />
+          </div>
+
+          {/* Integrações (Desktop) */}
+          <div className={styles.desktopOnly} style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginRight: '0.5rem', paddingRight: '1.25rem', borderRight: '1px solid var(--sidebar-border)' }}>
+            {integrationsIcons}
+          </div>
+
+          <div className={styles.desktopSync} style={{ position: 'relative', marginRight: '1rem' }}>
+            <button onClick={() => syncAll()} disabled={isSyncingAll} className="btn btn-secondary" style={{ color: isSyncingAll ? 'var(--muted)' : 'var(--foreground)' }} >
+              <RefreshCw size={16} className={isSyncingAll ? "spin" : ""} style={{ animation: isSyncingAll ? "spin 2s linear infinite" : "none" }} />
+              {isSyncingAll ? "Sincronizando..." : "Sincronizar Redes"}
+            </button>
+            {(lastSyncAt || nextAutoSyncAt) && !isSyncingAll && (
+              <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, marginTop: '0.25rem', display: 'flex', flexDirection: 'column', gap: '0.05rem', fontSize: '0.6rem', color: 'var(--muted)', textAlign: 'center', opacity: 0.7, whiteSpace: 'nowrap' }}>
+                {lastSyncAt && <span>Última att: {formatSyncStamp(lastSyncAt)}</span>}
+                {nextAutoSyncAt && <span>Próxima automática: {formatNextSync(nextAutoSyncAt)}</span>}
+              </div>
+            )}
+          </div>
+
+          <div style={{ position: "relative" }}>
+            <button 
+              className={styles.iconButton} 
+              onClick={() => setIsNotificationsOpen(!isNotificationsOpen)} 
+              title="Notificações e Insights"
+            >
+              <Bell size={20} />
+              {unreadCount > 0 && (
+                <span style={{
+                  position: "absolute", top: -2, right: -2,
+                  background: "red", color: "white",
+                  fontSize: "var(--text-eyebrow)", fontWeight: "bold",
+                  width: 16, height: 16, borderRadius: "50%",
+                  display: "flex", alignItems: "center", justifyContent: "center"
+                }}>
+                  {unreadCount}
+                </span>
+              )}
+            </button>
+            
+            {/* Desktop notifications popup (relative to the bell icon) */}
+            {isNotificationsOpen && (
+              <div className={styles.desktopOnlyPopup}>
+                {notificationsContent}
+              </div>
+            )}
+          </div>
+
+          {/* A engrenagem só aparece para quem pode abrir o painel: sem permissão
+              ela levaria direto a uma tela de acesso negado. */}
+          {isAdmin && (
+            <Link href="/configuracoes" className={styles.iconButton} title="Configurações" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+              <Settings size={20} />
+            </Link>
+          )}
+
+          <button className={styles.iconButton} onClick={toggleTheme} title="Alternar Tema">
+            {theme === "light" ? <Moon size={20} /> : <Sun size={20} />}
+          </button>
+
+          <UserMenu />
+        </div>
+      </header>
+
+      {/* Mobile popups rendered outside of the sticky header to bypass iOS Safari fixed positioning bugs */}
+      
+      {isNotificationsOpen && (
+        <div 
+          className="mobile-overlay-wrapper"
+          style={{ padding: '1rem' }}
+          onClick={(e) => {
+            if (e.target === e.currentTarget) setIsNotificationsOpen(false);
+          }}
+        >
+          {notificationsContent}
+        </div>
+      )}
+    </>
+  );
+}

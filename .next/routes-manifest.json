@@ -81,10 +81,22 @@
       "namedRegex": "^/api/creator/boards(?:/)?$"
     },
     {
+      "page": "/api/creator/boards/pulse",
+      "regex": "^/api/creator/boards/pulse(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/api/creator/boards/pulse(?:/)?$"
+    },
+    {
       "page": "/api/creator/cards",
       "regex": "^/api/creator/cards(?:/)?$",
       "routeKeys": {},
       "namedRegex": "^/api/creator/cards(?:/)?$"
+    },
+    {
+      "page": "/api/creator/cards/purge",
+      "regex": "^/api/creator/cards/purge(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/api/creator/cards/purge(?:/)?$"
     },
     {
       "page": "/api/creator/catalog",
@@ -115,6 +127,12 @@
       "regex": "^/api/creator/groups(?:/)?$",
       "routeKeys": {},
       "namedRegex": "^/api/creator/groups(?:/)?$"
+    },
+    {
+      "page": "/api/creator/people",
+      "regex": "^/api/creator/people(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/api/creator/people(?:/)?$"
     },
     {
       "page": "/api/creators",

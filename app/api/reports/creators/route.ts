@@ -1,0 +1,252 @@
+import { NextResponse } from "next/server";
+import prisma from "@/lib/prisma";
+import { isActiveStatus } from "@/lib/ad-status";
+import { splitAcronyms } from "@/lib/designer-match";
+
+export async function GET(request: Request) {
+  try {
+    const { searchParams } = new URL(request.url);
+    const dateRange = searchParams.get("dateRange");
+    const monthParam = searchParams.get("month");
+    const yearParam = searchParams.get("year");
+    
+    const now = new Date();
+    const today = new Date(now.toLocaleString("en-US", { timeZone: "America/Sao_Paulo" }));
+    const currentMonth = today.getMonth() + 1;
+    const currentYear = today.getFullYear();
+    
+    let targetMonth = monthParam ? parseInt(monthParam) : currentMonth;
+    let targetYear = yearParam ? parseInt(yearParam) : currentYear;
+
+    const isCurrentMonth = targetMonth === currentMonth && targetYear === currentYear;
+
+    // Check if we have a saved report for past months
+    if (!isCurrentMonth && !dateRange) {
+      const savedReports = await prisma.creatorMonthlyReport.findMany({
+        where: { month: targetMonth, year: targetYear },
+        include: { creator: true }
+      });
+
+      if (savedReports.length > 0) {
+        const formattedSaved = savedReports.map((rep: any) => ({
+          creatorId: rep.creatorId,
+          name: rep.creator.name,
+          acronym: rep.creator.acronym,
+          avatarUrl: rep.creator.avatarUrl,
+          // Quem tem conta Google é time interno; quem não tem é cadastro manual.
+          userEmail: rep.creator.userEmail,
+          spend: rep.spend,
+          purchases: rep.purchases,
+          grossValue: rep.grossValue,
+          riskApprovedValue: rep.riskApprovedValue,
+          activeAdsCount: rep.activeAdsCount,
+          // O CPA de um time é gasto total ÷ pedidos totais — somar os CPAs de
+          // cada pessoa daria a média errada. Por isso `netOrders` também sai.
+          netOrders: rep.netOrders,
+          cpa: rep.netOrders > 0 ? rep.spend / rep.netOrders : 0,
+          roas: rep.roas,
+          monthlyGoal: rep.creator.monthlyGoal ?? 50000,
+          monthlyVolumeGoal: rep.creator.monthlyVolumeGoal ?? 30,
+          deliveredPieces: rep.deliveredPieces,
+          isSaved: true
+        })).sort((a: any, b: any) => b.riskApprovedValue - a.riskApprovedValue);
+        
+        return NextResponse.json({ success: true, data: formattedSaved });
+      }
+    }
+
+    // Determine date filter for live calculation
+    let startDate = new Date();
+    let endDate = new Date();
+    
+    if (dateRange) {
+      // Compatibility with old dateRange filter
+      startDate.setDate(today.getDate() - parseInt(dateRange));
+    } else {
+      // Month-based filtering strictly in UTC to prevent timezone offsets missing the 1st day
+      startDate = new Date(Date.UTC(targetYear, targetMonth - 1, 1, 0, 0, 0, 0));
+      // End date is the last millisecond of the last day of the target month in UTC
+      endDate = new Date(Date.UTC(targetYear, targetMonth, 0, 23, 59, 59, 999));
+    }
+
+    const metrics = await prisma.adDailyMetrics.findMany({
+      where: {
+        date: {
+          gte: startDate,
+          lte: endDate
+        }
+      },
+      include: {
+        creative: true
+      }
+    });
+
+    const deliveries = await prisma.delivery.findMany({
+      where: {
+        date: {
+          gte: startDate,
+          lte: endDate
+        }
+      }
+    });
+
+    const creators = await prisma.creator.findMany({
+      where: { active: true }
+    });
+    
+    // Mapear métricas por criador
+    const creatorStats: Record<string, any> = {};
+    
+    let unknownCreator = await prisma.creator.findFirst({ where: { acronym: { contains: "UNKNOWN" } } });
+    if (!unknownCreator) {
+      unknownCreator = await prisma.creator.create({
+        data: {
+          name: "Parcerias, influenciadores ou sem atribuição",
+          acronym: "UNKNOWN",
+          active: true,
+          monthlyGoal: 0
+        }
+      });
+    }
+
+    creators.forEach(creator => {
+      creatorStats[creator.id] = {
+        creatorId: creator.id,
+        name: creator.name,
+        acronym: creator.acronym,
+        avatarUrl: creator.avatarUrl,
+        userEmail: creator.userEmail,
+        monthlyGoal: creator.monthlyGoal ?? 50000,
+        monthlyVolumeGoal: creator.monthlyVolumeGoal ?? 30,
+        spend: 0,
+        purchases: 0,
+        grossValue: 0,
+        riskApprovedValue: 0,
+        clicks: 0,
+        impressions: 0,
+        netOrders: 0,
+        activeAds: new Set(),
+        deliveredPieces: 0
+      };
+    });
+    
+    metrics.forEach(metric => {
+      const metricAcronym = metric.creative?.designer?.toUpperCase() || "";
+      let targetCreatorId = unknownCreator.id;
+
+      if (metricAcronym) {
+        // Procurar o criador que possua essa sigla cadastrada (aceita múltiplas separadas por vírgula)
+        const matchedCreator = creators.find(c => {
+          return splitAcronyms(c.acronym).includes(metricAcronym);
+        });
+        if (matchedCreator) {
+          targetCreatorId = matchedCreator.id;
+        }
+      }
+
+      const creative = metric.creative;
+      let isCreatedInMonth = false;
+      
+      if (creative && creative.createdTime) {
+        const createdDate = new Date(creative.createdTime);
+        isCreatedInMonth = createdDate >= startDate && createdDate <= endDate;
+      }
+
+      // Contabilizar APENAS os anúncios que foram criados a partir do dia 01 do mês alvo
+      if (isCreatedInMonth) {
+        const stats = creatorStats[targetCreatorId];
+        stats.spend += metric.spend;
+        stats.purchases += metric.purchases;
+        stats.grossValue += metric.grossValue;
+        stats.riskApprovedValue += metric.riskApprovedValue;
+        stats.clicks += metric.clicks;
+        stats.impressions += metric.impressions;
+        stats.netOrders += metric.netOrders;
+        
+        if (creative && metric.adCreativeId) {
+          if (isActiveStatus(creative.status)) {
+            stats.activeAds.add(metric.adCreativeId);
+          }
+        }
+      }
+    });
+
+    deliveries.forEach(delivery => {
+      const stats = creatorStats[delivery.creatorId];
+      if (stats) {
+        stats.deliveredPieces += delivery.pieces;
+      }
+    });
+
+    const formattedStats = Object.values(creatorStats).map((stats: any) => {
+      const cpa = stats.netOrders > 0 ? stats.spend / stats.netOrders : 0;
+      const roas = stats.spend > 0 ? stats.grossValue / stats.spend : 0;
+      
+      return {
+        creatorId: stats.creatorId,
+        name: stats.name,
+        acronym: stats.acronym,
+        avatarUrl: stats.avatarUrl,
+        userEmail: stats.userEmail,
+        monthlyGoal: stats.monthlyGoal,
+        monthlyVolumeGoal: stats.monthlyVolumeGoal,
+        spend: stats.spend,
+        purchases: stats.purchases,
+        netOrders: stats.netOrders,
+        grossValue: stats.grossValue,
+        riskApprovedValue: stats.riskApprovedValue,
+        activeAdsCount: stats.activeAds.size,
+        deliveredPieces: stats.deliveredPieces,
+        cpa,
+        roas
+      };
+    }).sort((a, b) => b.riskApprovedValue - a.riskApprovedValue);
+
+    // Se é um mês passado E não pedimos um dateRange fixo, vamos SALVAR isso no banco
+    if (!isCurrentMonth && !dateRange) {
+      for (const stat of formattedStats) {
+        if (!stat.creatorId) continue;
+        await prisma.creatorMonthlyReport.upsert({
+          where: {
+            creatorId_month_year: {
+              creatorId: stat.creatorId,
+              month: targetMonth,
+              year: targetYear
+            }
+          },
+          update: {
+            grossValue: stat.grossValue,
+            riskApprovedValue: stat.riskApprovedValue,
+            spend: stat.spend,
+            purchases: stat.purchases,
+            netOrders: stat.netOrders,
+            roas: stat.roas,
+            activeAdsCount: stat.activeAdsCount,
+            deliveredPieces: stat.deliveredPieces
+          },
+          create: {
+            creatorId: stat.creatorId,
+            month: targetMonth,
+            year: targetYear,
+            grossValue: stat.grossValue,
+            riskApprovedValue: stat.riskApprovedValue,
+            spend: stat.spend,
+            purchases: stat.purchases,
+            netOrders: stat.netOrders,
+            roas: stat.roas,
+            activeAdsCount: stat.activeAdsCount,
+            deliveredPieces: stat.deliveredPieces
+          }
+        });
+      }
+    }
+
+    return NextResponse.json({
+      success: true,
+      data: formattedStats
+    });
+  } catch (err: any) {
+    console.error("Erro ao gerar relatório de criadores:", err);
+    return NextResponse.json({ error: err.message }, { status: 500 });
+  }
+}
