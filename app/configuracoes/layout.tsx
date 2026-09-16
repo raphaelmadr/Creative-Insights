@@ -11,6 +11,19 @@ import { Settings } from "lucide-react";
  * visita. Carimbá-lo no token faria uma promoção — ou uma remoção de acesso —
  * só valer no login seguinte.
  */
+/*
+ * Nunca estática.
+ *
+ * O layout lê o papel do usuário no banco a cada visita, e é isso que o
+ * comentário acima promete. Pré-renderizada, a promessa se inverte: a
+ * verificação rodaria uma vez, no build, e o resultado ficaria congelado no
+ * HTML para todo mundo.
+ *
+ * Também é o que permite o build acontecer sem banco ao alcance — a esteira do
+ * GitHub constrói num runner que não fala com o MySQL da hospedagem.
+ */
+export const dynamic = "force-dynamic";
+
 export default async function ConfiguracoesLayout({ children }: { children: React.ReactNode }) {
   const admin = await getCurrentAdmin();
   return (
