@@ -4,6 +4,7 @@ import React, { useEffect, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import { Trash2, Send, History, Copy as CopyIcon, Check, ChevronsDownUp, ChevronsUpDown, ArchiveRestore, Archive } from "lucide-react";
 import Modal from "@/components/Modal";
+import CardLabelChip from "./CardLabelChip";
 import { Avatar } from "@/components/Avatar";
 import { type FieldDefinition, formatFieldValue } from "./FieldInput";
 import { type ColumnDefinition } from "./ColumnsDialog";
@@ -12,8 +13,18 @@ import AttachmentGallery from "./AttachmentGallery";
 import CardLinkField from "./CardLinkField";
 import { parseCopyVariations } from "@/lib/copy-parse";
 import { parseAttachments } from "@/lib/attachments";
-import type { CreatorOption } from "./DemandDialog";
-import { PRIORITIES, PRIORITY_LABEL, parseValues, parseAssignees, stageCandidates } from "@/lib/kanban";
+import type { PersonOption } from "./DemandDialog";
+import {
+  PRIORITIES,
+  PRIORITY_LABEL,
+  parseValues,
+  labelsForCard,
+  type CardLabel,
+  parseAssignees,
+  stageCandidates,
+  ownershipOf,
+  type GroupDefinition,
+} from "@/lib/kanban";
 
 export interface CardData {
   id: string;
@@ -25,7 +36,7 @@ export interface CardData {
   dueDate: string | null;
   requesterName: string | null;
   requesterEmail: string | null;
-  assigneeAcronym: string | null;
+  assignees: string | null;
   values: string | null;
   origin: string;
   copyText: string | null;
@@ -61,14 +72,29 @@ export default function CardDialog({
   card,
   fields,
   columns,
-  creators,
+  groups,
+  labels,
+  people,
   onClose,
   onChanged,
 }: {
   card: CardData | null;
   fields: FieldDefinition[];
   columns: ColumnDefinition[];
-  creators: CreatorOption[];
+  /** As fases — é nelas que a equipe mora. Ver `ownershipOf`. */
+  /*
+   * Obrigatórias, sem valor padrão, e de propósito.
+   *
+   * `groups` já tinha um `= []` e a página nunca o passava: o painel oferecia
+   * TODA a lista de pessoas em vez da equipe do grupo, e a dica que diz de quem
+   * é a etapa nunca aparecia — sem erro, sem aviso, sem nada na tela indicando
+   * que faltava informação. Um valor padrão aqui compra silêncio no lugar de um
+   * erro de compilação, e o silêncio é mais caro.
+   */
+  groups: GroupDefinition[];
+  /** As etiquetas do quadro — as mesmas que o card mostra na etapa. */
+  labels: CardLabel[];
+  people: PersonOption[];
   onClose: () => void;
   onChanged: () => void;
 }) {
@@ -111,6 +137,7 @@ export default function CardDialog({
   if (!card) return null;
 
   const values = parseValues(card.values);
+  const etiquetas = labelsForCard(values, labels);
 
   /*
    * A copy do card, quebrada em variações. Vazio quando o texto não segue o
@@ -140,12 +167,27 @@ export default function CardDialog({
    * qualquer outro campo o apagaria sem ninguém pedir.
    */
   const etapaAtual = columns.find((c) => c.id === card.columnId) ?? null;
-  const daEtapa = stageCandidates(etapaAtual, creators);
-  const foraDaEquipe =
-    card.assigneeAcronym && !daEtapa.some((c) => c.acronym === card.assigneeAcronym)
-      ? creators.find((c) => c.acronym === card.assigneeAcronym)
-      : undefined;
-  const candidatos = foraDaEquipe ? [foraDaEquipe, ...daEtapa] : daEtapa;
+  // A equipe vem da FASE da etapa, não da etapa. Ver `ownershipOf`.
+  const equipeDaFase = ownershipOf(etapaAtual, groups);
+  const daEtapa = stageCandidates(equipeDaFase, people);
+  /*
+   * O dono atual entra na lista mesmo se a etapa não o aceitaria.
+   *
+   * Sem isso, abrir um card cuja etapa mudou de equipe mostraria o seletor
+   * vazio — e salvar qualquer outro campo apagaria o responsável sem ninguém
+   * ter pedido.
+   */
+  const donos = parseAssignees(card.assignees);
+
+  /*
+   * Quem já responde pela demanda entra na lista mesmo se a fase não o
+   * aceitaria hoje. Sem isso, abrir um card cuja fase trocou de equipe
+   * esconderia os responsáveis atuais — e qualquer clique os apagaria.
+   */
+  const foraDaEquipe = people.filter(
+    (c) => donos.includes(c.email) && !daEtapa.some((d) => d.email === c.email)
+  );
+  const candidatos = [...foraDaEquipe, ...daEtapa];
   const allOpen = variations.length > 0 && openVariations.size === variations.length;
 
   const patch = async (body: object) => {
@@ -238,6 +280,21 @@ export default function CardDialog({
         </>
       }
     >
+      {/*
+        As mesmas etiquetas do quadro, e não uma segunda leitura do briefing.
+
+        Quem abre o card veio do quadro, onde acabou de ver "Vídeo"; encontrar
+        aqui outra coisa — ou nada — faria duvidar de qual das duas telas está
+        certa. Elas saem do mesmo cálculo, sobre os mesmos campos.
+      */}
+      {etiquetas.length > 0 && (
+        <div style={{ display: "flex", flexWrap: "wrap", gap: "0.25rem" }}>
+          {etiquetas.map((label) => (
+            <CardLabelChip key={label.id} label={label} />
+          ))}
+        </div>
+      )}
+
       {/* Etapa, prioridade e responsável: o que muda com mais frequência fica
           no topo, editável sem abrir outra tela. */}
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: "0.9rem" }}>
@@ -272,24 +329,45 @@ export default function CardDialog({
           <label className="field-label" htmlFor="card-responsavel">
             Responsável
           </label>
-          <select
-            id="card-responsavel"
-            className="field-input"
-            value={card.assigneeAcronym || ""}
-            disabled={travado}
-            onChange={(e) => patch({ id: card.id, assigneeAcronym: e.target.value || null })}
-          >
-            <option value="">A definir</option>
-            {candidatos.map((c) => (
-              <option key={c.acronym} value={c.acronym}>
-                {c.name} ({c.acronym})
-              </option>
-            ))}
-          </select>
-          {etapaAtual && parseAssignees(etapaAtual.assignees).length > 0 && (
+          {/*
+            Vários responsáveis, marcáveis um a um.
+
+            Uma demanda no backlog é do time inteiro; em produção, de quem a
+            puxou. As duas coisas são a mesma lista em momentos diferentes, e um
+            `<select>` de escolha única não sabe representar a primeira.
+          */}
+          <div style={{ display: "flex", flexWrap: "wrap", gap: "0.35rem" }}>
+            {candidatos.map((c) => {
+              const dentro = donos.includes(c.email);
+              return (
+                <button
+                  key={c.email}
+                  type="button"
+                  className="btn btn-toggle"
+                  aria-pressed={dentro}
+                  title={dentro ? `Tirar ${c.name} desta demanda` : `${c.name} passa a responder por esta demanda`}
+                  style={{ padding: "0.25rem 0.55rem", fontSize: "var(--text-caption)", gap: "0.35rem" }}
+                  onClick={() =>
+                    patch({
+                      id: card.id,
+                      assignees: dentro ? donos.filter((e) => e !== c.email) : [...donos, c.email],
+                    })
+                  }
+                >
+                  <Avatar name={c.name} src={c.avatarUrl} size="xs" />
+                  {c.name.split(" ")[0]}
+                </button>
+              );
+            })}
+          </div>
+          {parseAssignees(equipeDaFase.assignees).length > 0 && (
             <span className="field-hint">
-              Quem responde por &quot;{etapaAtual.name}&quot;.
-              {etapaAtual.defaultAssignee ? ` Por padrão, ${etapaAtual.defaultAssignee}.` : ""}
+              Quem responde pela fase de &quot;{etapaAtual?.name}&quot;.
+              {/* O nome, não o e-mail: a dica é para ler, e um endereço no meio
+                  da frase obriga a decifrar quem é. */}
+              {equipeDaFase.defaultAssignee
+                ? ` Por padrão, ${people.find((p) => p.email === equipeDaFase.defaultAssignee)?.name ?? equipeDaFase.defaultAssignee}.`
+                : ""}
             </span>
           )}
         </div>

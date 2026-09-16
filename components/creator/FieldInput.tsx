@@ -1,7 +1,7 @@
 "use client";
 
 import React from "react";
-import { parseOptions, type FieldType } from "@/lib/kanban";
+import { optionsFor, type FieldType } from "@/lib/kanban";
 import DatePicker from "@/components/DatePicker";
 
 /**
@@ -20,6 +20,8 @@ export interface FieldDefinition {
   label: string;
   type: string;
   options: string | null;
+  /** A chave do campo de que este depende — ver `optionsFor`. */
+  dependsOn?: string | null;
   placeholder: string | null;
   helpText: string | null;
   required: boolean;
@@ -30,14 +32,32 @@ export interface FieldDefinition {
 export default function FieldInput({
   field,
   value,
+  values = {},
+  parentLabel,
   onChange,
 }: {
   field: FieldDefinition;
   value: unknown;
+  /**
+   * Os demais valores do formulário.
+   *
+   * Um campo dependente precisa saber o que foi escolhido no pai para montar a
+   * própria lista — "formato" só sabe o que oferecer depois de ler "canal".
+   */
+  values?: Record<string, unknown>;
+  /** O RÓTULO do campo pai, para a dica falar como a tela e não como o banco. */
+  parentLabel?: string;
   onChange: (value: unknown) => void;
 }) {
-  const options = parseOptions(field.options);
+  const options = optionsFor(field, values);
   const id = `campo-${field.key}`;
+
+  /*
+   * Campo dependente com o pai em branco: a lista está vazia por motivo, e
+   * dizer qual é a diferença entre "escolha o canal primeiro" e um seletor
+   * quebrado.
+   */
+  const esperandoPai = !!field.dependsOn && options.length === 0;
 
   const label = (
     <label className="field-label" htmlFor={id}>
@@ -50,7 +70,13 @@ export default function FieldInput({
     </label>
   );
 
-  const hint = field.helpText ? <span className="field-hint">{field.helpText}</span> : null;
+  const hint = esperandoPai ? (
+    <span className="field-hint">
+      Escolha &quot;{parentLabel ?? field.dependsOn}&quot; primeiro — as opções daqui dependem dele.
+    </span>
+  ) : field.helpText ? (
+    <span className="field-hint">{field.helpText}</span>
+  ) : null;
 
   switch (field.type as FieldType) {
     case "TEXTAREA":

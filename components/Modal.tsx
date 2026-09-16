@@ -37,13 +37,31 @@ export default function Modal({
   const painel = useRef<HTMLDivElement>(null);
   const abriuCom = useRef<HTMLElement | null>(null);
 
+  /**
+   * O `onClose` mais recente, guardado fora das dependências do efeito.
+   *
+   * O efeito abaixo é de MONTAGEM: ele memoriza quem tinha o foco, prende a
+   * rolagem da página e leva o cursor ao primeiro campo. Tudo isso deve
+   * acontecer uma vez por abertura — e acontecia a cada renderização do pai,
+   * porque `onClose` entrava nas dependências e quase todo pai o recria.
+   *
+   * O estrago era invisível até alguém digitar: a cada tecla o efeito se
+   * desmontava, a limpeza devolvia o foco ao botão que abriu o diálogo, e a
+   * remontagem o jogava no primeiro campo. Escrever a descrição de uma etapa
+   * ficou impossível no instante em que o diálogo passou a ter rascunho.
+   */
+  const aoFechar = useRef(onClose);
+  useEffect(() => {
+    aoFechar.current = onClose;
+  });
+
   useEffect(() => {
     if (!open) return;
 
     abriuCom.current = document.activeElement as HTMLElement;
 
     const aoTeclar = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
+      if (e.key === "Escape") aoFechar.current();
     };
     document.addEventListener("keydown", aoTeclar);
 
@@ -62,7 +80,9 @@ export default function Modal({
       document.body.style.overflow = rolagem;
       abriuCom.current?.focus();
     };
-  }, [open, onClose]);
+    // Só `open`: ver `aoFechar` acima — é o que mantém isto como efeito de
+    // abertura, e não de renderização.
+  }, [open]);
 
   if (!open) return null;
 

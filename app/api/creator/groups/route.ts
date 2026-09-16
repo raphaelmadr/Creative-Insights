@@ -13,7 +13,13 @@
 import { NextResponse } from "next/server";
 import prisma from "@/lib/prisma";
 import { getCurrentUser } from "@/lib/auth";
-import { isGroupColor, DEFAULT_GROUP_COLOR } from "@/lib/kanban";
+import {
+  isGroupColor,
+  DEFAULT_GROUP_COLOR,
+  normalizePerson,
+  parseAssignees,
+  serializeAssignees,
+} from "@/lib/kanban";
 
 export async function POST(request: Request) {
   const user = await getCurrentUser();
@@ -53,14 +59,52 @@ export async function PUT(request: Request) {
   if (!user) return NextResponse.json({ error: "Não autenticado." }, { status: 401 });
 
   try {
-    const { id, name, color } = await request.json();
+    const { id, name, color, assignees, defaultAssignee } = await request.json();
     if (!id) return NextResponse.json({ error: "ID da fase é obrigatório." }, { status: 400 });
+
+    const equipeFinal =
+      assignees !== undefined ? parseAssignees(serializeAssignees(assignees)) : null;
+    const padraoPedido = defaultAssignee ? normalizePerson(defaultAssignee) : null;
+
+    /*
+     * Padrão precisa ser alguém da equipe da fase.
+     *
+     * Deixar passar criaria a combinação "só a Ana e o Bruno respondem por
+     * Produção, e por padrão assume a Marina" — que o quadro mostraria como
+     * verdade e que nenhuma regra conseguiria satisfazer depois.
+     */
+    const equipeParaValidar =
+      equipeFinal ??
+      parseAssignees(
+        (await prisma.boardGroup.findUnique({ where: { id }, select: { assignees: true } }))
+          ?.assignees
+      );
+
+    if (padraoPedido && equipeParaValidar.length && !equipeParaValidar.includes(padraoPedido)) {
+      return NextResponse.json(
+        { error: "Quem assume por padrão precisa responder por esta fase." },
+        { status: 400 }
+      );
+    }
+
+    /*
+     * Esvaziar a equipe esvazia o padrão junto: "qualquer um pode assumir, e
+     * sempre cai na Ana" é uma combinação que ninguém pediu, e que sobraria
+     * invisível depois de alguém limpar a lista.
+     */
+    const limpaPadrao = assignees !== undefined && equipeFinal !== null && !equipeFinal.length;
 
     const group = await prisma.boardGroup.update({
       where: { id },
       data: {
         ...(name !== undefined ? { name: String(name).trim().slice(0, 60) } : {}),
         ...(color !== undefined && isGroupColor(color) ? { color } : {}),
+        ...(assignees !== undefined ? { assignees: serializeAssignees(assignees) } : {}),
+        ...(limpaPadrao
+          ? { defaultAssignee: null }
+          : defaultAssignee !== undefined
+            ? { defaultAssignee: padraoPedido }
+            : {}),
       },
     });
 

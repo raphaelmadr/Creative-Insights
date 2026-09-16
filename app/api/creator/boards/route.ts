@@ -9,8 +9,8 @@
 import { NextResponse } from "next/server";
 import prisma from "@/lib/prisma";
 import { getCurrentUser } from "@/lib/auth";
-import { ensureDefaultBoard, archiveDeliveredBeforeThisMonth, BOARD_INCLUDE } from "@/lib/kanban-store";
-import { serializeCardBadges } from "@/lib/kanban";
+import { ensureDefaultBoard, archiveDeliveredBeforeThisMonth, boardPulse, BOARD_INCLUDE } from "@/lib/kanban-store";
+import { serializeCardBadges, serializeCardLabels } from "@/lib/kanban";
 
 export async function GET(request: Request) {
   const user = await getCurrentUser();
@@ -62,7 +62,14 @@ export async function GET(request: Request) {
       ? await prisma.boardCard.count({ where: { boardId: activeId, archived: true } })
       : 0;
 
-    return NextResponse.json({ success: true, boards, board, cards, archivedCount });
+    /*
+     * O pulso sai junto com os dados, e não numa chamada à parte, porque a tela
+     * precisa dos dois casados: guardando um pulso lido depois, ela recarregaria
+     * o quadro por causa da própria leitura, em laço.
+     */
+    const pulse = activeId ? await boardPulse(activeId) : null;
+
+    return NextResponse.json({ success: true, boards, board, cards, archivedCount, pulse });
   } catch (error: any) {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
@@ -113,7 +120,7 @@ export async function PUT(request: Request) {
   if (!user) return NextResponse.json({ error: "Não autenticado." }, { status: 401 });
 
   try {
-    const { id, name, description, receivesCopy, cardBadges } = await request.json();
+    const { id, name, description, receivesCopy, cardBadges, cardLabels } = await request.json();
     if (!id) return NextResponse.json({ error: "ID do quadro é obrigatório." }, { status: 400 });
 
     /*
@@ -143,6 +150,12 @@ export async function PUT(request: Request) {
          * volta na próxima leitura.
          */
         ...(cardBadges !== undefined ? { cardBadges: serializeCardBadges(cardBadges) } : {}),
+        /*
+         * Mesma regra das etiquetas: `serializeCardLabels` sempre devolve texto,
+         * e `[]` é uma escolha legítima — quem não quer etiqueta nenhuma não
+         * pode receber as padrão de volta na próxima leitura.
+         */
+        ...(cardLabels !== undefined ? { cardLabels: serializeCardLabels(cardLabels) } : {}),
       },
       include: BOARD_INCLUDE,
     });

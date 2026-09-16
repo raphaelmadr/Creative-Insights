@@ -4,14 +4,29 @@ import React, { useEffect, useState } from "react";
 import Modal from "@/components/Modal";
 import DatePicker from "@/components/DatePicker";
 import CardLinkField from "./CardLinkField";
-import { type ColumnDefinition } from "./ColumnsDialog";
 import FieldInput, { type FieldDefinition } from "./FieldInput";
-import { PRIORITIES, PRIORITY_LABEL, parseAssignees, stageCandidates, type Priority } from "@/lib/kanban";
+import {
+  PRIORITIES,
+  PRIORITY_LABEL,
+  parseAssignees,
+  type Priority,
+  type GroupDefinition,
+} from "@/lib/kanban";
 
-export interface CreatorOption {
-  acronym: string;
+/**
+ * Uma pessoa que pode responder por uma demanda.
+ *
+ * É qualquer usuário cadastrado, e não só quem tem ficha de criador: a esteira
+ * passa por mídia paga, conteúdo e revisão, e essas pessoas não desenham peça
+ * nenhuma. `Creator` continua sendo o cadastro de quem ASSINA criativos, com a
+ * sigla que o `designer-match` usa para ler nome de anúncio — outro assunto.
+ *
+ * O e-mail é a chave porque já é o que liga sessão, conta Google e a ficha de
+ * criador de quem tem uma.
+ */
+export interface PersonOption {
+  email: string;
   name: string;
-  /** Vem da conta Google do criador, quando ele tem uma. Ver `Creator`. */
   avatarUrl?: string | null;
 }
 
@@ -29,26 +44,24 @@ export default function DemandDialog({
   onClose,
   boardId,
   boardName,
-  columns = [],
+  groups = [],
   fields,
-  creators,
   onCreated,
 }: {
   open: boolean;
   onClose: () => void;
   boardId: string;
   boardName: string;
-  /** As etapas do quadro — só para saber o que a de entrada exige. */
-  columns?: ColumnDefinition[];
+  /** Os grupos do quadro — cada um é um time, e é neles que a equipe mora. */
+  groups?: GroupDefinition[];
   fields: FieldDefinition[];
-  creators: CreatorOption[];
   onCreated: () => void;
 }) {
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [priority, setPriority] = useState<Priority>("MEDIA");
   const [dueDate, setDueDate] = useState("");
-  const [assignee, setAssignee] = useState("");
+  const [groupId, setGroupId] = useState("");
   const [linkUrl, setLinkUrl] = useState<string | null>(null);
   const [values, setValues] = useState<Record<string, unknown>>({});
   const [saving, setSaving] = useState(false);
@@ -62,35 +75,32 @@ export default function DemandDialog({
     setDescription("");
     setPriority("MEDIA");
     setDueDate("");
-    setAssignee("");
+    setGroupId("");
     setLinkUrl(null);
     setValues({});
     setError(null);
   }, [open]);
 
   /*
-   * A etapa de entrada pode exigir dono — e aí o formulário pergunta antes, em
-   * vez de deixar o servidor recusar depois de tudo preenchido.
+   * O grupo escolhido é a única fonte de responsável neste formulário.
+   *
+   * Não há mais queda para a "etapa de entrada": ela exibia o nome de uma
+   * COLUNA — "Backlog" — num campo que pergunta por um time, e quem abre a
+   * demanda não tem como saber que aquilo não é o nome de uma equipe.
    */
-  const entrada = columns.find((c) => c.isIntake) ?? columns[0];
-  /*
-   * Com padrão definido, a etapa deixa de exigir uma escolha: o servidor
-   * atribui quem ela nomeou. Pedir aqui o que lá é automático seria um asterisco
-   * vermelho num campo que se preenche sozinho.
-   */
-  const entradaExigeDono = !!entrada?.requiresAssignee && !entrada?.defaultAssignee;
-
-  /* A entrada pode ter equipe própria: então só ela aparece no seletor. */
-  const equipeDaEntrada = parseAssignees(entrada?.assignees);
-  const candidatos = stageCandidates(entrada, creators);
+  const grupoEscolhido = groups.find((g) => g.id === groupId) ?? null;
+  const equipeDoGrupo = parseAssignees(grupoEscolhido?.assignees);
 
   const submit = async () => {
     if (!title.trim()) {
       setError("A demanda precisa de um título.");
       return;
     }
-    if (entradaExigeDono && !assignee) {
-      setError(`"${entrada?.name}" exige um responsável. Escolha quem assume esta demanda.`);
+
+    // O time é obrigatório: sem ele a demanda cairia na entrada do quadro, que
+    // é uma etapa — e uma etapa não tem equipe para assumir a demanda.
+    if (groups.length > 0 && !groupId) {
+      setError("Escolha para qual time é esta demanda.");
       return;
     }
 
@@ -107,7 +117,7 @@ export default function DemandDialog({
           description,
           priority,
           dueDate: dueDate || null,
-          assigneeAcronym: assignee || null,
+          groupId: groupId || null,
           linkUrl,
           values,
         }),
@@ -203,31 +213,42 @@ export default function DemandDialog({
         </div>
 
         <div className="field">
-          <label className="field-label" htmlFor="demanda-responsavel">
-            Responsável{" "}
-            {entradaExigeDono && <span style={{ color: "var(--danger)" }} aria-hidden="true">*</span>}
+          <label className="field-label" htmlFor="demanda-grupo">
+            Responsável
+            <span style={{ color: "var(--danger)", marginLeft: "0.25rem" }} aria-hidden="true">
+              *
+            </span>
           </label>
           <select
-            id="demanda-responsavel"
+            id="demanda-grupo"
             className="field-input"
-            value={assignee}
-            onChange={(e) => setAssignee(e.target.value)}
+            value={groupId}
+            onChange={(e) => setGroupId(e.target.value)}
           >
-            <option value="">
-              {entrada?.defaultAssignee ? `Padrão da etapa (${entrada.defaultAssignee})` : "A definir"}
-            </option>
-            {candidatos.map((c) => (
-              <option key={c.acronym} value={c.acronym}>
-                {c.name} ({c.acronym})
+            {/*
+              Só GRUPOS aqui — nunca nomes de etapa.
+              
+              Quem abre a demanda conhece os times da empresa, não a esteira
+              interna deles: "Backlog" é um ponto do fluxo da Criação, e
+              oferecê-lo como responsável faz a pessoa procurar um time com esse
+              nome. Escolher o grupo põe a demanda na fila daquele time e
+              atribui todo mundo que responde por ele.
+            */}
+            <option value="">Selecione o time</option>
+            {groups.map((g) => (
+              <option key={g.id} value={g.id}>
+                {g.name}
               </option>
             ))}
           </select>
           <span className="field-hint">
-            {equipeDaEntrada.length > 0
-              ? `Quem responde por "${entrada?.name}".`
-              : entradaExigeDono
-                ? `"${entrada?.name}" só recebe demandas com responsável definido.`
-                : "A mesma sigla que identifica o criador nos anúncios."}
+            {groups.length === 0
+              ? "Este quadro ainda não tem grupos. Crie um em Grupos antes de abrir demandas."
+              : !grupoEscolhido
+                ? "Para qual time é esta peça?"
+                : equipeDoGrupo.length
+                  ? `Entra na fila de "${grupoEscolhido.name}" e ${equipeDoGrupo.length} pessoa(s) do time assumem.`
+                  : `"${grupoEscolhido.name}" não tem ninguém marcado: qualquer pessoa pode assumir.`}
           </span>
         </div>
       </div>
@@ -247,7 +268,26 @@ export default function DemandDialog({
           key={field.id}
           field={field}
           value={values[field.key]}
-          onChange={(v) => setValues((prev) => ({ ...prev, [field.key]: v }))}
+          values={values}
+          parentLabel={fields.find((f) => f.key === field.dependsOn)?.label}
+          onChange={(v) =>
+            setValues((prev) => {
+              const proximo = { ...prev, [field.key]: v };
+
+              /*
+               * Mudar o pai zera os filhos.
+               *
+               * Sem isto, escolher "Meta Ads", marcar "Carrossel" e depois
+               * trocar para "TikTok Ads" deixa "Carrossel" marcado — um valor
+               * que o novo canal não aceita, invisível na tela porque a opção
+               * nem aparece mais, e que só o servidor recusaria no fim.
+               */
+              for (const outro of fields) {
+                if (outro.dependsOn === field.key) delete proximo[outro.key];
+              }
+              return proximo;
+            })
+          }
         />
       ))}
 

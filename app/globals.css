@@ -140,7 +140,12 @@ p {
 }
 
 /* Scrollbar */
-::-webkit-scrollbar { width: 6px; }
+/*
+ * A regra tinha só `width`, que vale para a barra vertical. A horizontal ficava
+ * na espessura padrão do sistema — quase três vezes mais grossa — e era a
+ * única barra gorda da interface, bem embaixo do quadro.
+ */
+::-webkit-scrollbar { width: 6px; height: 6px; }
 ::-webkit-scrollbar-track { background: transparent; }
 ::-webkit-scrollbar-thumb { background: #D1D5DB; border-radius: 3px; }
 [data-theme='dark'] ::-webkit-scrollbar-thumb { background: #374151; }
@@ -269,6 +274,47 @@ p {
   max-width: 1400px;
   margin: 0 auto;
   width: 100%;
+}
+
+/*
+ * O quadro do Creator usa a tela inteira.
+ *
+ * Os 1400px do container servem a telas de leitura, onde linha comprida cansa
+ * a vista. O Kanban é o oposto: cada etapa a mais disputa largura com as
+ * outras, e o limite transformava monitor grande em moldura vazia dos dois
+ * lados enquanto as colunas se espremiam no meio.
+ *
+ * Fica como modificadora, e não como mudança no container, porque é exceção de
+ * UMA tela — as demais continuam com a medida de leitura. Mesmo arranjo do
+ * `config-shell`.
+ *
+ * A margem lateral encolhe, mas não some: ela é o que separa o primeiro card
+ * da borda do monitor.
+ */
+.dashboard-container.board-shell {
+  max-width: none;
+  padding-inline: 1.25rem;
+  /* A margem de baixo encolhe: é o que aproxima a barra de rolagem do fim da tela. */
+  padding-block: 2rem 0.75rem;
+  min-height: 0;
+}
+
+/*
+ * Na tela do quadro, quem rola é o quadro — não a página.
+ *
+ * Antes a página inteira crescia com a coluna mais alta, e a barra horizontal
+ * ia junto: para chegar nela era preciso primeiro rolar a página até o fim,
+ * passando por todos os cards. Presa à janela, ela fica sempre à vista, no
+ * rodapé, e o cabeçalho do quadro para de sumir ao rolar.
+ *
+ * Só no desktop. No celular não há barra para alcançar — rola-se com o dedo —, e
+ * prender a altura da janela ali só apertaria a tela.
+ */
+@media (min-width: 769px) {
+  main:has(> .board-shell) {
+    height: 100dvh;
+    overflow: hidden;
+  }
 }
 
 @media (max-width: 768px) {
@@ -927,6 +973,24 @@ p {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+/* ---------------------------------------------------------------------------
+   Etiqueta do card
+
+   A mesma pílula dos mini-badges, tingida pela cor da etiqueta. A cor entra
+   por variável, e não por três valores no `style`, porque as três derivações —
+   fundo, borda e texto — precisam sair da mesma origem: escritas à mão no
+   componente, a primeira que alguém ajustasse deixaria as outras duas para
+   trás. `color-mix` faz a conta a partir do token, então a etiqueta acompanha
+   o tema como o resto da interface.
+   -------------------------------------------------------------------------- */
+.card-label {
+  --label-color: var(--muted);
+  background: color-mix(in srgb, var(--label-color) 14%, transparent);
+  border-color: color-mix(in srgb, var(--label-color) 38%, transparent);
+  color: var(--label-color);
+  font-weight: 600;
 }
 
 /* ---------------------------------------------------------------------------

@@ -7,7 +7,13 @@
  * copiado com sucesso NÃO pode ser gravado no banco como se fosse permanente.
  */
 
+import { constants as fsConstants, promises as fs } from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import { randomUUID } from "node:crypto";
+
 import { logExternalFailure } from "./external-log";
+import { logInfo } from "./logger";
 import {
   IMAGE_HEADER_BYTES,
   MIN_CREATIVE_IMAGE_EDGE,
@@ -216,8 +222,200 @@ export async function persistRemoteMedia(
   return uploadToStorage(blob, filename, config);
 }
 
+/* ------------------------------------------------------------------ *
+ * Entrega local: o mesmo disco, sem sair para a internet
+ * ------------------------------------------------------------------ */
+
 /**
- * Entrega um arquivo ao servidor externo e devolve a URL pública.
+ * O destino no disco, quando o armazenamento mora na mesma máquina.
+ *
+ * `dir` é exatamente a pasta em que o `cpanel-upload.php` grava (o `__DIR__`
+ * dele); `publicBase` é a URL dessa pasta, para devolvermos o mesmo endereço
+ * que o PHP devolveria.
+ */
+interface LocalTarget {
+  dir: string;
+  publicBase: string;
+}
+
+/**
+ * Resolvido uma vez por processo. A chave é a URL de upload: se ela mudar no
+ * painel, a resolução é refeita.
+ */
+let localTargetCache: { key: string; value: LocalTarget | null } | undefined;
+
+/** Avisa no painel de logs uma única vez por processo qual caminho está em uso. */
+let localTargetAnnounced = false;
+
+/**
+ * Candidatos a pasta pública, do mais explícito ao mais provável.
+ *
+ * O app e os arquivos vivem na mesma conta de cPanel, em pastas irmãs nomeadas
+ * pelo domínio: `/home2/<conta>/creative-insights...` e
+ * `/home2/<conta>/assets...`. Daí a busca pelo irmão com o nome do host.
+ */
+function localCandidates(uploadUrl: URL): string[] {
+  const cwd = process.cwd();
+  const subpasta = path.dirname(uploadUrl.pathname).replace(/^\/+/, "");
+  const casa = os.homedir();
+
+  /*
+   * Onde o cPanel põe o domínio adicional muda de servidor para servidor: ora
+   * na raiz da conta, ora dentro de `public_html`. Listar as duas formas custa
+   * um `stat` e evita depender de adivinhação — quem decide qual vale é o
+   * marcador, não esta ordem.
+   */
+  const raizes = [
+    path.dirname(cwd),
+    casa,
+    path.join(casa, "public_html"),
+    path.join(path.dirname(cwd), "public_html"),
+    cwd,
+  ];
+
+  const lista = raizes.map((raiz) =>
+    path.join(raiz, uploadUrl.hostname, subpasta)
+  );
+
+  return Array.from(new Set(lista));
+}
+
+/**
+ * Descobre se dá para gravar direto no disco em vez de subir por HTTP.
+ *
+ * A verificação não é "a pasta existe": é **o `cpanel-upload.php` está dentro
+ * dela**. Esse arquivo é a prova de identidade da pasta — ele grava no próprio
+ * diretório (`__DIR__`), então achá-lo ali significa que gravar ali é
+ * literalmente a mesma coisa que pedir para ele gravar. Sem essa prova,
+ * acertar a pasta vira palpite, e o palpite errado é pior que a lentidão:
+ * grava num lugar que o Apache não serve e todas as artes ficam quebradas.
+ *
+ * `MEDIA_LOCAL_DIR` escapa da prova, para o caso de o handler ser removido ou
+ * de o arranjo de pastas mudar. Aí a responsabilidade é de quem configurou.
+ */
+async function resolveLocalTarget(
+  config: ResolvedStorageConfig
+): Promise<LocalTarget | null> {
+  const { uploadUrl } = config;
+  if (!uploadUrl) return null;
+
+  const chave = `${uploadUrl}|${process.env.MEDIA_LOCAL_DIR || ""}`;
+  if (localTargetCache?.key === chave) return localTargetCache.value;
+
+  let url: URL;
+  try {
+    url = new URL(uploadUrl);
+  } catch {
+    localTargetCache = { key: chave, value: null };
+    return null;
+  }
+
+  const publicBase = new URL(".", url).toString().replace(/\/$/, "");
+  const marcador = path.basename(url.pathname);
+
+  const forcado = (process.env.MEDIA_LOCAL_DIR || "").trim();
+  const candidatos = forcado ? [forcado] : localCandidates(url);
+
+  let escolhido: LocalTarget | null = null;
+
+  for (const dir of candidatos) {
+    try {
+      if (!forcado && marcador) {
+        // A prova de identidade. Sem ela não se grava.
+        await fs.access(path.join(dir, marcador), fsConstants.F_OK);
+      }
+      await fs.access(dir, fsConstants.W_OK);
+      escolhido = { dir, publicBase };
+      break;
+    } catch {
+      // Próximo candidato.
+    }
+  }
+
+  localTargetCache = { key: chave, value: escolhido };
+
+  if (!localTargetAnnounced) {
+    localTargetAnnounced = true;
+    if (escolhido) {
+      await logInfo(
+        "SYNC",
+        `Artes gravadas direto no disco (${escolhido.dir}) — mesma máquina, sem passar pela internet.`,
+        "lib/media-upload"
+      );
+    } else {
+      await logInfo(
+        "SYNC",
+        `Artes enviadas por HTTP para ${uploadUrl}. A gravação direta não foi ativada porque ` +
+          `nenhuma pasta candidata contém o \`${marcador}\`. Defina MEDIA_LOCAL_DIR se as pastas ` +
+          `estiverem em outro arranjo.`,
+        "lib/media-upload"
+      );
+    }
+  }
+
+  return escolhido;
+}
+
+/**
+ * Repete a higienização que o PHP faz no nome, e acrescenta a que ele não faz.
+ *
+ * O handler limpa o nome com uma regex que **mantém o ponto**, então `..` passa
+ * por ela inteiro. Isso nunca importou enquanto o destino era `__DIR__` de um
+ * script isolado; gravando daqui, com o processo do app, um nome com `..`
+ * escreveria fora da pasta pública. Por isso o `basename` no fim.
+ */
+function diskFilename(filename: string): string | null {
+  const limpo = path.basename(filename).replace(/[^a-zA-Z0-9.\-_]/g, "");
+  if (!limpo || limpo === "." || limpo === "..") return null;
+  return /\.(jpe?g|png|webp|gif)$/i.test(limpo) ? limpo : `${limpo}.jpg`;
+}
+
+/**
+ * Grava o arquivo na pasta pública e devolve a URL.
+ *
+ * Passa por um nome temporário e um `rename` porque o Apache serve essa pasta
+ * enquanto escrevemos: um `writeFile` direto pode ser lido pela metade e
+ * entregar uma imagem truncada, que o banco então guardaria como definitiva.
+ * O `rename` dentro do mesmo diretório é atômico.
+ *
+ * Devolve `null` em qualquer falha, e o chamador cai para o HTTP — a pasta
+ * pode estar com a cota cheia ou sem permissão, e o handler PHP roda com outro
+ * usuário, então ainda pode dar certo por lá.
+ */
+async function writeToLocalTarget(
+  blob: Blob,
+  filename: string,
+  target: LocalTarget
+): Promise<string | null> {
+  const nome = diskFilename(filename);
+  if (!nome) return null;
+
+  const destino = path.join(target.dir, nome);
+  const temporario = `${destino}.${randomUUID()}.parcial`;
+
+  try {
+    await fs.writeFile(temporario, Buffer.from(await blob.arrayBuffer()));
+    await fs.rename(temporario, destino);
+    return `${target.publicBase}/${nome}`;
+  } catch (error) {
+    console.warn(`[media-upload] Falha ao gravar no disco (${destino}): ${(error as Error).message}`);
+    try {
+      await fs.unlink(temporario);
+    } catch {
+      // O temporário pode nem ter sido criado.
+    }
+    return null;
+  }
+}
+
+/**
+ * Entrega um arquivo ao armazenamento e devolve a URL pública.
+ *
+ * Duas rotas para o mesmo destino: gravação direta no disco, quando a pasta
+ * pública está nesta máquina, e o POST ao `cpanel-upload.php`, que continua
+ * valendo para todo o resto — inclusive como rede de segurança quando o disco
+ * recusa. Nos dois casos o arquivo termina na mesma pasta, com o mesmo nome e
+ * a mesma URL.
  *
  * Separado de `persistRemoteMedia` porque agora há duas origens: a mídia que o
  * sync baixa da plataforma e o anexo que alguém escolhe no computador. O que
@@ -237,6 +435,23 @@ export async function uploadToStorage(
 ): Promise<string | null> {
   const { uploadUrl, uploadSecret } = config;
   if (!uploadUrl || !uploadSecret) return null;
+
+  /*
+   * Caminho curto: a pasta pública está nesta máquina.
+   *
+   * O envio por HTTP atravessava a internet duas vezes para entregar um arquivo
+   * a uma pasta no mesmo disco — saía do Node, subia até a CDN, voltava ao
+   * mesmo servidor, acordava um PHP e só então virava arquivo. Por peça isso é
+   * um TLS novo mais dois trechos de rede; multiplicado pelos 1.200 criativos
+   * de uma fila de mídia, é o próprio tempo da sincronização.
+   *
+   * Uma falha aqui não encerra o assunto: cai para o HTTP logo abaixo.
+   */
+  const local = await resolveLocalTarget(config);
+  if (local) {
+    const gravado = await writeToLocalTarget(blob, filename, local);
+    if (gravado) return gravado;
+  }
 
   /** Última causa observada, para o log final não dizer só "falhou". */
   let lastFailure = "";

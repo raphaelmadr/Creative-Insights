@@ -1,20 +1,24 @@
 "use client";
 
-import React, { useCallback, useEffect, useState } from "react";
-import { Plus, SlidersHorizontal, Columns3, LayoutGrid, Tags, Layers } from "lucide-react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
+import { Plus, SlidersHorizontal, Columns3, LayoutGrid, Tags, Tag, Layers, Archive } from "lucide-react";
 import KanbanBoard from "@/components/creator/KanbanBoard";
-import DemandDialog, { type CreatorOption } from "@/components/creator/DemandDialog";
+import DemandDialog, { type PersonOption } from "@/components/creator/DemandDialog";
 import FieldsDialog from "@/components/creator/FieldsDialog";
 import ColumnsDialog, { type ColumnDefinition } from "@/components/creator/ColumnsDialog";
 import BadgesDialog from "@/components/creator/BadgesDialog";
+import LabelsDialog from "@/components/creator/LabelsDialog";
 import GroupsDialog from "@/components/creator/GroupsDialog";
 import ArchiveDialog from "@/components/creator/ArchiveDialog";
-import AssigneeDialog from "@/components/creator/AssigneeDialog";
 import CardDialog, { type CardData } from "@/components/creator/CardDialog";
 import { type FieldDefinition } from "@/components/creator/FieldInput";
 import { Skeleton } from "@/components/Skeleton";
-import { parseCardBadges, stageCandidates, type GroupDefinition } from "@/lib/kanban";
-import { primaryAcronym, UNATTRIBUTED_ACRONYM } from "@/lib/acronyms";
+import {
+  parseCardBadges,
+  parseCardLabels,
+  type GroupDefinition,
+  type ColumnPlacement,
+} from "@/lib/kanban";
 
 interface BoardSummary {
   id: string;
@@ -29,6 +33,8 @@ interface BoardDetail extends BoardSummary {
   groups: GroupDefinition[];
   /** JSON dos mini-badges — cru, como está no banco. Ver `parseCardBadges`. */
   cardBadges: string | null;
+  /** JSON das etiquetas — cru, como está no banco. Ver `parseCardLabels`. */
+  cardLabels: string | null;
 }
 
 /**
@@ -43,7 +49,7 @@ export default function KanbanPage() {
   const [board, setBoard] = useState<BoardDetail | null>(null);
   const [cards, setCards] = useState<CardData[]>([]);
   const [archivedCount, setArchivedCount] = useState(0);
-  const [creators, setCreators] = useState<CreatorOption[]>([]);
+  const [people, setPeople] = useState<PersonOption[]>([]);
   const [activeId, setActiveId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -52,29 +58,46 @@ export default function KanbanPage() {
   const [editFields, setEditFields] = useState(false);
   const [editColumns, setEditColumns] = useState(false);
   const [editBadges, setEditBadges] = useState(false);
+  const [editLabels, setEditLabels] = useState(false);
   const [editGroups, setEditGroups] = useState(false);
   const [showArchive, setShowArchive] = useState(false);
 
   /** O movimento que parou à espera de um dono. */
-  const [pendingMove, setPendingMove] = useState<{
-    cardId: string;
-    columnId: string;
-    order: string[];
-    columnName: string;
-    cardTitle: string;
-  } | null>(null);
-  const [assigning, setAssigning] = useState(false);
   const [openCard, setOpenCard] = useState<CardData | null>(null);
 
+  /**
+   * A impressão digital do quadro na última leitura — a base de comparação da
+   * conferência periódica. Vive numa ref, e não no estado, porque mudá-la não
+   * deve redesenhar nada: ela existe para decidir se vale a pena redesenhar.
+   */
+  const pulso = useRef<string | null>(null);
+
+  /**
+   * Um arrasto em curso, ou uma gravação a caminho do servidor.
+   *
+   * Nos dois casos a tela já mostra o resultado antes da resposta, então ela
+   * está de propósito à frente do banco. Recarregar nesse intervalo devolveria
+   * o card ao lugar de origem no meio do movimento — o mesmo tranco que a
+   * atualização otimista existe para evitar.
+   */
+  const ocupado = useRef(0);
+  const arrastando = useRef(false);
+
   const load = useCallback(
-    async (boardId?: string | null) => {
+    async (boardId?: string | null, opcoes?: { silencioso?: boolean }) => {
       try {
         const query = boardId ? `?boardId=${boardId}` : "";
         const res = await fetch(`/api/creator/boards${query}`);
         const data = await res.json();
 
         if (!res.ok) {
-          setError(data.error || "Não foi possível carregar o quadro.");
+          /*
+           * Numa conferência de fundo, o erro fica calado. A pessoa não pediu
+           * nada: trocar o quadro que está na tela por uma mensagem de falha
+           * porque uma requisição automática tropeçou apagaria o trabalho de
+           * vista sem que ninguém tivesse tocado em coisa alguma.
+           */
+          if (!opcoes?.silencioso) setError(data.error || "Não foi possível carregar o quadro.");
           return;
         }
 
@@ -83,9 +106,10 @@ export default function KanbanPage() {
         setCards(data.cards || []);
         setArchivedCount(data.archivedCount || 0);
         setActiveId(data.board?.id ?? null);
+        pulso.current = typeof data.pulse === "string" ? data.pulse : null;
         setError(null);
       } catch {
-        setError("Falha de conexão ao carregar o quadro.");
+        if (!opcoes?.silencioso) setError("Falha de conexão ao carregar o quadro.");
       } finally {
         setLoading(false);
       }
@@ -97,32 +121,19 @@ export default function KanbanPage() {
     load();
 
     /*
-     * Os criadores vêm da mesma lista que o painel de performance usa: o
-     * responsável por uma demanda é a mesma pessoa que assina os anúncios, e
-     * uma segunda lista de nomes divergiria da primeira em uma semana.
+     * São TODOS os usuários cadastrados, não só os criadores.
+     *
+     * Quem toca uma demanda pode ser de mídia paga, de conteúdo ou de revisão —
+     * gente que não desenha peça e que, por isso, não tem ficha de `Creator`.
+     * Enquanto esta lista vinha do cadastro de criadores, essas pessoas não
+     * existiam para o quadro: não apareciam na equipe de uma etapa nem podiam
+     * assumir um card. `Creator` segue sendo quem ASSINA criativos, que é outro
+     * assunto — ver `/api/creator/people`.
      */
-    fetch("/api/creators")
+    fetch("/api/creator/people")
       .then((res) => res.json())
-      .then((res) =>
-        /*
-         * A sigla é normalizada aqui, na entrada, e não em cada tela que a usa.
-         *
-         * O cadastro guarda uma lista de apelidos ("RM, RAPHAELMADUREIRA"), e é
-         * ela que casa com o nome dos anúncios. Para gravar um responsável
-         * precisa haver um valor só — a canônica —, senão o `<select>` grava a
-         * lista inteira, recebe de volta o texto normalizado pela rota e não
-         * encontra mais a própria opção: a escolha parece não pegar.
-         *
-         * O balde "sem atribuição" sai da lista: ele não é uma pessoa, e quem
-         * não tem dono já tem a opção "A definir".
-         */
-        setCreators(
-          (res.data || [])
-            .map((c: CreatorOption) => ({ ...c, acronym: primaryAcronym(c.acronym) }))
-            .filter((c: CreatorOption) => c.acronym && c.acronym !== UNATTRIBUTED_ACRONYM)
-        )
-      )
-      .catch(() => setCreators([]));
+      .then((res) => setPeople(res.data || []))
+      .catch(() => setPeople([]));
   }, [load]);
 
   // O card aberto precisa acompanhar a recarga: sem isto, mudar a etapa pelo
@@ -133,12 +144,121 @@ export default function KanbanPage() {
     if (fresh && fresh !== openCard) setOpenCard(fresh);
   }, [cards, openCard]);
 
-  const move = async (
-    cardId: string,
-    columnId: string,
-    order: string[],
-    assigneeAcronym?: string
-  ) => {
+  /**
+   * Os grupos que têm para onde receber uma demanda.
+   *
+   * Um grupo sem etapa nenhuma não é destino: escolhê-lo manda o card para a
+   * entrada do quadro, que é de outro time — a pessoa pede Parcerias e a
+   * demanda cai no Backlog da Criação, com a equipe da Criação junto, sem nada
+   * na tela dizendo que foi isso que aconteceu. Melhor não oferecer o que não
+   * pode ser cumprido. Nas telas de configuração, todos continuam aparecendo:
+   * é justamente lá que um grupo vazio ganha a primeira etapa.
+   */
+  const gruposQueRecebem = board
+    ? board.groups.filter((g) => board.columns.some((c) => c.groupId === g.id))
+    : [];
+
+  /** Um diálogo aberto é alguém escrevendo — a tela não se mexe por baixo. */
+  const dialogoAberto =
+    !!openCard ||
+    newDemand ||
+    editFields ||
+    editColumns ||
+    editBadges ||
+    editLabels ||
+    editGroups ||
+    showArchive;
+
+  /*
+   * O arrasto é o do navegador e os eventos sobem até a janela, então dá para
+   * saber que há um em curso sem que o quadro precise avisar. Vale para card e
+   * para etapa, que é justamente o que não pode ser recarregado no meio.
+   */
+  useEffect(() => {
+    const comecou = () => { arrastando.current = true; };
+    const acabou = () => { arrastando.current = false; };
+
+    window.addEventListener("dragstart", comecou);
+    window.addEventListener("dragend", acabou);
+    window.addEventListener("drop", acabou);
+
+    return () => {
+      window.removeEventListener("dragstart", comecou);
+      window.removeEventListener("dragend", acabou);
+      window.removeEventListener("drop", acabou);
+    };
+  }, []);
+
+  /**
+   * O quadro acompanha o que os outros fazem, sem recarregar a página.
+   *
+   * O Kanban é uma esteira: o card sai da mão de um e cai na de outro. Até
+   * aqui, quem estava com a tela aberta continuava vendo o card na etapa antiga
+   * até apertar F5 — e quem recebia o trabalho não sabia que ele havia chegado.
+   *
+   * A conferência pergunta só "mudou?", e é a resposta que decide se o quadro
+   * vem de novo. Perguntar custa uma linha de texto; trazer o quadro inteiro a
+   * cada dez segundos, com dez pessoas de tela aberta, não caberia no único
+   * núcleo da hospedagem.
+   */
+  useEffect(() => {
+    if (!activeId) return;
+
+    let vivo = true;
+
+    const conferir = async () => {
+      if (!vivo || document.hidden) return;
+      if (dialogoAberto || arrastando.current || ocupado.current > 0) return;
+
+      try {
+        const res = await fetch(`/api/creator/boards/pulse?boardId=${activeId}`);
+        if (!res.ok) return;
+
+        const { pulse } = await res.json();
+        if (!vivo || typeof pulse !== "string") return;
+
+        // Sem base de comparação ainda: registra e espera a próxima volta.
+        if (pulso.current === null) {
+          pulso.current = pulse;
+          return;
+        }
+
+        if (pulse !== pulso.current) {
+          pulso.current = pulse;
+          await load(activeId, { silencioso: true });
+        }
+      } catch {
+        // Rede instável não é assunto da tela: a próxima volta tenta de novo.
+      }
+    };
+
+    /*
+     * Confere já, e não só daqui a dez segundos: este efeito reinicia sempre
+     * que um diálogo abre ou fecha, e sem esta chamada quem trabalha abrindo e
+     * fechando cards em sequência reiniciaria o relógio antes de ele completar
+     * uma volta — ficaria sem notícia do quadro justamente enquanto trabalha.
+     */
+    conferir();
+    const relogio = setInterval(conferir, 10_000);
+
+    /*
+     * Voltar para a aba confere na hora. É o momento em que o atraso mais
+     * aparece — quem volta de outra janela quer ver o quadro de agora, não o de
+     * dez segundos atrás —, e é também o que permite parar de perguntar
+     * enquanto a aba está escondida: uma aba esquecida aberta a noite toda não
+     * fica batendo no servidor.
+     */
+    const aoTrocarDeAba = () => { if (!document.hidden) conferir(); };
+    document.addEventListener("visibilitychange", aoTrocarDeAba);
+
+    return () => {
+      vivo = false;
+      clearInterval(relogio);
+      document.removeEventListener("visibilitychange", aoTrocarDeAba);
+    };
+  }, [activeId, dialogoAberto, load]);
+
+  const move = async (cardId: string, columnId: string, order: string[]) => {
     /*
      * A tela muda antes da resposta do servidor. Um arrasto que espera a ida e
      * volta da rede devolve o card ao lugar de origem por um instante — parece
@@ -148,43 +268,89 @@ export default function KanbanPage() {
       prev.map((c) => (c.id === cardId ? { ...c, columnId } : c))
     );
 
+    /*
+     * Enquanto a gravação está a caminho, a conferência periódica fica parada:
+     * ela leria no banco a etapa antiga e desfaria na tela o movimento que
+     * acabou de ser feito.
+     */
+    ocupado.current++;
     const res = await fetch("/api/creator/cards", {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ move: { cardId, columnId, order, assigneeAcronym } }),
-    });
+      body: JSON.stringify({ move: { cardId, columnId, order } }),
+    }).finally(() => { ocupado.current--; });
 
-    if (res.ok) return true;
+    if (res.ok) {
+      /*
+       * Quem ficou com a demanda é decisão do servidor — a etapa pode ter
+       * equipe, padrão, e quem moveu pode assumir sozinho. A tela adota o que
+       * voltou em vez de recarregar o quadro inteiro: um refetch a cada arrasto
+       * pisca a tela toda para atualizar um crachá.
+       */
+      const { assignees: donosFinais } = await res
+        .json()
+        .catch(() => ({ assignees: undefined }));
 
-    /*
-     * A etapa exige dono e o card não tem: a regra vive no servidor, e a tela
-     * reage à recusa perguntando quem assume — em vez de duplicar a condição
-     * aqui, onde ela envelheceria em silêncio no dia em que a etapa mudasse.
-     */
-    const data = await res.json().catch(() => ({}));
-    if (data?.needsAssignee) {
-      const coluna = board?.columns.find((c) => c.id === columnId);
-      const card = cards.find((c) => c.id === cardId);
-      setPendingMove({
-        cardId,
-        columnId,
-        order,
-        columnName: coluna?.name ?? "Esta etapa",
-        cardTitle: card?.title ?? "",
-      });
+      if (Array.isArray(donosFinais)) {
+        setCards((prev) =>
+          prev.map((c) =>
+            c.id === cardId ? { ...c, assignees: JSON.stringify(donosFinais) } : c
+          )
+        );
+      }
+      return true;
     }
 
-    // Recarrega: a verdade do banco volta à tela, e o card retorna à etapa de
-    // origem até a pergunta ser respondida.
+    /*
+     * Falhou: a verdade do banco volta à tela, desfazendo o movimento otimista.
+     *
+     * Não há mais o caso "a etapa exige dono e não há um": a fase atribui
+     * sozinha, sempre. O que sobra aqui é falha de rede ou erro inesperado.
+     */
     load(activeId);
     return false;
+  };
+
+  /**
+   * A nova ordem das etapas, depois de arrastar uma para outro ponto.
+   *
+   * A lista inteira vai numa transação — posição é ordem relativa, e gravar
+   * etapa por etapa deixaria duas na mesma posição no intervalo entre as
+   * chamadas, que é justamente quando outra pessoa carrega o quadro.
+   */
+  const reordenarEtapas = async (ordem: ColumnPlacement[]) => {
+    if (!board) return;
+
+    /*
+     * A tela muda antes da resposta, como no arrasto de card: esperar a ida e
+     * volta devolve a etapa ao lugar de origem por um instante, e parece que o
+     * movimento não pegou.
+     */
+    const porId = new Map(board.columns.map((c) => [c.id, c]));
+    setBoard({
+      ...board,
+      columns: ordem.flatMap((p, index) => {
+        const coluna = porId.get(p.id);
+        return coluna ? [{ ...coluna, position: index, groupId: p.groupId }] : [];
+      }),
+    });
+
+    ocupado.current++;
+    const res = await fetch("/api/creator/columns", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ order: ordem }),
+    }).finally(() => { ocupado.current--; });
+
+    // Falhou: a verdade do banco volta à tela, desfazendo o otimismo.
+    if (!res.ok) load(activeId);
   };
 
   const headerButton = { padding: "0.45rem 0.85rem", fontSize: "var(--text-caption)" } as const;
 
   return (
-    <div className="dashboard-container">
-      <section style={{ flex: 1, display: "flex", flexDirection: "column", gap: "1.25rem", minWidth: 0 }}>
+    <div className="dashboard-container board-shell">
+      <section style={{ flex: 1, display: "flex", flexDirection: "column", gap: "1.25rem", minWidth: 0, minHeight: 0 }}>
         <div style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
           <div style={{ display: "flex", flexDirection: "column", gap: "0.25rem" }}>
             <h1
@@ -257,12 +423,54 @@ export default function KanbanPage() {
               <button
                 className="btn btn-secondary"
                 style={headerButton}
+                onClick={() => setEditLabels(true)}
+                disabled={!board}
+                title="Definir as etiquetas que aparecem sozinhas nos cards"
+              >
+                <Tag size={14} />
+                Etiquetas
+              </button>
+              <button
+                className="btn btn-secondary"
+                style={headerButton}
                 onClick={() => setEditGroups(true)}
                 disabled={!board}
-                title="Agrupar as etapas em fases — Briefing, Produção, Entrega"
+                title="Agrupar as etapas em grupos — Criação, Growth, Mídia"
               >
                 <Layers size={14} />
-                Fases
+                Grupos
+              </button>
+              {/*
+                O arquivo é um botão, e não uma coluna.
+                
+                Como coluna ele consumia uma faixa inteira da largura para
+                mostrar um número e uma porta — espaço que o quadro precisa para
+                as etapas de verdade, e que fica mais escasso a cada etapa nova.
+                Aqui ele continua à mão, sem disputar a esteira.
+              */}
+              <button
+                className="btn btn-secondary"
+                style={headerButton}
+                onClick={() => setShowArchive(true)}
+                disabled={!board}
+                title={`${archivedCount} demanda(s) fora do quadro`}
+              >
+                <Archive size={14} />
+                Arquivo
+                {archivedCount > 0 && (
+                  <span
+                    style={{
+                      fontSize: "var(--text-eyebrow)",
+                      fontWeight: 700,
+                      padding: "0.05rem 0.35rem",
+                      borderRadius: "var(--radius-pill)",
+                      background: "var(--surface-sunken)",
+                      color: "var(--muted)",
+                    }}
+                  >
+                    {archivedCount}
+                  </span>
+                )}
               </button>
             </span>
           </div>
@@ -296,13 +504,13 @@ export default function KanbanPage() {
             columns={board.columns}
             cards={cards}
             fields={board.fields}
-            creators={creators}
+            people={people}
             groups={board.groups}
             badges={parseCardBadges(board.cardBadges)}
-            archivedCount={archivedCount}
+            labels={parseCardLabels(board.cardLabels)}
             onOpenCard={setOpenCard}
-            onOpenArchive={() => setShowArchive(true)}
             onMove={move}
+            onReorderColumns={reordenarEtapas}
           />
         ) : (
           <div
@@ -331,9 +539,8 @@ export default function KanbanPage() {
             onClose={() => setNewDemand(false)}
             boardId={board.id}
             boardName={board.name}
-            columns={board.columns}
+            groups={gruposQueRecebem}
             fields={board.fields}
-            creators={creators}
             onCreated={() => load(activeId)}
           />
 
@@ -351,7 +558,6 @@ export default function KanbanPage() {
             boardId={board.id}
             columns={board.columns}
             groups={board.groups}
-            creators={creators}
             onChanged={() => load(activeId)}
           />
 
@@ -360,6 +566,16 @@ export default function KanbanPage() {
             onClose={() => setEditGroups(false)}
             boardId={board.id}
             groups={board.groups}
+            people={people}
+            onChanged={() => load(activeId)}
+          />
+
+          <LabelsDialog
+            open={editLabels}
+            onClose={() => setEditLabels(false)}
+            boardId={board.id}
+            labels={parseCardLabels(board.cardLabels)}
+            fields={board.fields}
             onChanged={() => load(activeId)}
           />
 
@@ -368,6 +584,7 @@ export default function KanbanPage() {
             onClose={() => setEditBadges(false)}
             boardId={board.id}
             badges={parseCardBadges(board.cardBadges)}
+            fields={board.fields}
             onChanged={() => load(activeId)}
           />
 
@@ -387,33 +604,14 @@ export default function KanbanPage() {
             onChanged={() => load(activeId)}
           />
 
-          <AssigneeDialog
-            open={!!pendingMove}
-            columnName={pendingMove?.columnName ?? ""}
-            cardTitle={pendingMove?.cardTitle ?? ""}
-            /* Só quem responde pela etapa aparece: a pergunta é "quem assume
-               isto aqui", e o quadro inteiro na lista a transformaria em "quem
-               existe na empresa". */
-            creators={stageCandidates(
-              board.columns.find((c) => c.id === pendingMove?.columnId),
-              creators
-            )}
-            busy={assigning}
-            onClose={() => setPendingMove(null)}
-            onConfirm={async (acronym) => {
-              if (!pendingMove) return;
-              setAssigning(true);
-              const ok = await move(pendingMove.cardId, pendingMove.columnId, pendingMove.order, acronym);
-              setAssigning(false);
-              if (ok) setPendingMove(null);
-            }}
-          />
 
           <CardDialog
             card={openCard}
             fields={board.fields}
             columns={board.columns}
-            creators={creators}
+            groups={board.groups}
+            labels={parseCardLabels(board.cardLabels)}
+            people={people}
             onClose={() => setOpenCard(null)}
             onChanged={() => load(activeId)}
           />

@@ -153,3 +153,16 @@ export async function getCurrentAdmin(): Promise<CurrentUser | null> {
   const user = await getCurrentUser();
   return user && isAdminRole(user.role) ? user : null;
 }
+
+/**
+ * O e-mail de quem está usando o sistema, em minúsculas — ou `null`.
+ *
+ * É a identidade que o quadro usa para dizer quem assume uma demanda. Foi
+ * sigla de criador por um tempo, e isso excluía do quadro todo mundo que não
+ * desenha peça: mídia paga, conteúdo, revisão. `Creator` voltou ao seu assunto,
+ * que é atribuir criativos a quem os assina.
+ */
+export async function getCurrentUserEmail(): Promise<string | null> {
+  const user = await getCurrentUser();
+  return user?.email?.trim().toLowerCase() || null;
+}

@@ -1,10 +1,11 @@
 "use client";
 
 import React, { useCallback, useEffect, useState } from "react";
-import { Archive, ArchiveRestore, Wand2, Paperclip, Link2, Clock } from "lucide-react";
+import { Archive, ArchiveRestore, Wand2, Paperclip, Link2, Clock, Trash2 } from "lucide-react";
 import Modal from "@/components/Modal";
 import { Skeleton } from "@/components/Skeleton";
 import { type CardData } from "./CardDialog";
+import { parseAssignees } from "@/lib/kanban";
 import { parseAttachments } from "@/lib/attachments";
 import { describeCardLink } from "@/lib/card-link";
 import { PRIORITY_COLOR, PRIORITY_LABEL, type Priority } from "@/lib/kanban";
@@ -88,6 +89,50 @@ export default function ArchiveDialog({
     }
   };
 
+  /**
+   * Apaga o arquivo inteiro, sem volta.
+   *
+   * A confirmação diz o número e diz o que vai junto — briefing, copy, anexos e
+   * histórico. "Tem certeza?" não informa nada: a pessoa que clicou por engano
+   * também tem certeza de que clicou.
+   *
+   * O servidor confere de novo que só administrador pode, e é lá que mora o
+   * filtro de "apenas arquivados". Esta tela não manda apagar nada além do
+   * quadro que está aberto.
+   */
+  const esvaziar = async () => {
+    if (
+      !confirm(
+        `Apagar em definitivo ${cards.length} demanda(s) do arquivo?\n\n` +
+          `Briefing, copy, anexos e histórico vão junto. Não há como desfazer, ` +
+          `e não há cópia em outro lugar.`
+      )
+    ) {
+      return;
+    }
+
+    setBusy("tudo");
+    setError(null);
+    try {
+      const res = await fetch("/api/creator/cards/purge", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ boardId }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setError(data.error || "Não foi possível esvaziar o arquivo.");
+        return;
+      }
+      setCards([]);
+      onChanged();
+    } catch {
+      setError("Falha de conexão ao esvaziar o arquivo.");
+    } finally {
+      setBusy(null);
+    }
+  };
+
   const quando = (iso: string) =>
     new Date(iso).toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit", year: "2-digit" });
 
@@ -99,9 +144,29 @@ export default function ArchiveDialog({
       description="Tudo que saiu do quadro — arquivado à mão ou pela virada do mês. Nada foi apagado."
       width="min(720px, 100%)"
       footer={
-        <button type="button" className="btn btn-secondary" onClick={onClose}>
-          Fechar
-        </button>
+        <>
+          {/*
+            Fica à esquerda, longe do botão de fechar, e só existe quando há o
+            que apagar. Um botão vermelho encostado no "Fechar" cobra atenção
+            justamente de quem só queria sair da tela.
+          */}
+          {cards.length > 0 && (
+            <button
+              type="button"
+              className="btn btn-danger"
+              onClick={esvaziar}
+              disabled={busy !== null}
+              style={{ marginRight: "auto" }}
+              title="Apagar em definitivo tudo o que está no arquivo"
+            >
+              <Trash2 size={14} />
+              {busy === "tudo" ? "Apagando…" : "Esvaziar arquivo"}
+            </button>
+          )}
+          <button type="button" className="btn btn-secondary" onClick={onClose} disabled={busy !== null}>
+            Fechar
+          </button>
+        </>
       }
     >
       {loading ? (
@@ -202,9 +267,18 @@ export default function ArchiveDialog({
                     </span>
                   )}
 
-                  {card.assigneeAcronym && (
-                    <span className="card-badge" style={{ fontWeight: 600 }}>
-                      {card.assigneeAcronym}
+                  {parseAssignees(card.assignees).length > 0 && (
+                    /* A parte antes do @, e não o endereço inteiro: o crachá
+                       vive numa linha com data e link, e um e-mail corporativo
+                       completo empurra os dois para fora dela. */
+                    <span
+                      className="card-badge"
+                      style={{ fontWeight: 600 }}
+                      title={parseAssignees(card.assignees).join(", ")}
+                    >
+                      {parseAssignees(card.assignees)
+                        .map((e) => e.split("@")[0])
+                        .join(", ")}
                     </span>
                   )}
 

@@ -7,8 +7,9 @@
  * card entra no topo dela, e toda mudança deixa rastro.
  */
 
+import { createHash } from "node:crypto";
 import prisma from "./prisma";
-import { DEFAULT_BOARD, startOfCurrentMonth, uniqueFieldKey } from "./kanban";
+import { DEFAULT_BOARD, parseAssignees, startOfCurrentMonth, uniqueFieldKey } from "./kanban";
 
 /** O quadro inteiro, do jeito que a tela consome. */
 export const BOARD_INCLUDE = {
@@ -208,4 +209,96 @@ export async function archiveDeliveredBeforeThisMonth(boardId: string): Promise<
   ]);
 
   return ids.length;
+}
+
+/**
+ * Uma impressão digital curta do estado do quadro no banco.
+ *
+ * Serve para responder "mudou alguma coisa?" sem transportar o quadro inteiro.
+ * O Kanban é uma esteira usada por várias pessoas ao mesmo tempo, e quem está
+ * com a tela aberta precisa ver o card chegar sem recarregar a página; manter
+ * uma conexão aberta por aba não é opção nesta hospedagem, que tem 20 processos
+ * de entrada para a conta toda.
+ *
+ * Fica aqui, e não na rota, porque quem lê o quadro também precisa devolver o
+ * pulso junto com os dados. Calculado nos dois lugares, ele divergiria, e a
+ * tela recarregaria em laço por causa da própria leitura.
+ */
+export async function boardPulse(boardId: string): Promise<string | null> {
+  const [quadro, cards, grupos, etapas] = await Promise.all([
+    prisma.board.findUnique({ where: { id: boardId }, select: { updatedAt: true } }),
+
+    /*
+     * `_max(updatedAt)` pega qualquer edição; `_count` pega o que a data não
+     * revela, porque um card excluído não deixa carimbo para trás. Juntos,
+     * cobrem criar, mover, editar, arquivar e excluir.
+     */
+    prisma.boardCard.aggregate({ where: { boardId }, _count: { _all: true }, _max: { updatedAt: true } }),
+    prisma.boardGroup.aggregate({ where: { boardId }, _count: { _all: true }, _max: { updatedAt: true } }),
+
+    /*
+     * Etapa não tem `updatedAt`, então as linhas inteiras entram numa soma de
+     * verificação. São poucas — uma dúzia —, e ler todas evita manter uma lista
+     * de campos que alguém esqueceria de atualizar ao criar o próximo: renomear
+     * uma etapa, trocar a cor ou arrastá-la de lugar precisa chegar aos outros
+     * tanto quanto mover um card.
+     */
+    prisma.boardColumn.findMany({ where: { boardId }, orderBy: { id: "asc" } }),
+  ]);
+
+  if (!quadro) return null;
+
+  const etapasHash = createHash("sha1").update(JSON.stringify(etapas)).digest("hex").slice(0, 12);
+
+  return [
+    quadro.updatedAt.getTime(),
+    cards._count._all,
+    cards._max.updatedAt?.getTime() ?? 0,
+    grupos._count._all,
+    grupos._max.updatedAt?.getTime() ?? 0,
+    etapasHash,
+  ].join("-");
+}
+
+/**
+ * Onde uma demanda nova entra no quadro, e quem a assume.
+ *
+ * Existe uma regra só, e ela mora aqui porque há duas portas para o quadro: o
+ * formulário de demanda e o gerador de copy. Escrita duas vezes, ela divergiria
+ * — e divergiu antes, quando o formulário mandava um campo que o servidor já
+ * tinha deixado de ler e a escolha de responsável era silenciosamente ignorada.
+ *
+ * A regra: quem abre escolhe o **grupo**, não a etapa. O card cai na primeira
+ * etapa daquele grupo, que é onde o time procura o que chegou, e nasce do time
+ * inteiro — ninguém foi eleito ainda, o que aconteceu é que há trabalho novo na
+ * fila e todos precisam vê-lo.
+ *
+ * Sem grupo escolhido, vale a coluna de entrada do quadro, como sempre.
+ */
+export async function groupIntake(
+  boardId: string,
+  escolha: { groupId?: string | null; columnId?: string | null } = {}
+): Promise<{ columnId: string; assignees: string[] } | null> {
+  const doGrupo = escolha.groupId
+    ? await prisma.boardColumn.findFirst({
+        where: { boardId, groupId: String(escolha.groupId) },
+        orderBy: { position: "asc" },
+        select: { id: true },
+      })
+    : null;
+
+  const columnId = escolha.columnId || doGrupo?.id || (await intakeColumnId(boardId));
+  if (!columnId) return null;
+
+  /*
+   * A equipe vem do grupo da coluna de destino, e não do grupo pedido: com uma
+   * coluna informada à mão, as duas coisas podem ser diferentes, e quem manda é
+   * onde o card foi parar.
+   */
+  const destino = await prisma.boardColumn.findUnique({
+    where: { id: columnId },
+    select: { group: { select: { assignees: true } } },
+  });
+
+  return { columnId, assignees: parseAssignees(destino?.group?.assignees) };
 }

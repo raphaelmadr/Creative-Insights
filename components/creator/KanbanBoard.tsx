@@ -1,17 +1,23 @@
 "use client";
 
 import React, { useMemo, useState } from "react";
-import { Clock, Wand2, AlertTriangle, Link2, Archive, UserCheck, Star } from "lucide-react";
+import { Clock, Wand2, AlertTriangle, Link2, GripVertical } from "lucide-react";
 import { Avatar } from "@/components/Avatar";
 import { type FieldDefinition, formatFieldValue } from "./FieldInput";
 import { type ColumnDefinition } from "./ColumnsDialog";
 import { type CardData } from "./CardDialog";
-import type { CreatorOption } from "./DemandDialog";
+import type { PersonOption } from "./DemandDialog";
 import {
   parseValues,
+  labelsForCard,
+  plainSummary,
+  clampText,
+  type CardLabel,
   isOverdue,
   groupColumns,
   parseAssignees,
+  reorderColumns,
+  type ColumnPlacement,
   PRIORITY_COLOR,
   PRIORITY_LABEL,
   DEFAULT_CARD_BADGES,
@@ -24,6 +30,7 @@ import { titleShowsPieceCount } from "@/lib/copy-options";
 import { parseAttachments } from "@/lib/attachments";
 import { describeCardLink } from "@/lib/card-link";
 import AttachmentGallery from "./AttachmentGallery";
+import CardLabelChip from "./CardLabelChip";
 
 /**
  * O quadro.
@@ -34,34 +41,62 @@ import AttachmentGallery from "./AttachmentGallery";
  * tela inteira. O preço é não funcionar no toque — por isso o card também mudam
  * de etapa por um seletor no seu painel, que é o caminho do celular.
  */
+/**
+ * O texto escrito à mão, na frente do card.
+ *
+ * Menor e apagado de propósito: ele é contexto, não é o nome da demanda. Com o
+ * mesmo peso do título, o card passa a ter duas coisas disputando a leitura e
+ * nenhuma das duas ganha.
+ */
+const TEXTO_DO_CARD: React.CSSProperties = {
+  fontSize: "var(--text-eyebrow)",
+  color: "var(--muted)",
+  lineHeight: 1.45,
+  whiteSpace: "pre-wrap",
+  overflowWrap: "anywhere",
+};
+
 export default function KanbanBoard({
   columns,
   cards,
   fields,
-  creators,
+  people,
   groups = [],
   badges = DEFAULT_CARD_BADGES,
-  archivedCount = 0,
+  labels = [],
   onOpenCard,
-  onOpenArchive,
   onMove,
+  onReorderColumns,
 }: {
   columns: ColumnDefinition[];
   cards: CardData[];
   fields: FieldDefinition[];
-  creators: CreatorOption[];
+  people: PersonOption[];
   /** As fases do quadro — cada uma vira uma faixa sobre as etapas dela. */
   groups?: GroupDefinition[];
   /** Os atributos embutidos que este quadro mostra na frente do card. */
   badges?: CardBadgeKey[];
-  /** Quantas demandas estão no arquivo, para o card fixo mostrar. */
-  archivedCount?: number;
+  /** As etiquetas do quadro — acendem sozinhas, pelo que a demanda respondeu. */
+  labels?: CardLabel[];
   onOpenCard: (card: CardData) => void;
-  onOpenArchive?: () => void;
   onMove: (cardId: string, columnId: string, order: string[]) => void;
+  /** A nova ordem das etapas, com a fase de cada uma, depois de um arrasto. */
+  onReorderColumns?: (ordem: ColumnPlacement[]) => void;
 }) {
   const [draggingId, setDraggingId] = useState<string | null>(null);
   const [overColumn, setOverColumn] = useState<string | null>(null);
+
+  /*
+   * O arrasto de ETAPA é um estado separado do de card.
+   *
+   * Os dois usam os mesmos eventos do navegador sobre os mesmos elementos: a
+   * coluna é alvo de soltura para o card e, agora, para outra coluna. Saber
+   * qual gesto está em curso é o que decide se soltar move uma demanda ou
+   * reordena a esteira — sem isso, arrastar uma etapa sobre outra mandaria um
+   * card fantasma para lá.
+   */
+  const [draggingColumn, setDraggingColumn] = useState<string | null>(null);
+  const [overColumnDrop, setOverColumnDrop] = useState<string | null>(null);
 
   const byColumn = useMemo(() => {
     const map = new Map<string, CardData[]>();
@@ -75,6 +110,24 @@ export default function KanbanBoard({
 
   /** Os campos marcados para aparecer na frente do card. */
   const frontFields = useMemo(() => fields.filter((f) => f.showOnCard), [fields]);
+
+  /*
+   * Cada resposta aparece conforme o que ela é.
+   *
+   * Tudo virava pílula — inclusive um briefing de três parágrafos, espremido
+   * numa pílula de uma linha com reticência no fim, ao lado de "Meta Ads". A
+   * pílula é uma boa forma para valor curto e fechado: escolha, data, número.
+   * Para texto escrito por alguém ela é a forma errada, porque promete que o
+   * conteúdo é uma etiqueta e o conteúdo é uma frase.
+   */
+  const camposDeTexto = useMemo(
+    () => frontFields.filter((f) => f.type === "TEXT" || f.type === "TEXTAREA"),
+    [frontFields]
+  );
+  const camposEmPilula = useMemo(
+    () => frontFields.filter((f) => f.type !== "TEXT" && f.type !== "TEXTAREA"),
+    [frontFields]
+  );
 
   const shows = useMemo(() => new Set(badges), [badges]);
 
@@ -119,6 +172,22 @@ export default function KanbanBoard({
     onMove(draggingId, columnId, order);
     setDraggingId(null);
     setOverColumn(null);
+  };
+
+  /**
+   * A etapa arrastada assume o lugar da etapa sobre a qual foi solta.
+   *
+   * A regra mora em `reorderColumns`, não aqui: ela é a mesma que o servidor
+   * grava, e duplicá-la na tela faria as duas divergirem na primeira mudança.
+   * Daqui sai só o gesto.
+   */
+  const soltarEtapa = (alvoId: string) => {
+    const arrastada = draggingColumn;
+    setDraggingColumn(null);
+    setOverColumnDrop(null);
+    if (!arrastada || arrastada === alvoId || !onReorderColumns) return;
+
+    onReorderColumns(reorderColumns(columns, arrastada, alvoId));
   };
 
   /**
@@ -168,8 +237,9 @@ export default function KanbanBoard({
         >
           {group.name}
         </span>
+
         <span
-          title={`${cards} demanda(s) nesta fase`}
+          title={`${cards} demanda(s) neste grupo`}
           style={{ fontSize: "var(--text-eyebrow)", fontWeight: 600, color: "var(--muted)", flexShrink: 0 }}
         >
           {cards}
@@ -185,7 +255,17 @@ export default function KanbanBoard({
         gap: "var(--gap-compact)",
         alignItems: "flex-start",
         overflowX: "auto",
-        paddingBottom: "0.5rem",
+        /*
+         * O quadro é que rola, nos dois sentidos, e ocupa o que sobra da altura
+         * da janela. `minHeight: 0` é o que permite encolher abaixo do conteúdo:
+         * sem ele, um item de flex se recusa a ficar menor do que aquilo que
+         * tem dentro, e a barra voltaria a ser empurrada para fora da tela pela
+         * coluna mais alta.
+         */
+        overflowY: "auto",
+        flex: 1,
+        minHeight: 0,
+        paddingBottom: "0.35rem",
       }}
     >
       {segmentos.map((seg) => {
@@ -200,8 +280,11 @@ export default function KanbanBoard({
                * três colunas ocupa o triplo de uma de uma só, e as colunas
                * continuam com a mesma largura entre fases diferentes.
                */
-              flex: `${largura} 1 0`,
-              minWidth: `calc(${largura} * 200px + ${largura - 1} * var(--gap-compact))`,
+              flex: `${largura} 0 auto`,
+              minWidth: `calc(${largura} * 280px + ${largura - 1} * var(--gap-compact))`,
+              // O mesmo teto das etapas que a faixa cobre, senão ela se estica
+              // além delas e o título da fase descola das próprias colunas.
+              maxWidth: `calc(${largura} * 400px + ${largura - 1} * var(--gap-compact))`,
               display: "flex",
               flexDirection: "column",
               gap: "var(--gap-compact)",
@@ -215,8 +298,6 @@ export default function KanbanBoard({
             <div style={{ display: "flex", gap: "var(--gap-compact)", alignItems: "flex-start" }}>
               {seg.columns.map((column) => {
         const list = byColumn.get(column.id) ?? [];
-        const equipe = parseAssignees(column.assignees);
-        const equipeNomes = equipe.map((a) => creators.find((c) => c.acronym === a) ?? { acronym: a, name: a, avatarUrl: null });
         const overLimit = column.wipLimit !== null && list.length > column.wipLimit;
 
         return (
@@ -224,31 +305,103 @@ export default function KanbanBoard({
             key={column.id}
             onDragOver={(e) => {
               e.preventDefault();
-              setOverColumn(column.id);
+              if (draggingColumn) setOverColumnDrop(column.id);
+              else setOverColumn(column.id);
             }}
-            onDragLeave={() => setOverColumn((c) => (c === column.id ? null : c))}
-            onDrop={() => drop(column.id)}
+            onDragLeave={() => {
+              setOverColumn((c) => (c === column.id ? null : c));
+              setOverColumnDrop((c) => (c === column.id ? null : c));
+            }}
+            onDrop={() => (draggingColumn ? soltarEtapa(column.id) : drop(column.id))}
             className="glass-panel"
             style={{
               /*
-               * As etapas dividem a largura disponível em vez de ter 300px
-               * cravados: com quatro colunas numa tela larga sobrava vazio, e
-               * com seis a última ficava fora da vista. O piso de 200px é onde
-               * um card ainda se lê; abaixo disso a fileira volta a rolar.
+               * Entre 280 e 400px: cresce para ocupar a tela, nunca encolhe
+               * a ponto de apertar, nunca estica a ponto de ficar absurda.
+               *
+               * `flex-shrink: 0` é o que resolve a esteira longa: a partir do
+               * momento em que as etapas não cabem, elas param de se espremer e
+               * o quadro passa a rolar. Antes o piso era 200px COM
+               * encolhimento, então cada etapa nova comprimia todas as outras
+               * até o card ficar ilegível, em vez de oferecer a rolagem.
+               *
+               * O teto de 400px é o outro lado, e só apareceu quando esta tela
+               * passou a usar o monitor inteiro: com três etapas num monitor
+               * largo, crescer sem limite dá colunas de mil pixels — espaço
+               * ocupado, não aproveitado. Sobra é melhor à direita, junta, do
+               * que diluída dentro de cada etapa.
                */
-              flex: "1 1 0",
-              minWidth: "200px",
+              flex: "1 0 280px",
+              maxWidth: "400px",
               display: "flex",
               flexDirection: "column",
               gap: "var(--gap-compact)",
               padding: "var(--pad-compact)",
-              // A coluna sob o cursor se destaca pela borda, como o hover dos
-              // cartões de criativo já faz — nada de fundo colorido novo.
-              borderColor: overColumn === column.id ? "var(--primary)" : undefined,
+              /*
+               * A coluna sob o cursor se destaca pela borda, como o hover dos
+               * cartões de criativo já faz — nada de fundo colorido novo.
+               *
+               * Reordenar usa a borda tracejada: o gesto é outro, e um destaque
+               * idêntico ao de receber card faria os dois se confundirem
+               * justamente quando os dois são possíveis.
+               */
+              borderColor:
+                overColumnDrop === column.id
+                  ? "var(--warning)"
+                  : overColumn === column.id
+                    ? "var(--primary)"
+                    : undefined,
+              borderStyle: overColumnDrop === column.id ? "dashed" : undefined,
               minHeight: "120px",
             }}
           >
-            <header style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
+            <header
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: "0.5rem",
+                // Só o cabeçalho arrasta. A coluna inteira arrastável roubaria
+                // o gesto dos cards, que são o que se move o dia todo aqui.
+                opacity: draggingColumn === column.id ? 0.4 : 1,
+              }}
+            >
+              {onReorderColumns && (
+                <span
+                  draggable
+                  onDragStart={(e) => {
+                    e.stopPropagation();
+                    /*
+                     * `setData` não é decoração: o Firefox se recusa a iniciar
+                     * um arrasto cujo `dataTransfer` está vazio, e a alça
+                     * simplesmente não responderia lá.
+                     */
+                    e.dataTransfer.setData("text/plain", column.id);
+                    e.dataTransfer.effectAllowed = "move";
+                    setDraggingColumn(column.id);
+                  }}
+                  onDragEnd={() => {
+                    setDraggingColumn(null);
+                    setOverColumnDrop(null);
+                  }}
+                  role="button"
+                  tabIndex={0}
+                  aria-label={`Reordenar a etapa ${column.name}`}
+                  title="Arraste para reordenar esta etapa"
+                  style={{
+                    display: "inline-flex",
+                    alignItems: "center",
+                    cursor: "grab",
+                    color: "var(--muted)",
+                    flexShrink: 0,
+                    // A alça só aparece de verdade no hover do cabeçalho; ela é
+                    // uma ferramenta de arrumação, não um enfeite permanente
+                    // competindo com o nome da etapa.
+                    opacity: 0.45,
+                  }}
+                >
+                  <GripVertical size={13} />
+                </span>
+              )}
               <span
                 aria-hidden="true"
                 style={{
@@ -263,15 +416,6 @@ export default function KanbanBoard({
                 {column.name}
               </span>
 
-              {/* A exigência de dono é regra da etapa, e precisa ser visível
-                  antes de alguém arrastar até aqui e ser recusado. */}
-              {column.requiresAssignee && (
-                <UserCheck
-                  size={13}
-                  aria-label="Exige responsável"
-                  style={{ color: "var(--muted)", flexShrink: 0 }}
-                />
-              )}
               <span
                 title={
                   column.wipLimit !== null
@@ -309,45 +453,6 @@ export default function KanbanBoard({
               </span>
             )}
 
-            {/*
-              Quem responde por esta etapa, no alto dela.
-
-              A regra só serve se for legível antes de alguém esbarrar nela: com
-              a equipe à vista, "isto é com a Ana" se responde olhando o quadro,
-              e não abrindo o editor de etapas. A estrela marca quem assume os
-              cards que chegam — a diferença entre poder e pegar.
-            */}
-            {equipeNomes.length > 0 && (
-              <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: "0.2rem" }}>
-                {equipeNomes.map((p) => {
-                  const ehPadrao = column.defaultAssignee?.toUpperCase() === p.acronym;
-                  return (
-                    <span
-                      key={p.acronym}
-                      className="card-badge"
-                      title={
-                        ehPadrao
-                          ? `${p.name} assume os cards que chegam nesta etapa`
-                          : `${p.name} responde por esta etapa`
-                      }
-                      style={{
-                        paddingLeft: "0.15rem",
-                        fontWeight: 600,
-                        letterSpacing: "0.04em",
-                        ...(ehPadrao
-                          ? { color: "var(--warning)", borderColor: "var(--warning)" }
-                          : null),
-                      }}
-                    >
-                      <Avatar name={p.name} src={p.avatarUrl ?? undefined} size="xs" />
-                      {p.acronym}
-                      {ehPadrao && <Star size={9} fill="var(--warning)" />}
-                    </span>
-                  );
-                })}
-              </div>
-            )}
-
             {list.length === 0 && (
               <span className="field-hint" style={{ padding: "0.5rem 0" }}>
                 Nada nesta etapa.
@@ -356,7 +461,15 @@ export default function KanbanBoard({
 
             {list.map((card) => {
               const values = parseValues(card.values);
-              const assignee = creators.find((c) => c.acronym === card.assigneeAcronym);
+              /*
+                Vários responsáveis: no backlog a demanda é do time inteiro, e
+                só vira de uma pessoa quando alguém a puxa para produção.
+              */
+              const donos = parseAssignees(card.assignees).map(
+                (e) => people.find((c) => c.email === e) ?? { email: e, name: e, avatarUrl: null }
+              );
+              const etiquetas = labelsForCard(values, labels);
+              const resumo = clampText(plainSummary(card.description));
               const priority = (card.priority as Priority) || "MEDIA";
 
               // Um prazo vencido precisa saltar aos olhos no quadro, não só
@@ -413,7 +526,7 @@ export default function KanbanBoard({
                         abrir o card. Os cards criados pelo gerador já dizem isso
                         no título ("… • 12 Peças"); o selo é para os de antes do
                         formato, e não aparece duas vezes no mesmo card. */}
-                    {pecas > 1 && !titleShowsPieceCount(card.title, pecas) && (
+                    {shows.has("pieces") && pecas > 1 && !titleShowsPieceCount(card.title, pecas) && (
                       <span
                         title={`${pecas} variações de copy`}
                         style={{
@@ -430,6 +543,54 @@ export default function KanbanBoard({
                       </span>
                     )}
                   </div>
+
+                  {/*
+                    As etiquetas, em fileira própria acima dos badges.
+
+                    Elas respondem à pergunta que se faz antes de todas as
+                    outras — isto é vídeo ou é peça estática? —, porque é ela que
+                    decide para onde a demanda vai: estático é design, vídeo é
+                    edição. Misturadas na fileira cinza, com data, dono e etapa,
+                    essa resposta teria o mesmo peso visual do resto.
+                  */}
+                  {shows.has("labels") && etiquetas.length > 0 && (
+                    <div style={{ display: "flex", flexWrap: "wrap", gap: "0.2rem" }}>
+                      {etiquetas.map((label) => (
+                        <CardLabelChip key={label.id} label={label} />
+                      ))}
+                    </div>
+                  )}
+
+                  {/*
+                    O briefing, encurtado a duas linhas.
+
+                    Card não é lugar de ler briefing — é lugar de reconhecer a
+                    demanda. Duas linhas bastam para saber se é aquela que se
+                    procura; o resto está a um clique. Por isso vem desligado por
+                    padrão: ligado sem querer, ele triplica a altura de todos os
+                    cards de uma vez.
+                  */}
+                  {shows.has("briefing") && resumo && (
+                    <span style={TEXTO_DO_CARD}>{resumo}</span>
+                  )}
+
+                  {/*
+                    As respostas escritas à mão, como texto.
+
+                    Com o rótulo do campo à frente em negrito: sem ele, dois
+                    campos de texto seguidos viram um parágrafo só, e não há como
+                    saber onde um termina e o outro começa.
+                  */}
+                  {camposDeTexto.map((field) => {
+                    const value = values[field.key];
+                    if (value === undefined || value === null || value === "") return null;
+                    return (
+                      <span key={field.id} style={TEXTO_DO_CARD}>
+                        <strong style={{ fontWeight: 600 }}>{field.label}:</strong>{" "}
+                        {clampText(String(value))}
+                      </span>
+                    );
+                  })}
 
                   {/*
                     A fila de mini-badges.
@@ -484,26 +645,6 @@ export default function KanbanBoard({
                       </span>
                     )}
 
-                    {shows.has("assignee") &&
-                      (card.assigneeAcronym ? (
-                        <span
-                          className="card-badge"
-                          title={assignee?.name || card.assigneeAcronym}
-                          style={{ paddingLeft: "0.15rem", fontWeight: 600, letterSpacing: "0.04em" }}
-                        >
-                          <Avatar
-                            name={assignee?.name || card.assigneeAcronym}
-                            src={assignee?.avatarUrl}
-                            size="xs"
-                          />
-                          {card.assigneeAcronym}
-                        </span>
-                      ) : (
-                        <span className="card-badge" title="Ninguém assumiu esta demanda">
-                          sem dono
-                        </span>
-                      ))}
-
                     {shows.has("stage") && (
                       <span className="card-badge" title={`Etapa: ${column.name}`}>
                         <span
@@ -527,7 +668,7 @@ export default function KanbanBoard({
                       copiar — e não um `span` com `onClick`. Na cor da marca,
                       lavada, para se distinguir da fileira cinza sem gritar.
                     */}
-                    {link && card.linkUrl && (
+                    {shows.has("link") && link && card.linkUrl && (
                       <a
                         href={card.linkUrl}
                         target="_blank"
@@ -550,26 +691,121 @@ export default function KanbanBoard({
                       </a>
                     )}
 
-                    {/* O clipe não passa pela configuração de badges: aqueles
-                        são atributos que todo card tem e que cada quadro decide
-                        mostrar; este só existe quando há algo anexado, e
-                        escondê-lo esconderia conteúdo do card, não um enfeite. */}
-                    <AttachmentGallery attachments={anexos} variant="badge" />
+                    {shows.has("attachments") && (
+                      <AttachmentGallery attachments={anexos} variant="badge" />
+                    )}
 
-                    {frontFields.map((field) => {
+                    {/*
+                      As respostas de valor fechado, como pílula.
+
+                      Uma escolha múltipla vira uma pílula por escolha, e não uma
+                      pílula com "Feed 1:1, Story/Reels 9:16" dentro: a lista
+                      colada não cabe na largura da coluna, e o que se perde no
+                      corte é justamente a segunda escolha.
+
+                      Escolha e link se explicam sozinhos — "Meta Ads" é "Meta
+                      Ads". Data, número e sim/não não: "12" não diz nada sem o
+                      nome do campo na frente.
+                    */}
+                    {camposEmPilula.flatMap((field) => {
                       const value = values[field.key];
-                      if (value === undefined || value === null || value === "") return null;
-                      return (
+                      if (value === undefined || value === null || value === "") return [];
+
+                      if (field.type === "MULTISELECT" && Array.isArray(value)) {
+                        return value.filter(Boolean).map((escolha, i) => (
+                          <span
+                            key={`${field.id}-${i}`}
+                            className="card-badge"
+                            title={`${field.label}: ${String(escolha)}`}
+                          >
+                            {String(escolha)}
+                          </span>
+                        ));
+                      }
+
+                      if (field.type === "URL") {
+                        const destino = describeCardLink(String(value));
+                        return [
+                          <a
+                            key={field.id}
+                            href={String(value)}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="card-badge"
+                            title={`${field.label}: ${value}`}
+                            // O card inteiro abre o painel da demanda: sem parar
+                            // o clique aqui, os dois aconteceriam juntos.
+                            onClick={(e) => e.stopPropagation()}
+                            style={{ fontWeight: 600, color: "var(--primary)" }}
+                          >
+                            <Link2 size={10} />
+                            {destino?.label ?? field.label}
+                          </a>,
+                        ];
+                      }
+
+                      const precisaDoRotulo =
+                        field.type === "DATE" || field.type === "NUMBER" || field.type === "CHECKBOX";
+
+                      return [
                         <span
                           key={field.id}
                           className="card-badge"
                           title={`${field.label}: ${formatFieldValue(field, value)}`}
                         >
+                          {precisaDoRotulo ? `${field.label}: ` : ""}
                           {formatFieldValue(field, value)}
-                        </span>
-                      );
+                        </span>,
+                      ];
                     })}
                   </div>
+
+                  {/*
+                    Quem assumiu fica sempre no mesmo canto — embaixo, à direita.
+
+                    Antes o crachá vinha no meio da fileira que quebra linha, e a
+                    posição dele mudava de card para card conforme o que viesse
+                    antes: com prazo e link, descia; sem eles, subia. Procurar
+                    "o que é meu" numa coluna virava ler card por card. Num lugar
+                    fixo, a mesma varredura é uma olhada na borda direita.
+                  */}
+                  {shows.has("assignee") && (
+                    <div style={{ display: "flex", justifyContent: "flex-end" }}>
+                      {donos.length ? (
+                        /*
+                          Até três crachás; acima disso, um contador.
+
+                          Seis nomes num card de 280px empurram o resto para fora
+                          da vista — e "todo o time da Criação" se lê melhor como
+                          "+3" do que como uma parede de avatares. O `title` traz
+                          a lista inteira.
+                        */
+                        <span
+                          className="card-badge"
+                          title={donos.map((d) => d.name).join(", ")}
+                          style={{ paddingLeft: "0.15rem", fontWeight: 600, gap: "0.2rem" }}
+                        >
+                          {donos.slice(0, 3).map((d) => (
+                            <Avatar
+                              key={d.email}
+                              name={d.name}
+                              src={d.avatarUrl ?? undefined}
+                              size="xs"
+                            />
+                          ))}
+                          {donos.length === 1
+                            ? donos[0].name.split(" ")[0]
+                            : donos.length > 3
+                              ? `+${donos.length - 3}`
+                              : null}
+                        </span>
+                      ) : (
+                        <span className="card-badge" title="Ninguém assumiu esta demanda">
+                          sem dono
+                        </span>
+                      )}
+                    </div>
+                  )}
                 </article>
               );
             })}
@@ -580,133 +816,6 @@ export default function KanbanBoard({
           </div>
         );
       })}
-
-      {/*
-        O arquivo é a última etapa.
-
-        Não é uma coluna do banco, e por isso não aparece no editor de etapas:
-        não se renomeia, não se reordena e não se exclui. Estar no fim da fileira
-        é o que o explica sem legenda — a demanda percorre as etapas e, depois de
-        entregue, o mês vira e ela termina aqui.
-
-        Não recebe arrasto: `onDragOver` não chama `preventDefault`, então o
-        navegador não a aceita como destino. Arquivar continua sendo um gesto
-        deliberado, com confirmação, e não uma consequência de soltar o cartão
-        um pouco à direita.
-      */}
-      {onOpenArchive && (
-        <div
-          style={{
-            flex: "1 1 0",
-            minWidth: "200px",
-            display: "flex",
-            flexDirection: "column",
-            gap: "var(--gap-compact)",
-          }}
-        >
-          {/* O arquivo não pertence a fase nenhuma — mas guarda o espaço da
-              faixa, senão subiria sozinho acima das outras colunas. */}
-          {faixa(null, 0)}
-
-        <section
-          className="glass-panel"
-          aria-label="Arquivo"
-          style={{
-            display: "flex",
-            flexDirection: "column",
-            gap: "var(--gap-compact)",
-            padding: "var(--pad-compact)",
-            minHeight: "120px",
-          }}
-        >
-          <header style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
-            <span
-              aria-hidden="true"
-              style={{
-                width: "8px",
-                height: "8px",
-                borderRadius: "var(--radius-pill)",
-                background: "var(--muted)",
-                flexShrink: 0,
-              }}
-            />
-            <span
-              style={{
-                fontSize: "var(--text-cardtitle)",
-                fontWeight: 700,
-                flex: 1,
-                minWidth: 0,
-                color: "var(--muted)",
-              }}
-            >
-              Arquivo
-            </span>
-            <span
-              title={`${archivedCount} demanda(s) no arquivo`}
-              style={{
-                fontSize: "var(--text-eyebrow)",
-                fontWeight: 600,
-                padding: "0.1rem 0.5rem",
-                borderRadius: "var(--radius-pill)",
-                background: "var(--surface-sunken)",
-                color: "var(--muted)",
-              }}
-            >
-              {archivedCount}
-            </span>
-          </header>
-
-          {/*
-            Um card só, cinza e sem ações — a porta para o que saiu do quadro.
-            Cinza cheio, e não tracejado: ele não é um espaço vazio à espera de
-            conteúdo, é um cartão que está ali de vez.
-          */}
-          <article
-            role="button"
-            tabIndex={0}
-            title="Ver tudo que saiu do quadro"
-            onClick={onOpenArchive}
-            onKeyDown={(e) => {
-              if (e.key === "Enter" || e.key === " ") {
-                e.preventDefault();
-                onOpenArchive();
-              }
-            }}
-            style={{
-              display: "flex",
-              alignItems: "center",
-              gap: "0.5rem",
-              padding: "0.5rem 0.55rem",
-              borderRadius: "var(--radius-block)",
-              background: "var(--surface-sunken)",
-              border: "1px solid var(--surface-sunken-border)",
-              borderLeft: "3px solid var(--muted)",
-              color: "var(--muted)",
-              cursor: "pointer",
-              transition: "border-color 0.2s ease",
-            }}
-            // `borderColor` pinta os quatro lados, inclusive a faixa da
-            // esquerda: sem devolver a dela à parte, o cinza do acento se
-            // perderia no primeiro passar do mouse.
-            onMouseOver={(e) => (e.currentTarget.style.borderColor = "var(--primary)")}
-            onMouseOut={(e) => {
-              e.currentTarget.style.borderColor = "var(--surface-sunken-border)";
-              e.currentTarget.style.borderLeftColor = "var(--muted)";
-            }}
-          >
-            <Archive size={15} style={{ flexShrink: 0 }} />
-            <span style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", gap: "0.1rem" }}>
-              <span style={{ fontSize: "var(--text-control)", fontWeight: 600 }}>
-                Demandas arquivadas
-              </span>
-              <span style={{ fontSize: "var(--text-eyebrow)" }}>
-                entregas de meses anteriores
-              </span>
-            </span>
-          </article>
-        </section>
-        </div>
-      )}
     </div>
   );
 }

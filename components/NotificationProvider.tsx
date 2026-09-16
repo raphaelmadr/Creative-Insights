@@ -347,15 +347,9 @@ export default function NotificationProvider({ children }: { children: ReactNode
       let mediaSummary: string | null = null;
       let mediaOk = true;
       try {
-        const mediaRes = await fetch("/api/sync-media", { method: "POST" });
-        const mediaJson = await mediaRes.json();
-        if (mediaJson?.success) {
-          mediaSummary = mediaJson.summary;
-          mediaOk = mediaJson.mediaOk !== false;
-        } else {
-          mediaSummary = `As artes não puderam ser salvas: ${mediaJson?.error || "erro desconhecido"}.`;
-          mediaOk = false;
-        }
+        const media = await runSyncStream("/api/sync-media", "Artes");
+        mediaSummary = media?.summary || "Artes salvas.";
+        mediaOk = media?.mediaOk !== false;
       } catch (mediaErr) {
         mediaSummary = `As artes não puderam ser salvas: ${(mediaErr as Error).message}.`;
         mediaOk = false;

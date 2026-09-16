@@ -107,6 +107,8 @@ export interface FieldShape {
   type: string;
   required: boolean;
   options?: string | null;
+  /** A chave do campo de que este depende. Ver `optionsFor`. */
+  dependsOn?: string | null;
 }
 
 /** As opções de um SELECT, já como lista — no banco elas são uma linha JSON. */
@@ -115,6 +117,37 @@ export function parseOptions(raw: string | null | undefined): string[] {
   try {
     const parsed = JSON.parse(raw);
     return Array.isArray(parsed) ? parsed.filter((o): o is string => typeof o === "string") : [];
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * As escolhas de um campo, considerando o campo de que ele depende.
+ *
+ * Campo independente devolve a lista de sempre. Campo dependente lê o valor do
+ * pai e devolve só as escolhas daquele valor — "formato" mostra 9:16 quando o
+ * canal é TikTok, e as medidas de banner quando é o site.
+ *
+ * Pai ainda em branco devolve lista vazia, de propósito: oferecer todos os
+ * formatos de todos os canais é exatamente o que esta função existe para
+ * evitar, e um seletor vazio com a dica certa diz "escolha o canal primeiro"
+ * melhor do que uma lista que aceita a combinação errada.
+ */
+export function optionsFor(
+  field: FieldShape,
+  values: Record<string, unknown>
+): string[] {
+  if (!field.dependsOn) return parseOptions(field.options);
+
+  const pai = values[field.dependsOn];
+  if (typeof pai !== "string" || !pai) return [];
+
+  try {
+    const mapa = JSON.parse(field.options || "{}");
+    if (Array.isArray(mapa) || typeof mapa !== "object" || !mapa) return [];
+    const lista = (mapa as Record<string, unknown>)[pai];
+    return Array.isArray(lista) ? lista.filter((o): o is string => typeof o === "string") : [];
   } catch {
     return [];
   }
@@ -183,7 +216,16 @@ export function validateValues(
         break;
 
       case "MULTISELECT": {
-        const options = parseOptions(field.options);
+        /*
+         * `incoming`, e não `values`: a lista do pai precisa ser resolvida
+         * independentemente da ORDEM dos campos.
+         *
+         * `values` só tem o que já foi validado, então um campo dependente que
+         * apareça antes do pai no formulário veria o pai em branco e recusaria
+         * toda escolha — com a mensagem "não é uma opção", que manda procurar o
+         * erro no valor quando ele está na ordem.
+         */
+        const options = optionsFor(field, incoming);
         const chosen = (Array.isArray(raw) ? raw : [raw]).map(String);
         const invalid = chosen.find((c) => !options.includes(c));
         if (invalid) {
@@ -194,7 +236,7 @@ export function validateValues(
       }
 
       case "SELECT": {
-        const options = parseOptions(field.options);
+        const options = optionsFor(field, incoming);
         const chosen = String(raw);
         if (!options.includes(chosen)) {
           return { ok: false, error: `"${chosen}" não é uma opção de "${field.label}".`, values: {} };
@@ -324,41 +366,92 @@ export function isOverdue(dueDate: Date | string | null | undefined): boolean {
 /**
  * O que o card mostra na frente, sem precisar ser aberto.
  *
- * Os campos definíveis já têm o seu `showOnCard` — isto é o equivalente para os
- * quatro atributos que todo card tem de nascença e que nenhum formulário
- * pergunta: prazo, dono, etapa e urgência. Sem essa configuração eles eram uma
- * decisão tomada dentro do componente do quadro, igual para todo time: quem
- * trabalha com prazo curto precisa da data em destaque, quem divide a fila por
- * pessoa precisa do responsável, e quem só olha uma etapa por vez não precisa
- * de nenhum dos dois.
+ * Um lugar só, e não três. Até aqui a resposta a "o que aparece no card?"
+ * estava espalhada: quatro atributos aqui, o `showOnCard` de cada campo na tela
+ * de campos, e o resto — briefing, peças de copy, link, anexos — cravado dentro
+ * do componente do quadro, sem opção nenhuma. Quem queria enxugar o card tinha
+ * de descobrir sozinho qual das três decidia o quê, e a terceira não decidia:
+ * era código.
+ *
+ * `default` é o que vale antes de alguém escolher, e foi escolhido para não
+ * mudar nada em quadro nenhum: o que o card já mostrava continua mostrando.
+ *
+ * `legacy` marca os quatro que existiam quando a configuração era uma lista de
+ * chaves ligadas. Ver `parseCardBadges` — é essa marca que permite ler as
+ * configurações antigas sem ressuscitar o que alguém desligou de propósito.
  */
 export const CARD_BADGES = [
   {
     key: "priority",
     label: "Urgência",
     hint: "A prioridade da demanda, na cor dela.",
+    default: true,
+    legacy: true,
   },
   {
     key: "dueDate",
     label: "Data",
     hint: "O prazo de entrega — em vermelho quando vencido.",
+    default: true,
+    legacy: true,
   },
   {
     key: "assignee",
     label: "Responsável",
-    hint: "Quem assumiu o card, pelo avatar e pela sigla.",
+    hint: "Quem assumiu o card, no rodapé à direita.",
+    default: true,
+    legacy: true,
   },
   {
     key: "stage",
     label: "Etapa",
     hint: "A coluna em que o card está. Útil fora do quadro, na busca e no filtro.",
+    default: false,
+    legacy: true,
+  },
+  {
+    key: "labels",
+    label: "Etiquetas",
+    hint: "Vídeo, Feed, Stories — as etiquetas que acendem pelo que a demanda respondeu.",
+    default: true,
+  },
+  {
+    key: "briefing",
+    label: "Briefing",
+    hint: "As primeiras linhas do contexto escrito na abertura — ou do briefing que o gerador montou.",
+    default: false,
+  },
+  {
+    key: "pieces",
+    label: "Peças de copy",
+    hint: "Quantas variações de texto há dentro do card.",
+    default: true,
+  },
+  {
+    key: "link",
+    label: "Link de referência",
+    hint: "A pasta ou o material de apoio, clicável direto do quadro.",
+    default: true,
+  },
+  {
+    key: "attachments",
+    label: "Anexos",
+    hint: "O clipe com os arquivos que vieram junto da demanda.",
+    default: true,
   },
 ] as const;
 
 export type CardBadgeKey = (typeof CARD_BADGES)[number]["key"];
 
-/** O que o quadro mostra enquanto ninguém escolheu — o card de sempre. */
-export const DEFAULT_CARD_BADGES: CardBadgeKey[] = ["priority", "dueDate", "assignee"];
+/** O que o quadro mostra enquanto ninguém escolheu. */
+export const DEFAULT_CARD_BADGES: CardBadgeKey[] = CARD_BADGES.filter((b) => b.default).map(
+  (b) => b.key
+);
+
+/** As quatro chaves que a configuração antiga, em lista, sabia nomear. */
+const LEGACY_BADGES: CardBadgeKey[] = CARD_BADGES.filter(
+  (b) => "legacy" in b && b.legacy
+).map((b) => b.key);
 
 export function isCardBadge(value: unknown): value is CardBadgeKey {
   return typeof value === "string" && CARD_BADGES.some((b) => b.key === value);
@@ -371,29 +464,64 @@ function canonicalOrder(keys: Iterable<string>): CardBadgeKey[] {
 }
 
 /**
- * A configuração gravada, de volta como lista.
+ * A configuração gravada, de volta como lista do que aparece.
  *
- * Nulo e lista vazia são coisas diferentes, e é por isso que a coluna aceita
- * nulo: nulo é "nunca foi configurado", e vale o padrão; `[]` é uma escolha de
- * alguém que quer o card limpo, só com o título. Tratar os dois como iguais
- * faria os badges voltarem sozinhos no primeiro recarregamento.
+ * Grava-se um MAPA de decisões, e não a lista do que está ligado, porque a
+ * lista não distingue duas coisas que precisam ser distintas: "desliguei isto"
+ * e "isto ainda não existia quando eu configurei". Com uma lista, todo item
+ * novo nasceria desligado nos quadros já configurados — o card perderia o link
+ * e os anexos que hoje mostra, sem ninguém ter pedido. No mapa, a ausência é
+ * "nunca decidi", e vale o padrão do catálogo.
+ *
+ * Três formatos entram aqui:
+ *
+ * - **nulo** — nunca configurado. Vale o padrão inteiro.
+ * - **mapa** — o formato de agora. Cada chave presente é uma decisão.
+ * - **lista** — o formato antigo, que só sabia nomear os quatro de `legacy`.
+ *   Entre eles, estar fora da lista é uma decisão de desligar e é respeitada;
+ *   para os demais, a lista nada diz, e vale o padrão.
  */
 export function parseCardBadges(raw: string | null | undefined): CardBadgeKey[] {
   if (raw === null || raw === undefined) return [...DEFAULT_CARD_BADGES];
 
+  let parsed: unknown;
   try {
-    const parsed = JSON.parse(raw);
-    if (!Array.isArray(parsed)) return [...DEFAULT_CARD_BADGES];
-    return canonicalOrder(parsed.map(String));
+    parsed = JSON.parse(raw);
   } catch {
     return [...DEFAULT_CARD_BADGES];
   }
+
+  if (Array.isArray(parsed)) {
+    const listados = new Set(parsed.map(String).filter(isCardBadge));
+    const decididos = LEGACY_BADGES.filter((k) => listados.has(k));
+    const novos = CARD_BADGES.filter((b) => !LEGACY_BADGES.includes(b.key) && b.default).map(
+      (b) => b.key
+    );
+    return canonicalOrder([...decididos, ...novos]);
+  }
+
+  if (parsed && typeof parsed === "object") {
+    const mapa = parsed as Record<string, unknown>;
+    return canonicalOrder(
+      CARD_BADGES.filter((b) => (b.key in mapa ? !!mapa[b.key] : b.default)).map((b) => b.key)
+    );
+  }
+
+  return [...DEFAULT_CARD_BADGES];
 }
 
-/** A lista vinda da tela, pronta para gravar. Sempre texto: `[]` precisa caber. */
+/**
+ * A escolha vinda da tela, pronta para gravar.
+ *
+ * Sai como mapa com TODAS as chaves do catálogo, inclusive as falsas: a tela
+ * sempre manda a intenção completa, e gravá-la completa é o que torna cada
+ * ausência futura legível como "isto é novo" em vez de "isto está desligado".
+ */
 export function serializeCardBadges(value: unknown): string {
-  const list = Array.isArray(value) ? value.map(String) : [];
-  return JSON.stringify(canonicalOrder(list));
+  const ligados = new Set(canonicalOrder(Array.isArray(value) ? value.map(String) : []));
+  return JSON.stringify(
+    Object.fromEntries(CARD_BADGES.map((b) => [b.key, ligados.has(b.key)]))
+  );
 }
 
 /**
@@ -473,6 +601,10 @@ export interface GroupDefinition {
   name: string;
   color: string;
   position: number;
+  /** Quem responde por esta fase, em JSON de e-mails. Ver `ownershipOf`. */
+  assignees?: string | null;
+  /** Quem assume, das pessoas acima, quando um card entra na fase. */
+  defaultAssignee?: string | null;
 }
 
 /** Uma faixa do quadro: a fase e as etapas que ela cobre. */
@@ -526,10 +658,13 @@ export function groupColumns<T extends { id: string; position: number; groupId?:
 /**
  * Quem responde por uma etapa.
  *
- * JSON de siglas, e não uma tabela de ligação: a sigla é o vocabulário que já
- * liga uma pessoa ao anúncio que ela assina (`lib/designer-match.ts`), a lista
- * é curta, e só se lê junto com a coluna. Uma tabela nova daria um `JOIN` a
- * cada carga do quadro para responder "quem pode assumir isto aqui".
+ * JSON de e-mails, e não uma tabela de ligação: a lista é curta e só se lê
+ * junto com a coluna, e uma tabela nova daria um `JOIN` a cada carga do quadro
+ * para responder "quem pode assumir isto aqui".
+ *
+ * E-mail, e não sigla, porque quem toca uma demanda não é necessariamente quem
+ * desenha peças — a sigla pertence a `Creator`, que existe para atribuir
+ * criativos, e chavear o quadro por ela deixava mídia paga e conteúdo de fora.
  */
 export function parseAssignees(value: string | null | undefined): string[] {
   if (!value) return [];
@@ -538,8 +673,8 @@ export function parseAssignees(value: string | null | undefined): string[] {
     if (!Array.isArray(parsed)) return [];
     const limpas = parsed
       .filter((s): s is string => typeof s === "string")
-      .map((s) => s.trim().toUpperCase())
-      .filter(Boolean);
+      .map(normalizePerson)
+      .filter((s): s is string => !!s);
     return Array.from(new Set(limpas));
   } catch {
     return [];
@@ -553,11 +688,24 @@ export function serializeAssignees(list: unknown): string | null {
     new Set(
       list
         .filter((s): s is string => typeof s === "string")
-        .map((s) => s.trim().toUpperCase())
-        .filter(Boolean)
+        .map(normalizePerson)
+        .filter((s): s is string => !!s)
     )
   );
   return limpas.length ? JSON.stringify(limpas) : null;
+}
+
+/**
+ * A forma canônica de uma pessoa no quadro: o e-mail, em minúsculas.
+ *
+ * Uma função só, usada por todo lado, porque comparação de pessoa acontece em
+ * cinco lugares diferentes aqui dentro — e bastava um deles esquecer o
+ * `toLowerCase` para "Ana@x.com" e "ana@x.com" virarem duas pessoas, com o
+ * seletor recusando quem o card mostra como dono.
+ */
+export function normalizePerson(value: string | null | undefined): string | null {
+  const limpo = value?.trim().toLowerCase();
+  return limpo || null;
 }
 
 export interface StageOwnership {
@@ -566,33 +714,63 @@ export interface StageOwnership {
 }
 
 /**
+ * Quem responde por uma etapa — que é sempre quem responde pela FASE dela.
+ *
+ * A equipe mora no grupo, não na coluna: a fase É o time. "Produção" nomeia um
+ * conjunto de pessoas tanto quanto um trecho do fluxo, e repetir a mesma
+ * equipe em cada etapa da fase era descrever três vezes o mesmo fato — e
+ * garantir que um dia as três divergissem.
+ *
+ * Etapa solta, sem fase, não tem equipe: qualquer pessoa pode assumir. É o
+ * estado de todo quadro antes de alguém desenhar o processo, e continua sendo
+ * o padrão de quem nunca criou uma fase.
+ *
+ * Esta função é a única ponte entre coluna e equipe. Todo o resto do sistema
+ * recebe a `StageOwnership` já resolvida e não precisa saber de onde ela veio —
+ * é o que permitiu mudar o eixo sem reescrever as regras.
+ */
+export function ownershipOf<G extends StageOwnership & { id: string }>(
+  column: { groupId?: string | null } | null | undefined,
+  groups: G[]
+): StageOwnership {
+  if (!column?.groupId) return {};
+  return groups.find((g) => g.id === column.groupId) ?? {};
+}
+
+/**
  * Quem fica com o card ao chegar nesta etapa.
  *
  * Três situações, nesta ordem:
  *
- * 1. **Etapa sem equipe** — nada muda. É o quadro de antes de existir a regra,
+ * 1. **Fase sem equipe** — nada muda. É o quadro de antes de existir a regra,
  *    e continua sendo o padrão de quem nunca configurou.
  * 2. **O dono atual é da equipe** — fica. Quem já estava tocando a demanda não
  *    é substituído só porque ela avançou.
- * 3. **O dono atual não é da equipe (ou não há dono)** — entra o padrão da
- *    etapa. É a passagem de bastão: a copy sai das mãos de quem escreveu e cai
+ * 3. **O dono atual não é da equipe (ou não há dono)** — entra o PRIMEIRO da
+ *    equipe. É a passagem de bastão: a copy sai das mãos de quem escreveu e cai
  *    nas de quem desenha, sem ninguém precisar lembrar de repassar.
  *
- * Sem padrão definido, o dono anterior **fica** em vez de ser apagado: perder o
- * responsável em silêncio ao mover um card seria pior que um responsável
- * desatualizado, que ao menos se vê no quadro.
+ * A ordem da lista é a resposta para "qual deles". Escolher a equipe já diz
+ * quem responde pela fase; pedir um segundo clique para eleger um padrão era
+ * perguntar duas vezes a mesma coisa — e quem esquecesse o segundo ficava com
+ * cards de Growth sob responsabilidade de alguém da Criação, em silêncio.
+ *
+ * `defaultAssignee` ainda é honrado quando existe, para não invalidar quadros
+ * configurados antes desta regra, mas nada na tela o define mais.
  */
 export function resolveStageAssignee(
   column: StageOwnership,
   current: string | null | undefined
 ): string | null {
   const equipe = parseAssignees(column.assignees);
-  const dono = current?.trim().toUpperCase() || null;
+  const dono = normalizePerson(current);
   if (!equipe.length) return dono;
   if (dono && equipe.includes(dono)) return dono;
 
-  const padrao = column.defaultAssignee?.trim().toUpperCase() || null;
-  return padrao && equipe.includes(padrao) ? padrao : dono;
+  const escolhido = normalizePerson(column.defaultAssignee);
+  const padrao = escolhido && equipe.includes(escolhido) ? escolhido : equipe[0];
+
+  return padrao ?? dono;
 }
 
 /**
@@ -603,8 +781,8 @@ export function resolveStageAssignee(
  * demanda de revisão chegaria carimbada com o nome de quem a desenhou, e o
  * seletor recusaria a mesma pessoa que o card mostra como dona.
  */
-export function stageAccepts(column: StageOwnership, acronym: string | null | undefined): boolean {
-  const dono = acronym?.trim().toUpperCase();
+export function stageAccepts(column: StageOwnership, person: string | null | undefined): boolean {
+  const dono = normalizePerson(person);
   if (!dono) return false;
 
   const equipe = parseAssignees(column.assignees);
@@ -612,14 +790,14 @@ export function stageAccepts(column: StageOwnership, acronym: string | null | un
 }
 
 /** As pessoas que esta etapa aceita — vazio é "qualquer uma do quadro". */
-export function stageCandidates<T extends { acronym: string }>(
+export function stageCandidates<T extends { email: string }>(
   column: StageOwnership | null | undefined,
   everyone: T[]
 ): T[] {
   const equipe = column ? parseAssignees(column.assignees) : [];
   if (!equipe.length) return everyone;
 
-  const daEtapa = everyone.filter((p) => equipe.includes(p.acronym.toUpperCase()));
+  const daEtapa = everyone.filter((p) => equipe.includes(p.email.toLowerCase()));
   /*
    * Equipe cujas siglas não casam com ninguém do cadastro devolve o quadro
    * inteiro. A pessoa pode ter saído da empresa depois de a etapa ser
@@ -627,4 +805,350 @@ export function stageCandidates<T extends { acronym: string }>(
    * um quadro travado por uma configuração velha.
    */
   return daEtapa.length ? daEtapa : everyone;
+}
+
+/** Uma etapa e a fase dela, na ordem em que o quadro deve gravá-las. */
+export interface ColumnPlacement {
+  id: string;
+  groupId: string | null;
+}
+
+/**
+ * Onde a etapa arrastada fica, e em que fase ela passa a estar.
+ *
+ * A etapa é retirada da fila e reinserida no índice que a etapa-alvo ocupava —
+ * o que faz o alvo ceder o lugar e andar para a direita. Funciona igual nos
+ * dois sentidos, sem precisar saber se o arrasto foi para frente ou para trás.
+ *
+ * **A fase vem junto.** Soltar uma etapa no meio da faixa "Produção" só pode
+ * significar que ela é de produção; mantê-la na fase antiga faria
+ * `groupColumns` puxá-la de volta para perto das irmãs, e o arrasto pareceria
+ * não ter funcionado. Por isso ela adota a fase do alvo — inclusive quando o
+ * alvo é uma etapa solta, e aí ela também fica solta.
+ *
+ * Devolve a lista inteira, e não só o que mudou: posição é ordem relativa, e
+ * gravar uma etapa por vez deixa o quadro com duas na mesma posição no
+ * intervalo entre as chamadas.
+ */
+export function reorderColumns<T extends { id: string; position: number; groupId?: string | null }>(
+  columns: T[],
+  dragId: string,
+  targetId: string
+): ColumnPlacement[] {
+  const ordenadas = [...columns].sort((a, b) => a.position - b.position);
+
+  const arrastada = ordenadas.find((c) => c.id === dragId);
+  const alvo = ordenadas.find((c) => c.id === targetId);
+  if (!arrastada || !alvo || dragId === targetId) {
+    return ordenadas.map((c) => ({ id: c.id, groupId: c.groupId ?? null }));
+  }
+
+  const restantes = ordenadas.filter((c) => c.id !== dragId);
+  const destino = restantes.findIndex((c) => c.id === targetId);
+
+  const fila: ColumnPlacement[] = restantes.map((c) => ({ id: c.id, groupId: c.groupId ?? null }));
+  fila.splice(destino, 0, { id: dragId, groupId: alvo.groupId ?? null });
+
+  return fila;
+}
+
+/**
+ * Quem fica com o card depois de alguém arrastá-lo para outra etapa.
+ *
+ * Mover deixou de ser só transporte: passou a ser um jeito de assumir. Quem
+ * puxa a demanda para a sua etapa está dizendo que vai tocá-la, e obrigar essa
+ * pessoa a abrir o card e se escolher num seletor era pedir que ela repetisse,
+ * num formulário, o que o gesto já disse.
+ *
+ * A ordem de precedência:
+ *
+ * 1. **A escolha explícita.** É a resposta ao "quem assume?" que a tela faz ao
+ *    soltar o card numa etapa que exige dono. Alguém respondeu a pergunta; a
+ *    resposta vale mais que qualquer dedução.
+ * 2. **Quem moveu**, se a etapa o aceitar. É a regra nova.
+ * 3. **A regra da etapa**, quando quem moveu não responde por ali — o dono
+ *    atual fica, ou entra o padrão da etapa. Ver `resolveStageAssignee`.
+ *
+ * O passo 3 é o que impede o gesto de atropelar o desenho do fluxo: quem
+ * escreve a copy não passa a aprovar a arte só por ter arrastado o card até
+ * lá. A equipe da etapa continua sendo quem decide quem pode assumir; mover
+ * apenas escolhe **entre** os que podem.
+ *
+ * Atenção ao caso da etapa sem equipe: `stageAccepts` aceita qualquer um, então
+ * ali quem move sempre assume. É deliberado — é o quadro que ninguém
+ * configurou, e nele o gesto é a única informação disponível.
+ */
+export function resolveMoveAssignee(
+  column: StageOwnership & { requiresAssignee?: boolean },
+  current: string | null | undefined,
+  mover: string | null | undefined,
+  explicit?: string | null
+): string | null {
+  const escolhido = normalizePerson(explicit);
+  if (escolhido) return resolveStageAssignee(column, escolhido);
+
+  const quemMoveu = normalizePerson(mover);
+  if (quemMoveu && stageAccepts(column, quemMoveu)) return quemMoveu;
+
+  return resolveStageAssignee(column, current);
+}
+
+/**
+ * Quem responde pela demanda depois de alguém movê-la.
+ *
+ * Duas situações bem diferentes, e a distinção é o coração desta regra:
+ *
+ * - **Chegar numa fase** — a demanda passa a ser do TIME inteiro. Ninguém foi
+ *   eleito ainda; o que aconteceu é que há trabalho novo na fila daquele time,
+ *   e todos precisam vê-lo. É o estado de uma demanda no backlog.
+ *
+ * - **Agir dentro da fase** — quem move o card para produção está dizendo "eu
+ *   pego". Aí a demanda vira de uma pessoa só, e os outros saem: um card em
+ *   produção sob o nome de seis pessoas não diz quem está fazendo, e é
+ *   exatamente na produção que essa pergunta importa.
+ *
+ * Fase sem equipe mantém o comportamento antigo — quem move assume —, que é o
+ * padrão de quem nunca desenhou o processo.
+ *
+ * A atribuição manual sobrevive a tudo isto: ela acontece pelo painel do card,
+ * por outro caminho, e não passa por aqui.
+ */
+export function resolveMoveAssignees(
+  destino: StageOwnership,
+  mudouDeFase: boolean,
+  atuais: string[],
+  mover: string | null | undefined
+): string[] {
+  const equipe = parseAssignees(destino.assignees);
+  const quemMoveu = normalizePerson(mover);
+
+  if (!equipe.length) return quemMoveu ? [quemMoveu] : atuais;
+  if (mudouDeFase) return equipe;
+  if (quemMoveu && equipe.includes(quemMoveu)) return [quemMoveu];
+
+  return atuais;
+}
+
+/* ------------------------------------------------------------------ *
+ * Etiquetas
+ * ------------------------------------------------------------------ */
+
+/**
+ * Uma etiqueta do quadro.
+ *
+ * Não é um texto digitado card a card: é uma REGRA sobre o que a demanda já
+ * respondeu. "Vídeo" acende porque o formato escolhido é de vídeo, e não
+ * porque alguém lembrou de marcar — assim a etiqueta não pode discordar do
+ * briefing, que é o defeito de toda etiqueta manual: ela envelhece na primeira
+ * vez que o formato muda e ninguém volta para corrigir.
+ */
+export interface CardLabel {
+  id: string;
+  name: string;
+  /** Token do design system — ver `LABEL_COLORS`. */
+  color: string;
+  /** A chave do campo do formulário que a etiqueta observa. */
+  fieldKey: string;
+  /**
+   * Os termos que a acendem. Basta o valor do campo CONTER um deles, sem
+   * distinguir maiúsculas nem acentos.
+   *
+   * Contém, e não é igual, porque a lista de formatos cresce: "Vídeo 1:1" e
+   * "Vídeo 9:16" já existem, "Vídeo 4:5" vai existir, e uma regra de igualdade
+   * exata precisaria ser reeditada a cada formato novo — quer dizer, ela ficaria
+   * desatualizada em silêncio, que é o pior jeito de ficar.
+   */
+  match: string[];
+}
+
+/** As cores de uma etiqueta — os mesmos tokens das fases, pelo mesmo motivo. */
+export const LABEL_COLORS = GROUP_COLORS;
+
+export const DEFAULT_LABEL_COLOR = "var(--info)";
+
+/**
+ * As etiquetas que valem enquanto ninguém configurou nada.
+ *
+ * Respondem à pergunta que o quadro faz o tempo todo — "isto é vídeo ou é
+ * estático?" —, que é a primeira coisa que muda quem pega a demanda: peça
+ * estática vai para o design, vídeo vai para edição.
+ *
+ * Feed e Stories aparecem separadas, e não como uma etiqueta "Feed/Stories":
+ * o campo de formato aceita mais de uma escolha, então uma peça pedida para os
+ * dois lugares mostra as duas etiquetas e diz mais do que uma etiqueta
+ * composta diria.
+ */
+export const DEFAULT_CARD_LABELS: CardLabel[] = [
+  { id: "video", name: "Vídeo", color: "var(--info)", fieldKey: "formato", match: ["video", "youtube", "spark ad"] },
+  { id: "feed", name: "Feed", color: "var(--primary)", fieldKey: "formato", match: ["feed"] },
+  { id: "stories", name: "Stories", color: "var(--warning)", fieldKey: "formato", match: ["story", "stories"] },
+];
+
+/** Sem acento e sem caixa: "Vídeo" e "video" são a mesma palavra para quem lê. */
+function foldTerm(value: string): string {
+  return value
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .trim();
+}
+
+/**
+ * A configuração gravada, de volta como lista.
+ *
+ * Nulo e lista vazia são coisas diferentes, como nos badges: nulo é "nunca foi
+ * configurado", e valem as etiquetas padrão; `[]` é a escolha de quem não quer
+ * etiqueta nenhuma. Tratar os dois como iguais faria as padrões voltarem
+ * sozinhas no primeiro recarregamento.
+ */
+export function parseCardLabels(raw: string | null | undefined): CardLabel[] {
+  if (raw === null || raw === undefined) return DEFAULT_CARD_LABELS.map((l) => ({ ...l }));
+
+  try {
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return DEFAULT_CARD_LABELS.map((l) => ({ ...l }));
+    return sanitizeLabels(parsed);
+  } catch {
+    return DEFAULT_CARD_LABELS.map((l) => ({ ...l }));
+  }
+}
+
+/** Fica só o que é utilizável: etiqueta sem nome, sem campo ou sem termo não acende nunca. */
+function sanitizeLabels(list: unknown[]): CardLabel[] {
+  const vistos = new Set<string>();
+  const limpas: CardLabel[] = [];
+
+  for (const bruto of list) {
+    if (!bruto || typeof bruto !== "object") continue;
+    const item = bruto as Record<string, unknown>;
+
+    const id = String(item.id ?? "").trim();
+    const name = String(item.name ?? "").trim().slice(0, 40);
+    const fieldKey = String(item.fieldKey ?? "").trim();
+    const match = Array.isArray(item.match)
+      ? Array.from(new Set(item.match.map((t) => String(t).trim()).filter(Boolean))).slice(0, 20)
+      : [];
+
+    if (!id || !name || !fieldKey || !match.length) continue;
+    if (vistos.has(id)) continue;
+    vistos.add(id);
+
+    const color = LABEL_COLORS.some((c) => c.token === item.color)
+      ? String(item.color)
+      : DEFAULT_LABEL_COLOR;
+
+    limpas.push({ id, name, color, fieldKey, match });
+  }
+
+  return limpas;
+}
+
+/** A lista vinda da tela, pronta para gravar. Sempre texto: `[]` precisa caber. */
+export function serializeCardLabels(value: unknown): string {
+  return JSON.stringify(Array.isArray(value) ? sanitizeLabels(value) : []);
+}
+
+/**
+ * As etiquetas que acendem para um card, na ordem em que foram configuradas.
+ *
+ * Lê as respostas do formulário, e nada mais: não há estado de etiqueta gravado
+ * no card para sair de sincronia com o briefing.
+ */
+export function labelsForCard(
+  values: Record<string, unknown>,
+  labels: CardLabel[]
+): CardLabel[] {
+  return labels.filter((label) => {
+    const bruto = values[label.fieldKey];
+    if (bruto === undefined || bruto === null || bruto === "") return false;
+
+    const respostas = (Array.isArray(bruto) ? bruto : [bruto]).map((v) => foldTerm(String(v)));
+
+    return label.match.some((termo) => {
+      const alvo = foldTerm(termo);
+      return !!alvo && respostas.some((r) => r.includes(alvo));
+    });
+  });
+}
+
+/**
+ * O briefing reduzido a uma linha de texto simples.
+ *
+ * O briefing é markdown — o gerador o monta com **negritos** e uma linha por
+ * assunto. Jogado cru num card, ele aparece com os asteriscos à mostra e ocupa
+ * a altura de um parágrafo. Aqui a marcação sai, as quebras viram separadores
+ * e o que sobra é uma linha que o card corta onde couber.
+ */
+export function plainSummary(markdown: string | null | undefined): string {
+  if (!markdown) return "";
+
+  return markdown
+    .replace(/```[\s\S]*?```/g, " ")
+    .replace(/!\[[^\]]*\]\([^)]*\)/g, " ")
+    // Link vira o texto dele: a URL não cabe, e o rótulo é o que informa.
+    .replace(/\[([^\]]*)\]\([^)]*\)/g, "$1")
+    .replace(/[*_`#>]/g, "")
+    .split(/\r?\n/)
+    .map((linha) => linha.trim())
+    .filter(Boolean)
+    .join(" · ")
+    .replace(/[ \t]+/g, " ")
+    .trim();
+}
+
+/**
+ * A opção do campo que corresponde a um valor vindo de fora.
+ *
+ * O gerador de copy e o formulário de demanda têm listas próprias para as
+ * mesmas coisas — "Meta" de um lado, "Meta Ads" do outro. Para o card vindo do
+ * gerador responder às mesmas configurações de exibição que os demais, o valor
+ * precisa chegar ao campo escrito como o campo o escreve.
+ *
+ * Só devolve o que reconhece SEM ambiguidade: igual, ou uma única opção que
+ * contenha o valor (ou seja contida por ele). Duas candidatas devolvem nulo, e
+ * o campo fica vazio — um palpite gravaria no card uma resposta que a pessoa
+ * não deu, e que ninguém saberia de onde veio.
+ */
+export function matchOption(value: string | null | undefined, options: string[]): string | null {
+  const alvo = foldTerm(String(value ?? ""));
+  if (!alvo) return null;
+
+  const exata = options.find((o) => foldTerm(o) === alvo);
+  if (exata) return exata;
+
+  const parecidas = options.filter((o) => {
+    const op = foldTerm(o);
+    return op.includes(alvo) || alvo.includes(op);
+  });
+
+  return parecidas.length === 1 ? parecidas[0] : null;
+}
+
+/**
+ * Quanto texto cabe na frente de um card.
+ *
+ * O card não é lugar de ler o briefing — é lugar de reconhecer a demanda. Duas
+ * ou três frases dizem se é aquela que se procura; o resto está a um clique.
+ * Sem um teto, um briefing bem escrito empurra os cards seguintes para fora da
+ * tela, e a coluna deixa de ser legível de uma olhada.
+ */
+export const CARD_TEXT_LIMIT = 250;
+
+/**
+ * Corta o texto no limite, preferindo a última palavra inteira.
+ *
+ * Cortar no caractere exato parte palavra ao meio — "iPhone 17 Pro Ma…" — e a
+ * reticência passa a parecer erro em vez de continuação. Recuar até o espaço
+ * anterior só vale enquanto sobrar texto suficiente; num texto sem espaços, o
+ * corte seco é o único possível.
+ */
+export function clampText(text: string, limit = CARD_TEXT_LIMIT): string {
+  const limpo = text.trim();
+  if (limpo.length <= limit) return limpo;
+
+  const corte = limpo.slice(0, limit);
+  const ultimoEspaco = corte.lastIndexOf(" ");
+  const base = ultimoEspaco > limit * 0.6 ? corte.slice(0, ultimoEspaco) : corte;
+
+  return `${base.trimEnd()}…`;
 }

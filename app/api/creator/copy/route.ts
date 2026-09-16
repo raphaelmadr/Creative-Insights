@@ -17,8 +17,8 @@ import {
   briefAudienceName,
   type CopyBrief,
 } from "@/lib/creator-copy";
-import { copyTargetBoard, topPosition, logActivity } from "@/lib/kanban-store";
-import { isPriority, parseDueDate } from "@/lib/kanban";
+import { copyTargetBoard, groupIntake, topPosition, logActivity } from "@/lib/kanban-store";
+import { isPriority, matchOption, optionsFor, parseDueDate, serializeAssignees } from "@/lib/kanban";
 import {
   buildCopyCardTitle,
   clampVariations,
@@ -45,15 +45,63 @@ export async function GET() {
     const column = target
       ? await prisma.boardColumn.findUnique({
           where: { id: target.columnId },
-          select: { name: true },
+          select: { name: true, groupId: true },
         })
       : null;
+
+    /*
+     * Os grupos do quadro, com a etapa em que cada um recebe o que chega.
+     *
+     * A tela precisa da etapa para dizer a verdade: ela anuncia onde a copy vai
+     * cair antes de enviar, e esse destino muda conforme o time escolhido. Sem
+     * isso, o aviso continuaria mostrando a etapa do grupo padrão qualquer que
+     * fosse a escolha.
+     */
+    const etapas = target
+      ? await prisma.boardColumn.findMany({
+          where: { boardId: target.board.id },
+          orderBy: { position: "asc" },
+          select: { name: true, groupId: true },
+        })
+      : [];
+
+    const groups = target
+      ? (
+          await prisma.boardGroup.findMany({
+            where: { boardId: target.board.id },
+            orderBy: { position: "asc" },
+            select: { id: true, name: true },
+          })
+        )
+          .map((g) => ({
+            ...g,
+            columnName: etapas.find((e) => e.groupId === g.id)?.name ?? null,
+          }))
+          /*
+           * Grupo sem etapa nenhuma não entra na lista: escolhê-lo mandaria a
+           * copy para a entrada do quadro, que é de outro time, sem nada na
+           * tela dizendo que foi isso que aconteceu.
+           */
+          .filter((g) => g.columnName)
+      : [];
 
     return NextResponse.json({
       success: true,
       aiConfigured: await isAiConfigured(),
+      groups,
       target: target
-        ? { boardId: target.board.id, boardName: target.board.name, columnName: column?.name ?? null }
+        ? {
+            boardId: target.board.id,
+            boardName: target.board.name,
+            columnName: column?.name ?? null,
+            /*
+             * O grupo dono da entrada do quadro é o que a tela já vem marcando.
+             * Não escolher nada tem de continuar fazendo o que sempre fez — a
+             * copy caindo exatamente onde caía —, e agora com o time do grupo
+             * junto, que é o que faltava.
+             */
+            groupId: column?.groupId ?? null,
+          }
         : null,
     });
   } catch (error: any) {
@@ -269,10 +317,76 @@ export async function POST(request: Request) {
      */
     const pecas = parseCopyVariations(finalText).length || clampVariations(brief.variations);
 
+    /*
+     * Para qual time vai a copy.
+     *
+     * Mesma regra do formulário de demanda, e pelo mesmo motivo: o card cai na
+     * primeira etapa do grupo escolhido e nasce com o time inteiro. Até aqui a
+     * copy entrava no quadro sem dono nenhum — chegava na esteira e ficava
+     * esperando alguém reparar nela.
+     */
+    /*
+     * O que o gerador já sabe, escrito nos campos do formulário.
+     *
+     * Sem isto, o card vindo da copy é um card de segunda classe: não responde
+     * às mesmas opções de exibição que os demais — "mostrar o canal" não mostra
+     * nada nele — e nenhuma etiqueta acende, porque as etiquetas leem as
+     * respostas do formulário. Ele tinha a informação; só não a guardava onde o
+     * resto do quadro procura.
+     *
+     * Só entra o que `matchOption` reconhece sem ambiguidade. As duas listas de
+     * formato — a do gerador e a do formulário — hoje não se encontram
+     * ("Estático Feed" de um lado, "Feed 1:1" do outro), e é melhor o campo
+     * ficar vazio do que gravar no card uma resposta que ninguém deu.
+     */
+    const camposDoQuadro = await prisma.boardField.findMany({
+      where: { boardId: target.board.id },
+      orderBy: { position: "asc" },
+    });
+
+    const acharCampo = (chave: string) =>
+      camposDoQuadro.find(
+        (f) => f.key === chave || f.label.trim().toLowerCase() === chave
+      ) ?? null;
+
+    const respostas: Record<string, unknown> = {};
+
+    const campoCanal = acharCampo("canal");
+    const nomeDoCanal = findChannel(brief.channelId)?.label ?? brief.channel ?? null;
+    if (campoCanal && nomeDoCanal) {
+      const escolhida = matchOption(nomeDoCanal, optionsFor(campoCanal, respostas));
+      if (escolhida) {
+        respostas[campoCanal.key] =
+          campoCanal.type === "MULTISELECT" ? [escolhida] : escolhida;
+      }
+    }
+
+    const campoFormato = acharCampo("formato");
+    if (campoFormato && formato) {
+      // Depois do canal, de propósito: o formato depende dele para saber quais
+      // opções existem.
+      const escolhida = matchOption(formato.label, optionsFor(campoFormato, respostas));
+      if (escolhida) {
+        respostas[campoFormato.key] =
+          campoFormato.type === "MULTISELECT" ? [escolhida] : escolhida;
+      }
+    }
+
+    const destino = await groupIntake(target.board.id, { groupId: body.groupId });
+    if (!destino) {
+      return NextResponse.json(
+        { error: "O quadro que recebe copys ainda não tem colunas." },
+        { status: 400 }
+      );
+    }
+
     const card = await prisma.boardCard.create({
       data: {
         boardId: target.board.id,
-        columnId: target.columnId,
+        columnId: destino.columnId,
+        assignees: serializeAssignees(destino.assignees),
+        // Espelho do primeiro, enquanto a versão publicada ainda lê este campo.
+        assigneeEmail: destino.assignees[0] ?? null,
         title:
           String(body.title ?? "").trim().slice(0, 180) ||
           buildCopyCardTitle({
@@ -308,6 +422,7 @@ export async function POST(request: Request) {
           .filter(Boolean)
           .join("\n"),
         copyText: finalText,
+        values: Object.keys(respostas).length ? JSON.stringify(respostas) : null,
         attachments: serializeAttachments(anexos),
         origin: "COPY",
         priority: isPriority(body.priority) ? body.priority : "MEDIA",
@@ -319,7 +434,7 @@ export async function POST(request: Request) {
         dueDate: parseDueDate(body.dueDate),
         requesterEmail: user.email,
         requesterName: user.name,
-        position: await topPosition(target.columnId),
+        position: await topPosition(destino.columnId),
       },
     });
 

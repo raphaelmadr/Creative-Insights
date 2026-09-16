@@ -24,6 +24,22 @@ export async function POST() {
         }
       };
 
+      /*
+       * Batida de vida, a cada 15s.
+       *
+       * O site está atrás da Cloudflare, que derruba a conexão quando a origem
+       * passa ~100s sem mandar byte nenhum. O progresso daqui é irregular por
+       * natureza — uma fonte pode ficar minutos buscando na API da rede antes
+       * de ter o que reportar — e era nesses silêncios que o navegador recebia
+       * "network error" no meio da leitura. O servidor seguia sincronizando,
+       * sozinho, e terminava sem ninguém para contar: o erro na tela não
+       * correspondia a nada no log, porque nada tinha falhado.
+       *
+       * O cliente ignora o que não souber ler, então este quadro não aparece
+       * na barra de progresso — ele só mantém a linha ocupada.
+       */
+      const batida = setInterval(() => send({ type: "ping" }), 15_000);
+
       try {
         const report = await runSync((message, percentage, source) => {
           send({ type: "progress", message, percentage, source });
@@ -63,6 +79,7 @@ export async function POST() {
         await logError("BACKEND_SYNC", error, "/api/sync-all");
         send({ type: "error", error: error?.message || "Erro desconhecido", percentage: 100 });
       } finally {
+        clearInterval(batida);
         try {
           controller.close();
         } catch {

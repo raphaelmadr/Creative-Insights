@@ -354,6 +354,16 @@ model Board {
   /// escolha, e significa nenhum. Ver `parseCardBadges` em `lib/kanban.ts`.
   cardBadges String? @db.Text
 
+  /// As etiquetas do quadro: nome, cor e o que faz cada uma aparecer.
+  ///
+  /// A etiqueta não é digitada card a card — ela é uma REGRA sobre o que a
+  /// demanda já respondeu. "Vídeo" aparece porque o formato escolhido é de
+  /// vídeo, e não porque alguém lembrou de marcar; assim ela não pode
+  /// discordar do briefing, que é o defeito de toda etiqueta manual.
+  ///
+  /// Ver `parseCardLabels` em `lib/kanban.ts` para o formato.
+  cardLabels String? @db.Text
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -386,8 +396,10 @@ model BoardColumn {
   /// Depois dela, é trabalho que ninguém assumiu e que ninguém vai cobrar.
   requiresAssignee Boolean @default(false)
 
-  /// Quem responde por esta etapa, em JSON de siglas (`["RM","JV"]`).
+  /// Substituído pela equipe da FASE (`BoardGroup.assignees`). Mantido
+  /// enquanto a versão publicada ainda o lê; sai com o próximo deploy.
   ///
+  /// Histórico:
   /// Uma etapa não é feita por qualquer um: quem escreve a copy não aprova a
   /// arte. Com a equipe definida, o seletor de responsável do card passa a
   /// oferecer só estas pessoas — a regra sai da cabeça de quem opera e vira
@@ -396,8 +408,9 @@ model BoardColumn {
   /// Vazio é "qualquer um", e é o que todo quadro é antes de alguém configurar.
   assignees String? @db.Text
 
-  /// Quem assume, das pessoas acima, quando o card chega nesta etapa.
+  /// Substituído por `BoardGroup.defaultAssignee`. Ver acima.
   ///
+  /// Histórico:
   /// É o que torna a regra útil sem virar trabalho: sem um padrão, cada card
   /// que avança pede uma escolha que quase sempre é a mesma. Ver
   /// `resolveStageAssignee` em `lib/kanban.ts`.
@@ -450,7 +463,20 @@ model BoardField {
   type String @default("TEXT")
 
   /// Opções do SELECT/MULTISELECT, em JSON. Vazio nos demais tipos.
+  /// As escolhas, em JSON.
+  ///
+  /// Lista simples (`["A","B"]`) no caso comum. Quando `dependsOn` aponta para
+  /// outro campo, vira um mapa do valor daquele campo para as escolhas deste:
+  /// `{"Meta Ads": ["1:1","9:16"], "TikTok Ads": ["9:16"]}`.
   options String? @db.Text
+
+  /// A chave do campo de que este depende — ou nulo, que é o caso comum.
+  ///
+  /// Existe porque "formato" não é uma lista universal: 9:16 é o formato do
+  /// TikTok, 1:1 é de feed, e um banner de site se mede em pixels. Oferecer as
+  /// três listas juntas faz quem preenche escolher um formato que o canal não
+  /// aceita — e o time de design descobre isso no fim, com a peça pronta.
+  dependsOn String?
 
   placeholder String?
   helpText    String? @db.Text
@@ -482,6 +508,22 @@ model BoardGroup {
   /// Token semântico da cor da faixa (ex.: `var(--info)`). Ver `GROUP_COLORS`.
   color    String
   position Int     @default(0)
+
+  /// Quem responde por esta FASE, em JSON de e-mails.
+  ///
+  /// Mora aqui, e não na etapa, porque a fase É o time: "Produção" é o nome de
+  /// um grupo de pessoas tanto quanto de um trecho do fluxo. Repetir a mesma
+  /// equipe em cada etapa da fase era descrever três vezes o mesmo fato — e
+  /// deixar que as três divergissem.
+  ///
+  /// Vazio é "qualquer um", e é o que todo quadro é antes de alguém configurar.
+  assignees String? @db.Text
+
+  /// Quem assume, das pessoas acima, quando um card entra nesta fase.
+  ///
+  /// É o que torna a regra útil sem virar trabalho: sem um padrão, cada card
+  /// que avança pede uma escolha que quase sempre é a mesma.
+  defaultAssignee String?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -515,6 +557,28 @@ model BoardCard {
 
   /// A sigla do criador responsável — o mesmo vocabulário que liga um anúncio
   /// ao seu dono em `AdCreative.designer`. Ver `lib/designer-match.ts`.
+  /// Quem responde por esta demanda, em JSON de e-mails.
+  ///
+  /// VÁRIOS, e não um: quando a demanda chega a uma fase, ela chega para o
+  /// time todo — os seis da Criação veem que há trabalho novo. Só quando
+  /// alguém a puxa para produção é que ela vira de uma pessoa, e os outros
+  /// saem. Um responsável único obrigava a eleger alguém no instante da
+  /// abertura, que é justamente quando ninguém sabe quem vai pegar.
+  ///
+  /// JSON e não tabela de ligação, pelo mesmo motivo de `BoardGroup.assignees`:
+  /// a lista é curta e só se lê junto com o card.
+  assignees String? @db.Text
+
+  /// Substituído por `assignees`. Mantido enquanto a versão publicada o lê.
+  ///
+  /// É o USUÁRIO, e não o criador. Quem toca uma demanda pode ser de mídia
+  /// paga, de conteúdo ou de qualquer outro time — `Creator` existe para
+  /// atribuir criativos a quem os desenhou, e usá-lo aqui excluía do quadro
+  /// todo mundo que não desenha peça.
+  assigneeEmail String?
+
+  /// Substituído por `assigneeEmail`. Mantido enquanto a versão publicada
+  /// ainda o lê; sai assim que o novo build estiver no ar.
   assigneeAcronym String?
 
   /// As respostas dos campos definíveis, em JSON, no mesmo espírito de

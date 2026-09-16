@@ -10,7 +10,6 @@ import { NextResponse } from "next/server";
 import prisma from "@/lib/prisma";
 import { getCurrentUser } from "@/lib/auth";
 import { intakeColumnId } from "@/lib/kanban-store";
-import { parseAssignees, serializeAssignees } from "@/lib/kanban";
 
 export async function POST(request: Request) {
   const user = await getCurrentUser();
@@ -58,9 +57,37 @@ export async function PUT(request: Request) {
      * outra pessoa carrega a página e vê a ordem errada.
      */
     if (Array.isArray(body.order)) {
+      /*
+       * Cada item é um id, ou `{ id, groupId }` quando o arrasto também mudou a
+       * fase da etapa.
+       *
+       * As duas coisas viajam juntas de propósito: arrastar uma etapa para
+       * dentro de outra faixa é um gesto só, e gravá-lo em duas chamadas deixa
+       * um intervalo em que a etapa está na posição nova com a fase velha —
+       * exatamente a combinação que `groupColumns` desfaz, puxando-a de volta
+       * para perto das irmãs. Quem recarregasse a página nesse instante veria o
+       * arrasto ter sido ignorado.
+       */
+      const itens: { id: string; groupId?: string | null }[] = body.order.map(
+        (item: unknown) => (typeof item === "string" ? { id: item } : item)
+      );
+
+      if (itens.some((i) => !i?.id)) {
+        return NextResponse.json(
+          { error: "Cada item da ordem precisa de um id." },
+          { status: 400 }
+        );
+      }
+
       await prisma.$transaction(
-        body.order.map((id: string, index: number) =>
-          prisma.boardColumn.update({ where: { id }, data: { position: index } })
+        itens.map((item, index) =>
+          prisma.boardColumn.update({
+            where: { id: item.id },
+            data: {
+              position: index,
+              ...(item.groupId !== undefined ? { groupId: item.groupId || null } : {}),
+            },
+          })
         )
       );
       return NextResponse.json({ success: true });
@@ -72,8 +99,6 @@ export async function PUT(request: Request) {
       color,
       description,
       requiresAssignee,
-      assignees,
-      defaultAssignee,
       groupId,
       isIntake,
       isDone,
@@ -83,7 +108,7 @@ export async function PUT(request: Request) {
 
     const current = await prisma.boardColumn.findUnique({
       where: { id },
-      select: { boardId: true, assignees: true },
+      select: { boardId: true },
     });
     if (!current) return NextResponse.json({ error: "Coluna não encontrada." }, { status: 404 });
 
@@ -95,27 +120,18 @@ export async function PUT(request: Request) {
      * a regra se contradizendo dentro da mesma coluna. Quando a equipe muda na
      * mesma requisição, vale a equipe nova; quando não, a que já estava.
      */
-    const equipeFinal =
-      assignees !== undefined ? parseAssignees(serializeAssignees(assignees)) : parseAssignees(current.assignees);
-
-    const padraoPedido =
-      defaultAssignee !== undefined && defaultAssignee
-        ? String(defaultAssignee).trim().toUpperCase()
-        : null;
-
-    if (padraoPedido && equipeFinal.length && !equipeFinal.includes(padraoPedido)) {
-      return NextResponse.json(
-        { error: "O responsável padrão precisa fazer parte da equipe desta etapa." },
-        { status: 400 }
-      );
-    }
 
     /*
-     * Esvaziar a equipe esvazia o padrão junto: "qualquer um pode assumir, e
-     * sempre cai na Ana" é uma combinação que ninguém pediu, e que sobraria
-     * invisível depois de alguém limpar a lista.
+     * Equipe e responsável padrão NÃO se configuram aqui.
+     *
+     * Eles moram na fase (`BoardGroup`), porque a fase é o time: "Produção"
+     * nomeia um conjunto de pessoas tanto quanto um trecho do fluxo. Repetir a
+     * mesma equipe em cada etapa dela era descrever três vezes o mesmo fato — e
+     * garantir que um dia as três divergissem. Ver `ownershipOf`.
+     *
+     * A etapa ainda decide se EXIGE dono (`requiresAssignee`): quem pode
+     * assumir é da fase, se aqui pode entrar sem ninguém é do ponto do fluxo.
      */
-    const limpaPadrao = assignees !== undefined && !equipeFinal.length;
 
     // Uma entrada por quadro: com duas, a demanda nova cairia na que a
     // ordenação devolvesse primeiro, que não é uma escolha de ninguém.
@@ -135,12 +151,6 @@ export async function PUT(request: Request) {
           ? { description: String(description).trim().slice(0, 500) || null }
           : {}),
         ...(requiresAssignee !== undefined ? { requiresAssignee: !!requiresAssignee } : {}),
-        ...(assignees !== undefined ? { assignees: serializeAssignees(assignees) } : {}),
-        ...(limpaPadrao
-          ? { defaultAssignee: null }
-          : defaultAssignee !== undefined
-            ? { defaultAssignee: padraoPedido }
-            : {}),
         ...(groupId !== undefined ? { groupId: groupId || null } : {}),
         ...(isIntake !== undefined ? { isIntake: !!isIntake } : {}),
         ...(isDone !== undefined ? { isDone: !!isDone } : {}),

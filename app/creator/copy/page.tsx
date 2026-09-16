@@ -2,7 +2,7 @@
 
 import React, { useEffect, useMemo, useState } from "react";
 import ReactMarkdown from "react-markdown";
-import { Wand2, Send, Copy as CopyIcon, Check, ArrowRight, Sparkles, RefreshCw, ExternalLink, CalendarDays, Tag, PenLine } from "lucide-react";
+import { Wand2, Send, Copy as CopyIcon, Check, ArrowRight, Sparkles, RefreshCw, ExternalLink, CalendarDays, Tag, PenLine, Users } from "lucide-react";
 import Link from "next/link";
 import SearchSelect, { type SearchSelectOption } from "@/components/creator/SearchSelect";
 import VariationCard from "@/components/creator/VariationCard";
@@ -34,6 +34,15 @@ import {
 interface Target {
   boardId: string;
   boardName: string;
+  columnName: string | null;
+  /** O grupo dono da entrada do quadro — o que a tela já vem marcando. */
+  groupId: string | null;
+}
+
+/** Um time do quadro, com a etapa em que ele recebe o que chega. */
+interface GroupOption {
+  id: string;
+  name: string;
   columnName: string | null;
 }
 
@@ -122,6 +131,8 @@ export default function CopyPage() {
   const [error, setError] = useState<string | null>(null);
 
   const [target, setTarget] = useState<Target | null>(null);
+  const [groups, setGroups] = useState<GroupOption[]>([]);
+  const [groupId, setGroupId] = useState<string | null>(null);
   const [aiConfigured, setAiConfigured] = useState(true);
 
 
@@ -169,12 +180,31 @@ export default function CopyPage() {
       .then((res) => res.json())
       .then((res) => {
         setTarget(res.target ?? null);
+        const times: GroupOption[] = res.groups ?? [];
+        setGroups(times);
+        /*
+         * Um time sempre marcado de saída. Deixar em branco devolveria a copy à
+         * situação de antes — card no quadro sem dono —, e escolher time não é
+         * decisão de quem escreveu a copy: é o desenho da esteira.
+         */
+        setGroupId(res.target?.groupId ?? times[0]?.id ?? null);
         setAiConfigured(res.aiConfigured !== false);
       })
       .catch(() => setTarget(null));
   }, [loadProducts, loadAudiences]);
 
   const manual = mode === "manual";
+
+  /**
+   * A etapa em que a copy vai cair, segundo o time escolhido.
+   *
+   * A tela anuncia o destino antes de enviar, e esse destino muda com o grupo.
+   * Sem isto, o aviso seguiria mostrando a etapa do grupo padrão qualquer que
+   * fosse a escolha — e mentir sobre onde o trabalho foi parar é pior do que
+   * não dizer nada.
+   */
+  const etapaDestino =
+    groups.find((g) => g.id === groupId)?.columnName ?? target?.columnName ?? null;
 
   /** Os formatos do canal escolhido. Sem canal, a caixa de formato fica fechada. */
   const channelFormats = useMemo(() => formatsForChannel(channelId), [channelId]);
@@ -410,6 +440,7 @@ export default function CopyPage() {
           priority,
           dueDate: dueDate || null,
           attachments,
+          groupId,
         }),
       });
       const data = await res.json();
@@ -936,6 +967,35 @@ export default function CopyPage() {
 
                 <AttachmentField attachments={attachments} onChange={setAttachments} />
 
+                {groups.length > 0 && (
+                  <div className="field">
+                    <label
+                      className="field-label"
+                      htmlFor="copy-grupo"
+                      style={{ display: "flex", alignItems: "center", gap: "0.4rem" }}
+                    >
+                      <Users size={14} />
+                      Grupo responsável
+                    </label>
+                    <select
+                      id="copy-grupo"
+                      className="field-input"
+                      value={groupId ?? ""}
+                      onChange={(e) => setGroupId(e.target.value || null)}
+                    >
+                      {groups.map((g) => (
+                        <option key={g.id} value={g.id}>
+                          {g.name}
+                        </option>
+                      ))}
+                    </select>
+                    <span className="field-hint">
+                      O time que recebe esta copy. Todo mundo do grupo assume o card, e quem
+                      puxar para produção fica com ele.
+                    </span>
+                  </div>
+                )}
+
                 <div className="field">
                   <label
                     className="field-label"
@@ -1014,7 +1074,7 @@ export default function CopyPage() {
                     disabled={sending || !target}
                     title={
                       target
-                        ? `Cria um card em "${target.boardName}"${target.columnName ? ` → ${target.columnName}` : ""}`
+                        ? `Cria um card em "${target.boardName}"${etapaDestino ? ` → ${etapaDestino}` : ""}`
                         : "Nenhum quadro configurado para receber copys"
                     }
                   >
@@ -1026,7 +1086,7 @@ export default function CopyPage() {
                 {target && !sent && (
                   <span className="field-hint">
                     Cai em <strong>{target.boardName}</strong>
-                    {target.columnName ? ` → ${target.columnName}` : ""}.
+                    {etapaDestino ? ` → ${etapaDestino}` : ""}.
                   </span>
                 )}
 

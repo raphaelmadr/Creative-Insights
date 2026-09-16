@@ -1,11 +1,10 @@
 "use client";
 
 import React, { useState } from "react";
-import { Plus, Trash2, UserCheck, Users, Star } from "lucide-react";
+import { Plus, Trash2 } from "lucide-react";
 import Modal from "@/components/Modal";
-import { Avatar } from "@/components/Avatar";
-import { parseAssignees, type GroupDefinition } from "@/lib/kanban";
-import type { CreatorOption } from "./DemandDialog";
+import {  type GroupDefinition } from "@/lib/kanban";
+import { useRascunho } from "./useRascunho";
 
 export interface ColumnDefinition {
   id: string;
@@ -14,11 +13,8 @@ export interface ColumnDefinition {
   /** O que acontece nesta etapa — aparece no topo da coluna. */
   description: string | null;
   /** A partir daqui o card precisa de dono. */
-  requiresAssignee: boolean;
   /** JSON de siglas de quem responde por esta etapa. Ver `parseAssignees`. */
-  assignees: string | null;
   /** Quem assume quando o card chega aqui. */
-  defaultAssignee: string | null;
   /** A fase a que esta etapa pertence, ou nulo. */
   groupId: string | null;
   isIntake: boolean;
@@ -52,7 +48,6 @@ export default function ColumnsDialog({
   boardId,
   columns,
   groups = [],
-  creators = [],
   onChanged,
 }: {
   open: boolean;
@@ -61,53 +56,155 @@ export default function ColumnsDialog({
   columns: ColumnDefinition[];
   /** As fases do quadro, para dizer a que bloco cada etapa pertence. */
   groups?: GroupDefinition[];
-  /** A equipe, para escolher quem responde por cada etapa. */
-  creators?: CreatorOption[];
   onChanged: () => void;
 }) {
+  const { draft, setDraft, sujo, adotar } = useRascunho(open, columns);
   const [newName, setNewName] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const send = async (method: "POST" | "PUT" | "DELETE", body: object) => {
+    const res = await fetch("/api/creator/columns", {
+      method,
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || "Não foi possível salvar a coluna.");
+    return data;
+  };
+
+  const mexer = (id: string, mudanca: Partial<ColumnDefinition>) =>
+    setDraft(
+      draft.map((c) => {
+        if (c.id === id) return { ...c, ...mudanca };
+        /*
+         * Entrada é exclusiva no quadro — o servidor desmarca as demais ao
+         * gravar. O rascunho faz o mesmo na hora, senão a tela mostraria duas
+         * entradas marcadas até alguém salvar e descobrir qual das duas venceu.
+         */
+        return mudanca.isIntake === true ? { ...c, isIntake: false } : c;
+      })
+    );
+
+  /** Um PUT por etapa alterada, com todas as edições dela juntas. */
+  const salvar = async (): Promise<boolean> => {
+    const alteradas = draft.filter((c) => {
+      const original = columns.find((o) => o.id === c.id);
+      return original && JSON.stringify(original) !== JSON.stringify(c);
+    });
+
+    if (alteradas.length === 0) return true;
+
+    if (alteradas.some((c) => !c.name.trim())) {
+      setError("Uma etapa não pode ficar sem nome.");
+      return false;
+    }
+
     setBusy(true);
     setError(null);
     try {
-      const res = await fetch("/api/creator/columns", {
-        method,
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
-      });
-      const data = await res.json();
-      if (!res.ok) {
-        setError(data.error || "Não foi possível salvar a coluna.");
-        return false;
+      for (const c of alteradas) {
+        await send("PUT", {
+          id: c.id,
+          name: c.name.trim(),
+          description: c.description ?? "",
+          color: c.color,
+          groupId: c.groupId,
+          isIntake: c.isIntake,
+          isDone: c.isDone,
+          wipLimit: c.wipLimit,
+        });
       }
+      adotar(draft);
       onChanged();
       return true;
-    } catch {
-      setError("Falha de conexão.");
+    } catch (e) {
+      setError((e as Error).message);
       return false;
     } finally {
       setBusy(false);
     }
   };
 
+  /*
+   * Criar e remover mudam a estrutura e valem na hora — mas nunca por cima de
+   * edição pendente. Gravar o que está em aberto ANTES é o que permite adotar a
+   * lista nova em seguida sem declarar salvo algo que não foi.
+   */
+  const criar = async () => {
+    const nome = newName.trim();
+    if (!nome || !(await salvar())) return;
+
+    setBusy(true);
+    setError(null);
+    try {
+      const { column } = await send("POST", { boardId, name: nome, color: "var(--muted)" });
+      adotar([...draft, column]);
+      setNewName("");
+      onChanged();
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const remover = async (column: ColumnDefinition) => {
+    if (
+      !confirm(
+        `Remover a etapa "${column.name}"?\n\nAs demandas que estão nela vão para a primeira etapa do quadro.`
+      )
+    ) {
+      return;
+    }
+    if (!(await salvar())) return;
+
+    setBusy(true);
+    setError(null);
+    try {
+      await send("DELETE", { id: column.id });
+      adotar(draft.filter((c) => c.id !== column.id));
+      onChanged();
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  /** Fechar com alteração pendente avisa — é o que o clique fora da janela faz. */
+  const fechar = () => {
+    if (sujo && !confirm("Há alterações não salvas nas etapas. Fechar e perdê-las?")) return;
+    onClose();
+  };
+
   return (
     <Modal
       open={open}
-      onClose={onClose}
+      onClose={fechar}
       title="Etapas do quadro"
       description="As colunas por onde a demanda passa, na ordem."
       footer={
-        <button type="button" className="btn btn-secondary" onClick={onClose}>
-          Fechar
-        </button>
+        <>
+          <button type="button" className="btn btn-secondary" onClick={fechar} disabled={busy}>
+            {sujo ? "Cancelar" : "Fechar"}
+          </button>
+          <button
+            type="button"
+            className="btn btn-primary"
+            onClick={async () => {
+              if (await salvar()) onClose();
+            }}
+            disabled={busy || !sujo}
+            title={sujo ? "Gravar as alterações" : "Nada alterado"}
+          >
+            {busy ? "Salvando…" : "Salvar alterações"}
+          </button>
+        </>
       }
     >
-      {columns.map((column) => {
-        const equipe = parseAssignees(column.assignees);
-        const padrao = column.defaultAssignee?.toUpperCase() ?? null;
+      {draft.map((column) => {
 
         return (
         <div
@@ -136,12 +233,14 @@ export default function ColumnsDialog({
             <input
               className="field-input"
               style={{ flex: 1, minWidth: 0 }}
-              defaultValue={column.name}
+              /*
+                * Controlado pelo rascunho, e não `defaultValue` gravando no
+                * `blur`: com o valor solto no DOM, sair da janela sem passar por
+                * outro campo levava o texto junto.
+                */
+              value={column.name}
               aria-label={`Nome da etapa ${column.name}`}
-              onBlur={(e) => {
-                const name = e.target.value.trim();
-                if (name && name !== column.name) send("PUT", { id: column.id, name });
-              }}
+              onChange={(e) => mexer(column.id, { name: e.target.value })}
             />
             <button
               type="button"
@@ -149,39 +248,19 @@ export default function ColumnsDialog({
               title={`Remover "${column.name}"`}
               aria-label={`Remover ${column.name}`}
               disabled={busy}
-              onClick={() => {
-                if (
-                  confirm(
-                    `Remover a etapa "${column.name}"?\n\nAs demandas que estão nela vão para a primeira etapa do quadro.`
-                  )
-                ) {
-                  send("DELETE", { id: column.id });
-                }
-              }}
+              onClick={() => remover(column)}
             >
               <Trash2 size={15} />
             </button>
           </div>
 
-          {/*
-            A descrição da etapa.
-
-            Salva ao sair do campo, como o nome logo acima: um botão de salvar
-            por etapa encheria o diálogo de botões, e o fluxo aqui é escrever,
-            ver o resultado no quadro, ajustar.
-          */}
           <textarea
             className="field-input field-prose"
-            defaultValue={column.description ?? ""}
+            value={column.description ?? ""}
             placeholder="O que acontece nesta etapa? Quem faz, e o que precisa estar pronto para entrar aqui."
             aria-label={`Descrição da etapa ${column.name}`}
             style={{ minHeight: "56px" }}
-            onBlur={(e) => {
-              const description = e.target.value.trim();
-              if (description !== (column.description ?? "")) {
-                send("PUT", { id: column.id, description });
-              }
-            }}
+            onChange={(e) => mexer(column.id, { description: e.target.value })}
           />
 
           <div style={{ display: "flex", flexWrap: "wrap", gap: "0.35rem" }}>
@@ -193,7 +272,7 @@ export default function ColumnsDialog({
                 aria-pressed={(column.color || "var(--muted)") === c.token}
                 title={c.label}
                 style={{ padding: "0.3rem 0.6rem", fontSize: "var(--text-caption)" }}
-                onClick={() => send("PUT", { id: column.id, color: c.token })}
+                onClick={() => mexer(column.id, { color: c.token })}
               >
                 <span
                   aria-hidden="true"
@@ -228,7 +307,7 @@ export default function ColumnsDialog({
                 // A cor da fase escolhida na própria caixa: sem ela, só se
                 // descobre qual faixa é depois de fechar o diálogo.
                 style={{ borderColor: groups.find((g) => g.id === column.groupId)?.color }}
-                onChange={(e) => send("PUT", { id: column.id, groupId: e.target.value || null })}
+                onChange={(e) => mexer(column.id, { groupId: e.target.value || null })}
               >
                 <option value="">Sem fase</option>
                 {groups.map((g) => (
@@ -241,95 +320,13 @@ export default function ColumnsDialog({
           )}
 
           {/*
-            Quem responde por esta etapa.
+            A equipe NÃO se define aqui — ela mora na fase, em "Fases".
 
-            Duas coisas num controle só: clicar no nome põe e tira a pessoa da
-            equipe; clicar na estrela diz qual delas assume por padrão. Separar
-            em duas listas — "quem pode" e "quem é o padrão" — obrigaria a
-            manter as duas em dia, e a segunda sairia da primeira no primeiro
-            dia em que alguém trocasse de time.
+            A fase é o time: "Produção" nomeia um conjunto de pessoas tanto
+            quanto um trecho do fluxo, e repetir a mesma equipe em cada etapa
+            dela era descrever três vezes o mesmo fato — e garantir que um dia
+            as três divergissem. Ver `ownershipOf` em `lib/kanban.ts`.
           */}
-          {creators.length > 0 && (
-            <div className="field">
-              <label className="field-label">
-                <Users size={13} style={{ verticalAlign: "-2px", marginRight: "0.3rem" }} />
-                Responsáveis desta etapa
-              </label>
-
-              <div style={{ display: "flex", flexWrap: "wrap", gap: "0.35rem" }}>
-                {creators.map((c) => {
-                  const dentro = equipe.includes(c.acronym.toUpperCase());
-                  const ehPadrao = dentro && padrao === c.acronym.toUpperCase();
-
-                  return (
-                    <span
-                      key={c.acronym}
-                      style={{ display: "inline-flex", alignItems: "center", gap: "0.15rem" }}
-                    >
-                      <button
-                        type="button"
-                        className="btn btn-toggle"
-                        aria-pressed={dentro}
-                        title={dentro ? `Tirar ${c.name} desta etapa` : `${c.name} responde por esta etapa`}
-                        style={{ padding: "0.25rem 0.55rem", fontSize: "var(--text-caption)", gap: "0.35rem" }}
-                        onClick={() => {
-                          const proxima = dentro
-                            ? equipe.filter((a) => a !== c.acronym.toUpperCase())
-                            : [...equipe, c.acronym.toUpperCase()];
-                          send("PUT", {
-                            id: column.id,
-                            assignees: proxima,
-                            // Tirar da equipe quem era o padrão tira o padrão
-                            // junto: o servidor recusaria a combinação, e o
-                            // clique pareceria não ter pegado.
-                            ...(ehPadrao ? { defaultAssignee: null } : {}),
-                          });
-                        }}
-                      >
-                        <Avatar name={c.name} src={c.avatarUrl} size="xs" />
-                        {c.acronym}
-                      </button>
-
-                      {dentro && (
-                        <button
-                          type="button"
-                          className="btn btn-icon"
-                          aria-pressed={ehPadrao}
-                          title={
-                            ehPadrao
-                              ? `${c.name} deixa de assumir por padrão`
-                              : `${c.name} assume os cards que chegarem aqui`
-                          }
-                          style={{
-                            width: "1.6rem",
-                            height: "1.6rem",
-                            padding: "0.2rem",
-                            color: ehPadrao ? "var(--warning)" : "var(--muted)",
-                          }}
-                          onClick={() =>
-                            send("PUT", {
-                              id: column.id,
-                              defaultAssignee: ehPadrao ? null : c.acronym,
-                            })
-                          }
-                        >
-                          <Star size={13} fill={ehPadrao ? "var(--warning)" : "none"} />
-                        </button>
-                      )}
-                    </span>
-                  );
-                })}
-              </div>
-
-              <span className="field-hint">
-                {equipe.length === 0
-                  ? "Sem ninguém marcado, qualquer pessoa do quadro pode assumir."
-                  : padrao
-                    ? `O card que chegar aqui passa a ser de ${padrao}. Só estas pessoas aparecem no seletor de responsável.`
-                    : "Só estas pessoas aparecem no seletor de responsável. Marque a estrela de quem assume por padrão."}
-              </span>
-            </div>
-          )}
 
           <div style={{ display: "flex", flexWrap: "wrap", gap: "0.35rem", alignItems: "center" }}>
             <button
@@ -338,7 +335,7 @@ export default function ColumnsDialog({
               aria-pressed={column.isIntake}
               title="Toda demanda nova entra por esta etapa"
               style={{ padding: "0.35rem 0.7rem", fontSize: "var(--text-caption)" }}
-              onClick={() => send("PUT", { id: column.id, isIntake: !column.isIntake })}
+              onClick={() => mexer(column.id, { isIntake: !column.isIntake })}
             >
               Entrada
             </button>
@@ -349,21 +346,9 @@ export default function ColumnsDialog({
               aria-pressed={column.isDone}
               title="Chegar aqui marca a demanda como entregue"
               style={{ padding: "0.35rem 0.7rem", fontSize: "var(--text-caption)" }}
-              onClick={() => send("PUT", { id: column.id, isDone: !column.isDone })}
+              onClick={() => mexer(column.id, { isDone: !column.isDone })}
             >
               Entrega
-            </button>
-
-            <button
-              type="button"
-              className="btn btn-toggle"
-              aria-pressed={column.requiresAssignee}
-              title="Um card só entra nesta etapa com responsável definido"
-              style={{ padding: "0.35rem 0.7rem", fontSize: "var(--text-caption)" }}
-              onClick={() => send("PUT", { id: column.id, requiresAssignee: !column.requiresAssignee })}
-            >
-              <UserCheck size={13} />
-              Exige responsável
             </button>
 
             <input
@@ -373,9 +358,11 @@ export default function ColumnsDialog({
               style={{ width: "120px" }}
               placeholder="Limite"
               aria-label={`Limite de cards em ${column.name}`}
-              defaultValue={column.wipLimit ?? ""}
-              onBlur={(e) =>
-                send("PUT", { id: column.id, wipLimit: e.target.value === "" ? null : e.target.value })
+              value={column.wipLimit ?? ""}
+              onChange={(e) =>
+                mexer(column.id, {
+                  wipLimit: e.target.value === "" ? null : Number(e.target.value),
+                })
               }
             />
             <span className="field-hint">Limite de cards — em branco, sem limite.</span>
@@ -401,17 +388,19 @@ export default function ColumnsDialog({
             type="button"
             className="btn btn-primary"
             disabled={busy || !newName.trim()}
-            onClick={async () => {
-              if (await send("POST", { boardId, name: newName, color: "var(--muted)" })) {
-                setNewName("");
-              }
-            }}
+            onClick={criar}
           >
             <Plus size={15} />
             Adicionar
           </button>
         </div>
       </div>
+
+      {sujo && (
+        <span className="field-hint">
+          Há alterações não salvas. Elas só vão ao quadro no <strong>Salvar alterações</strong>.
+        </span>
+      )}
 
       {error && (
         <span className="field-hint" role="alert" style={{ color: "var(--danger)" }}>
