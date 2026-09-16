@@ -16,6 +16,8 @@ import {
   validateValues,
   parseDueDate,
   startOfCurrentMonth,
+  resolveStageAssignee,
+  stageAccepts,
   PRIORITY_LABEL,
   type Priority,
 } from "@/lib/kanban";
@@ -96,6 +98,31 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "Este quadro ainda não tem colunas." }, { status: 400 });
     }
 
+    /*
+     * A exigência de dono vale também na abertura.
+     *
+     * A regra é da etapa, não do arrasto: se a coluna de entrada exige
+     * responsável, uma demanda nascer nela sem dono abriria um buraco por onde
+     * passaria justamente o que a regra existe para impedir.
+     */
+    const entrada = await prisma.boardColumn.findUnique({
+      where: { id: columnId },
+      select: { name: true, requiresAssignee: true, assignees: true, defaultAssignee: true },
+    });
+
+    // O dono padrão da etapa vale já na abertura: uma demanda que nasce na
+    // entrada de uma equipe nasce dela, e não à espera de alguém repassar.
+    const donoDaEntrada = entrada
+      ? resolveStageAssignee(entrada, assigneeAcronym)
+      : assigneeAcronym?.trim()?.toUpperCase() || null;
+
+    if (entrada?.requiresAssignee && !stageAccepts(entrada, donoDaEntrada)) {
+      return NextResponse.json(
+        { error: `"${entrada.name}" exige um responsável da sua equipe. Escolha quem assume esta demanda.`, needsAssignee: true },
+        { status: 400 }
+      );
+    }
+
     const card = await prisma.boardCard.create({
       data: {
         boardId,
@@ -104,7 +131,7 @@ export async function POST(request: Request) {
         description: description?.trim() || null,
         priority: isPriority(priority) ? priority : "MEDIA",
         dueDate: parseDueDate(dueDate),
-        assigneeAcronym: assigneeAcronym?.trim()?.toUpperCase() || null,
+        assigneeAcronym: donoDaEntrada,
         // Um link inválido entra como nulo em vez de derrubar a abertura da
         // demanda: perder o briefing inteiro por causa de uma URL mal colada
         // seria desproporcional. A tela recusa antes, com a mensagem certa.
@@ -150,15 +177,54 @@ export async function PUT(request: Request) {
 
       const card = await prisma.boardCard.findUnique({
         where: { id: cardId },
-        select: { columnId: true, title: true },
+        select: { columnId: true, title: true, assigneeAcronym: true },
       });
       if (!card) return NextResponse.json({ error: "Demanda não encontrada." }, { status: 404 });
 
       const target = await prisma.boardColumn.findUnique({
         where: { id: columnId },
-        select: { name: true, isDone: true },
+        select: {
+          name: true,
+          isDone: true,
+          requiresAssignee: true,
+          assignees: true,
+          defaultAssignee: true,
+        },
       });
       if (!target) return NextResponse.json({ error: "Coluna não encontrada." }, { status: 404 });
+
+      /*
+       * Quem fica com o card depende da etapa de destino.
+       *
+       * A sigla pode vir junto com o movimento — é o que a tela manda quando
+       * pergunta "quem assume?" na hora de soltar o card. Sobre ela, ou sobre o
+       * dono que o card já tinha, a etapa aplica a sua regra: fora da equipe
+       * dela, entra o padrão da etapa. É a passagem de bastão acontecendo no
+       * gesto que a representa, em vez de depender de alguém lembrar.
+       *
+       * Ainda assim pode faltar dono — etapa que exige, sem padrão definido. Aí
+       * o movimento é recusado com o nome da etapa na mensagem: "não pode" sem
+       * dizer o que falta é o que faz a pessoa arrastar de novo achando que o
+       * quadro travou.
+       */
+      const donoNoMovimento =
+        typeof body.move.assigneeAcronym === "string" && body.move.assigneeAcronym.trim()
+          ? body.move.assigneeAcronym.trim().toUpperCase()
+          : null;
+
+      const dono = resolveStageAssignee(target, donoNoMovimento ?? card.assigneeAcronym);
+
+      if (target.requiresAssignee && !stageAccepts(target, dono)) {
+        return NextResponse.json(
+          {
+            error: dono
+              ? `"${target.name}" só aceita quem responde por ela. Escolha quem assume antes de mover.`
+              : `"${target.name}" exige um responsável. Escolha quem assume antes de mover.`,
+            needsAssignee: true,
+          },
+          { status: 400 }
+        );
+      }
 
       await prisma.$transaction([
         prisma.boardCard.update({
@@ -171,12 +237,23 @@ export async function PUT(request: Request) {
              * continuaria contando como entregue no relatório.
              */
             completedAt: target.isDone ? new Date() : null,
+            ...(dono !== card.assigneeAcronym ? { assigneeAcronym: dono } : {}),
           },
         }),
         ...order.map((id: string, index: number) =>
           prisma.boardCard.update({ where: { id }, data: { position: index } })
         ),
       ]);
+
+      if (dono && dono !== card.assigneeAcronym) {
+        /*
+         * A passagem de bastão automática fica no histórico dizendo que foi
+         * automática. Sem a distinção, quem lê o card semanas depois procuraria
+         * a pessoa que atribuiu — e não houve nenhuma.
+         */
+        const comoFoi = donoNoMovimento ? `atribuiu para ${dono}` : `${dono} assumiu por ser o padrão de "${target.name}"`;
+        await logActivity(cardId, "ASSIGNED", comoFoi, user);
+      }
 
       if (card.columnId !== columnId) {
         await logActivity(cardId, "MOVED", `moveu para "${target.name}"`, user);
@@ -257,6 +334,43 @@ export async function PUT(request: Request) {
       values = Object.keys(checked.values).length ? JSON.stringify(checked.values) : null;
     }
 
+    /*
+     * Trocar a etapa pelo painel do card passa pelas mesmas regras do arrasto.
+     * A tela é outra; a etapa é a mesma, e o dia em que as duas divergirem é o
+     * dia em que a regra vira folclore.
+     */
+    let donoPelaEtapa: string | null | undefined;
+
+    if (columnId !== undefined && columnId !== current.columnId) {
+      const destino = await prisma.boardColumn.findUnique({
+        where: { id: columnId },
+        select: { name: true, requiresAssignee: true, assignees: true, defaultAssignee: true },
+      });
+
+      const donoPedido =
+        assigneeAcronym !== undefined
+          ? assigneeAcronym
+            ? String(assigneeAcronym).trim().toUpperCase()
+            : null
+          : current.assigneeAcronym;
+
+      const donoFinal = destino ? resolveStageAssignee(destino, donoPedido) : donoPedido;
+
+      if (destino?.requiresAssignee && !stageAccepts(destino, donoFinal)) {
+        return NextResponse.json(
+          {
+            error: donoFinal
+              ? `"${destino.name}" só aceita quem responde por ela. Defina quem assume antes de mudar a etapa.`
+              : `"${destino.name}" exige um responsável. Defina quem assume antes de mudar a etapa.`,
+            needsAssignee: true,
+          },
+          { status: 400 }
+        );
+      }
+
+      if (donoFinal !== current.assigneeAcronym) donoPelaEtapa = donoFinal;
+    }
+
     const card = await prisma.boardCard.update({
       where: { id },
       data: {
@@ -264,9 +378,13 @@ export async function PUT(request: Request) {
         ...(description !== undefined ? { description: String(description).trim() || null } : {}),
         ...(priority !== undefined && isPriority(priority) ? { priority } : {}),
         ...(dueDate !== undefined ? { dueDate: parseDueDate(dueDate) } : {}),
-        ...(assigneeAcronym !== undefined
-          ? { assigneeAcronym: assigneeAcronym ? String(assigneeAcronym).toUpperCase() : null }
-          : {}),
+        // A etapa de destino tem a última palavra sobre o dono: foi ela quem
+        // resolveu a equipe e o padrão logo acima.
+        ...(donoPelaEtapa !== undefined
+          ? { assigneeAcronym: donoPelaEtapa }
+          : assigneeAcronym !== undefined
+            ? { assigneeAcronym: assigneeAcronym ? String(assigneeAcronym).toUpperCase() : null }
+            : {}),
         ...(columnId !== undefined ? { columnId } : {}),
         // `null` explícito remove o link; ausente não mexe nele.
         ...(linkUrl !== undefined ? { linkUrl: normalizeCardLink(linkUrl) } : {}),
@@ -279,11 +397,20 @@ export async function PUT(request: Request) {
      * quem assumiu e o quanto a prioridade subiu. Um evento "atualizou o card"
      * a cada tecla não informa nada e enterra os que informam.
      */
-    if (assigneeAcronym !== undefined && assigneeAcronym !== current.assigneeAcronym) {
+    const donoRegistrado =
+      donoPelaEtapa !== undefined
+        ? donoPelaEtapa
+        : assigneeAcronym !== undefined
+          ? assigneeAcronym
+            ? String(assigneeAcronym).toUpperCase()
+            : null
+          : current.assigneeAcronym;
+
+    if (donoRegistrado !== current.assigneeAcronym) {
       await logActivity(
         id,
         "ASSIGNED",
-        assigneeAcronym ? `atribuiu para ${String(assigneeAcronym).toUpperCase()}` : "removeu o responsável",
+        donoRegistrado ? `atribuiu para ${donoRegistrado}` : "removeu o responsável",
         user
       );
     }

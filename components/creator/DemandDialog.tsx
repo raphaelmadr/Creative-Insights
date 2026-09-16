@@ -4,8 +4,9 @@ import React, { useEffect, useState } from "react";
 import Modal from "@/components/Modal";
 import DatePicker from "@/components/DatePicker";
 import CardLinkField from "./CardLinkField";
+import { type ColumnDefinition } from "./ColumnsDialog";
 import FieldInput, { type FieldDefinition } from "./FieldInput";
-import { PRIORITIES, PRIORITY_LABEL, type Priority } from "@/lib/kanban";
+import { PRIORITIES, PRIORITY_LABEL, parseAssignees, stageCandidates, type Priority } from "@/lib/kanban";
 
 export interface CreatorOption {
   acronym: string;
@@ -28,6 +29,7 @@ export default function DemandDialog({
   onClose,
   boardId,
   boardName,
+  columns = [],
   fields,
   creators,
   onCreated,
@@ -36,6 +38,8 @@ export default function DemandDialog({
   onClose: () => void;
   boardId: string;
   boardName: string;
+  /** As etapas do quadro — só para saber o que a de entrada exige. */
+  columns?: ColumnDefinition[];
   fields: FieldDefinition[];
   creators: CreatorOption[];
   onCreated: () => void;
@@ -64,9 +68,29 @@ export default function DemandDialog({
     setError(null);
   }, [open]);
 
+  /*
+   * A etapa de entrada pode exigir dono — e aí o formulário pergunta antes, em
+   * vez de deixar o servidor recusar depois de tudo preenchido.
+   */
+  const entrada = columns.find((c) => c.isIntake) ?? columns[0];
+  /*
+   * Com padrão definido, a etapa deixa de exigir uma escolha: o servidor
+   * atribui quem ela nomeou. Pedir aqui o que lá é automático seria um asterisco
+   * vermelho num campo que se preenche sozinho.
+   */
+  const entradaExigeDono = !!entrada?.requiresAssignee && !entrada?.defaultAssignee;
+
+  /* A entrada pode ter equipe própria: então só ela aparece no seletor. */
+  const equipeDaEntrada = parseAssignees(entrada?.assignees);
+  const candidatos = stageCandidates(entrada, creators);
+
   const submit = async () => {
     if (!title.trim()) {
       setError("A demanda precisa de um título.");
+      return;
+    }
+    if (entradaExigeDono && !assignee) {
+      setError(`"${entrada?.name}" exige um responsável. Escolha quem assume esta demanda.`);
       return;
     }
 
@@ -180,7 +204,8 @@ export default function DemandDialog({
 
         <div className="field">
           <label className="field-label" htmlFor="demanda-responsavel">
-            Responsável
+            Responsável{" "}
+            {entradaExigeDono && <span style={{ color: "var(--danger)" }} aria-hidden="true">*</span>}
           </label>
           <select
             id="demanda-responsavel"
@@ -188,14 +213,22 @@ export default function DemandDialog({
             value={assignee}
             onChange={(e) => setAssignee(e.target.value)}
           >
-            <option value="">A definir</option>
-            {creators.map((c) => (
+            <option value="">
+              {entrada?.defaultAssignee ? `Padrão da etapa (${entrada.defaultAssignee})` : "A definir"}
+            </option>
+            {candidatos.map((c) => (
               <option key={c.acronym} value={c.acronym}>
                 {c.name} ({c.acronym})
               </option>
             ))}
           </select>
-          <span className="field-hint">A mesma sigla que identifica o criador nos anúncios.</span>
+          <span className="field-hint">
+            {equipeDaEntrada.length > 0
+              ? `Quem responde por "${entrada?.name}".`
+              : entradaExigeDono
+                ? `"${entrada?.name}" só recebe demandas com responsável definido.`
+                : "A mesma sigla que identifica o criador nos anúncios."}
+          </span>
         </div>
       </div>
 

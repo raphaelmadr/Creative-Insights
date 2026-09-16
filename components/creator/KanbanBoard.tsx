@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useMemo, useState } from "react";
-import { Clock, Wand2, AlertTriangle, Link2, Archive } from "lucide-react";
+import { Clock, Wand2, AlertTriangle, Link2, Archive, UserCheck, Star } from "lucide-react";
 import { Avatar } from "@/components/Avatar";
 import { type FieldDefinition, formatFieldValue } from "./FieldInput";
 import { type ColumnDefinition } from "./ColumnsDialog";
@@ -10,10 +10,13 @@ import type { CreatorOption } from "./DemandDialog";
 import {
   parseValues,
   isOverdue,
+  groupColumns,
+  parseAssignees,
   PRIORITY_COLOR,
   PRIORITY_LABEL,
   DEFAULT_CARD_BADGES,
   type CardBadgeKey,
+  type GroupDefinition,
   type Priority,
 } from "@/lib/kanban";
 import { parseCopyVariations } from "@/lib/copy-parse";
@@ -36,6 +39,7 @@ export default function KanbanBoard({
   cards,
   fields,
   creators,
+  groups = [],
   badges = DEFAULT_CARD_BADGES,
   archivedCount = 0,
   onOpenCard,
@@ -46,6 +50,8 @@ export default function KanbanBoard({
   cards: CardData[];
   fields: FieldDefinition[];
   creators: CreatorOption[];
+  /** As fases do quadro — cada uma vira uma faixa sobre as etapas dela. */
+  groups?: GroupDefinition[];
   /** Os atributos embutidos que este quadro mostra na frente do card. */
   badges?: CardBadgeKey[];
   /** Quantas demandas estão no arquivo, para o card fixo mostrar. */
@@ -73,16 +79,16 @@ export default function KanbanBoard({
   const shows = useMemo(() => new Set(badges), [badges]);
 
   /*
-   * Onde o card do arquivo mora: no fim da coluna de entrega, porque é a
-   * continuação natural do fluxo — backlog, produção, revisão, entregue,
-   * arquivo. Sem coluna de entrega marcada, vai para a última: o card não pode
-   * simplesmente não aparecer, já que ele é a única porta para o que saiu do
-   * quadro.
+   * As etapas repartidas em faixas — a fase e as colunas que ela cobre.
+   *
+   * A repartição é pura e mora em `lib/kanban.ts`: é a mesma pergunta que o
+   * editor de etapas precisa responder ao mostrar a que fase cada coluna
+   * pertence, e duas respostas divergiriam no primeiro ajuste.
    */
-  const archiveColumnId = useMemo(() => {
-    const done = columns.find((c) => c.isDone);
-    return done?.id ?? columns[columns.length - 1]?.id ?? null;
-  }, [columns]);
+  const segmentos = useMemo(() => groupColumns(columns, groups), [columns, groups]);
+
+  /* Sem nenhuma fase, nada de faixas nem do espaço reservado para elas. */
+  const temFases = useMemo(() => segmentos.some((s) => s.group), [segmentos]);
 
   /*
    * Quantas variações cada copy carrega.
@@ -115,18 +121,102 @@ export default function KanbanBoard({
     setOverColumn(null);
   };
 
+  /**
+   * A faixa de uma fase — ou o espaço que ela ocuparia.
+   *
+   * O espaço reservado nas etapas sem fase não é desperdício: sem ele, uma
+   * coluna solta subiria e o topo do quadro viraria uma linha quebrada. Fica
+   * invisível, e não ausente, para todas as colunas começarem na mesma altura.
+   */
+  const faixa = (group: GroupDefinition | null, cards: number) => {
+    if (!temFases) return null;
+
+    if (!group) {
+      return (
+        <div aria-hidden="true" style={{ visibility: "hidden", padding: "0.2rem 0", fontSize: "var(--text-eyebrow)" }}>
+          &nbsp;
+        </div>
+      );
+    }
+
+    return (
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          gap: "0.4rem",
+          padding: "0.2rem 0.1rem",
+          // A cor da fase numa linha sob o nome, e não num fundo cheio: um
+          // bloco colorido atrás de tudo competiria com a prioridade dos cards,
+          // que é a cor que precisa saltar aqui dentro.
+          borderBottom: `2px solid ${group.color}`,
+        }}
+      >
+        <span
+          style={{
+            fontSize: "var(--text-eyebrow)",
+            fontWeight: 700,
+            textTransform: "uppercase",
+            letterSpacing: "0.5px",
+            color: group.color,
+            flex: 1,
+            minWidth: 0,
+            overflow: "hidden",
+            textOverflow: "ellipsis",
+            whiteSpace: "nowrap",
+          }}
+        >
+          {group.name}
+        </span>
+        <span
+          title={`${cards} demanda(s) nesta fase`}
+          style={{ fontSize: "var(--text-eyebrow)", fontWeight: 600, color: "var(--muted)", flexShrink: 0 }}
+        >
+          {cards}
+        </span>
+      </div>
+    );
+  };
+
   return (
     <div
       style={{
         display: "flex",
-        gap: "var(--gap-grid)",
+        gap: "var(--gap-compact)",
         alignItems: "flex-start",
         overflowX: "auto",
-        paddingBottom: "1rem",
+        paddingBottom: "0.5rem",
       }}
     >
-      {columns.map((column) => {
+      {segmentos.map((seg) => {
+        const largura = seg.columns.length;
+
+        return (
+          <div
+            key={seg.group ? `g:${seg.group.id}` : `c:${seg.columns[0].id}`}
+            style={{
+              /*
+               * A faixa cresce com o número de etapas que cobre: uma fase de
+               * três colunas ocupa o triplo de uma de uma só, e as colunas
+               * continuam com a mesma largura entre fases diferentes.
+               */
+              flex: `${largura} 1 0`,
+              minWidth: `calc(${largura} * 200px + ${largura - 1} * var(--gap-compact))`,
+              display: "flex",
+              flexDirection: "column",
+              gap: "var(--gap-compact)",
+            }}
+          >
+            {faixa(
+              seg.group,
+              seg.columns.reduce((total, c) => total + (byColumn.get(c.id)?.length ?? 0), 0)
+            )}
+
+            <div style={{ display: "flex", gap: "var(--gap-compact)", alignItems: "flex-start" }}>
+              {seg.columns.map((column) => {
         const list = byColumn.get(column.id) ?? [];
+        const equipe = parseAssignees(column.assignees);
+        const equipeNomes = equipe.map((a) => creators.find((c) => c.acronym === a) ?? { acronym: a, name: a, avatarUrl: null });
         const overLimit = column.wipLimit !== null && list.length > column.wipLimit;
 
         return (
@@ -140,16 +230,22 @@ export default function KanbanBoard({
             onDrop={() => drop(column.id)}
             className="glass-panel"
             style={{
-              flex: "0 0 300px",
-              width: "300px",
+              /*
+               * As etapas dividem a largura disponível em vez de ter 300px
+               * cravados: com quatro colunas numa tela larga sobrava vazio, e
+               * com seis a última ficava fora da vista. O piso de 200px é onde
+               * um card ainda se lê; abaixo disso a fileira volta a rolar.
+               */
+              flex: "1 1 0",
+              minWidth: "200px",
               display: "flex",
               flexDirection: "column",
-              gap: "var(--gap-stack)",
-              padding: "var(--pad-card)",
+              gap: "var(--gap-compact)",
+              padding: "var(--pad-compact)",
               // A coluna sob o cursor se destaca pela borda, como o hover dos
               // cartões de criativo já faz — nada de fundo colorido novo.
               borderColor: overColumn === column.id ? "var(--primary)" : undefined,
-              minHeight: "160px",
+              minHeight: "120px",
             }}
           >
             <header style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
@@ -166,6 +262,16 @@ export default function KanbanBoard({
               <span style={{ fontSize: "var(--text-cardtitle)", fontWeight: 700, flex: 1, minWidth: 0 }}>
                 {column.name}
               </span>
+
+              {/* A exigência de dono é regra da etapa, e precisa ser visível
+                  antes de alguém arrastar até aqui e ser recusado. */}
+              {column.requiresAssignee && (
+                <UserCheck
+                  size={13}
+                  aria-label="Exige responsável"
+                  style={{ color: "var(--muted)", flexShrink: 0 }}
+                />
+              )}
               <span
                 title={
                   column.wipLimit !== null
@@ -188,6 +294,59 @@ export default function KanbanBoard({
                 {column.wipLimit !== null ? `${list.length}/${column.wipLimit}` : list.length}
               </span>
             </header>
+
+            {/*
+              A descrição da etapa, logo abaixo do nome.
+
+              O fluxo é combinado entre pessoas, e "Em revisão" não diz quem
+              revisa nem o que precisa estar pronto para entrar ali. Fica no
+              quadro, onde a dúvida aparece — num diálogo de configuração, só
+              quem foi configurar leria.
+            */}
+            {column.description && (
+              <span className="field-hint" style={{ lineHeight: 1.45 }}>
+                {column.description}
+              </span>
+            )}
+
+            {/*
+              Quem responde por esta etapa, no alto dela.
+
+              A regra só serve se for legível antes de alguém esbarrar nela: com
+              a equipe à vista, "isto é com a Ana" se responde olhando o quadro,
+              e não abrindo o editor de etapas. A estrela marca quem assume os
+              cards que chegam — a diferença entre poder e pegar.
+            */}
+            {equipeNomes.length > 0 && (
+              <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: "0.2rem" }}>
+                {equipeNomes.map((p) => {
+                  const ehPadrao = column.defaultAssignee?.toUpperCase() === p.acronym;
+                  return (
+                    <span
+                      key={p.acronym}
+                      className="card-badge"
+                      title={
+                        ehPadrao
+                          ? `${p.name} assume os cards que chegam nesta etapa`
+                          : `${p.name} responde por esta etapa`
+                      }
+                      style={{
+                        paddingLeft: "0.15rem",
+                        fontWeight: 600,
+                        letterSpacing: "0.04em",
+                        ...(ehPadrao
+                          ? { color: "var(--warning)", borderColor: "var(--warning)" }
+                          : null),
+                      }}
+                    >
+                      <Avatar name={p.name} src={p.avatarUrl ?? undefined} size="xs" />
+                      {p.acronym}
+                      {ehPadrao && <Star size={9} fill="var(--warning)" />}
+                    </span>
+                  );
+                })}
+              </div>
+            )}
 
             {list.length === 0 && (
               <span className="field-hint" style={{ padding: "0.5rem 0" }}>
@@ -230,8 +389,8 @@ export default function KanbanBoard({
                   style={{
                     display: "flex",
                     flexDirection: "column",
-                    gap: "0.45rem",
-                    padding: "0.7rem",
+                    gap: "0.3rem",
+                    padding: "0.5rem 0.55rem",
                     borderRadius: "var(--radius-block)",
                     background: "var(--surface-sunken)",
                     border: "1px solid var(--surface-sunken-border)",
@@ -286,7 +445,7 @@ export default function KanbanBoard({
                       display: "flex",
                       flexWrap: "wrap",
                       alignItems: "center",
-                      gap: "0.25rem",
+                      gap: "0.2rem",
                     }}
                   >
                     {shows.has("priority") && (
@@ -414,69 +573,140 @@ export default function KanbanBoard({
                 </article>
               );
             })}
-
-            {/*
-              O card do arquivo.
-
-              É um card, e não um botão na barra: quem trabalha aqui lê o quadro
-              como uma fileira de cartões, e o arquivo é a última etapa do mesmo
-              percurso — backlog, produção, revisão, entregue, arquivo. Tem a
-              mesma moldura, o mesmo espaçamento e o mesmo alvo de clique dos
-              outros.
-
-              O que o distingue é o que ele é: permanente. Não arrasta, não tem
-              prioridade nem dono, não se arquiva nem se apaga — a borda
-              tracejada e a cor apagada dizem isso antes de qualquer tentativa.
-              E ele fica na coluna mesmo quando não há nada arquivado: some só
-              quando a porta some junto, e a porta não some.
-            */}
-            {column.id === archiveColumnId && onOpenArchive && (
-              <article
-                role="button"
-                tabIndex={0}
-                title="Ver tudo que saiu do quadro"
-                onClick={onOpenArchive}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter" || e.key === " ") {
-                    e.preventDefault();
-                    onOpenArchive();
-                  }
-                }}
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  gap: "0.5rem",
-                  padding: "0.7rem",
-                  borderRadius: "var(--radius-block)",
-                  background: "transparent",
-                  border: "1px dashed var(--card-border)",
-                  cursor: "pointer",
-                  transition: "border-color 0.2s ease",
-                }}
-                onMouseOver={(e) => (e.currentTarget.style.borderColor = "var(--primary)")}
-                onMouseOut={(e) => (e.currentTarget.style.borderColor = "var(--card-border)")}
-              >
-                <Archive size={15} style={{ color: "var(--muted)", flexShrink: 0 }} />
-
-                <span style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", gap: "0.1rem" }}>
-                  <span style={{ fontSize: "var(--text-control)", fontWeight: 600, color: "var(--muted)" }}>
-                    Arquivo
-                  </span>
-                  <span style={{ fontSize: "var(--text-eyebrow)", color: "var(--muted)" }}>
-                    entregas de meses anteriores
-                  </span>
-                </span>
-
-                {archivedCount > 0 && (
-                  <span className="card-badge" style={{ flexShrink: 0 }}>
-                    {archivedCount}
-                  </span>
-                )}
-              </article>
-            )}
           </section>
         );
+              })}
+            </div>
+          </div>
+        );
       })}
+
+      {/*
+        O arquivo é a última etapa.
+
+        Não é uma coluna do banco, e por isso não aparece no editor de etapas:
+        não se renomeia, não se reordena e não se exclui. Estar no fim da fileira
+        é o que o explica sem legenda — a demanda percorre as etapas e, depois de
+        entregue, o mês vira e ela termina aqui.
+
+        Não recebe arrasto: `onDragOver` não chama `preventDefault`, então o
+        navegador não a aceita como destino. Arquivar continua sendo um gesto
+        deliberado, com confirmação, e não uma consequência de soltar o cartão
+        um pouco à direita.
+      */}
+      {onOpenArchive && (
+        <div
+          style={{
+            flex: "1 1 0",
+            minWidth: "200px",
+            display: "flex",
+            flexDirection: "column",
+            gap: "var(--gap-compact)",
+          }}
+        >
+          {/* O arquivo não pertence a fase nenhuma — mas guarda o espaço da
+              faixa, senão subiria sozinho acima das outras colunas. */}
+          {faixa(null, 0)}
+
+        <section
+          className="glass-panel"
+          aria-label="Arquivo"
+          style={{
+            display: "flex",
+            flexDirection: "column",
+            gap: "var(--gap-compact)",
+            padding: "var(--pad-compact)",
+            minHeight: "120px",
+          }}
+        >
+          <header style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
+            <span
+              aria-hidden="true"
+              style={{
+                width: "8px",
+                height: "8px",
+                borderRadius: "var(--radius-pill)",
+                background: "var(--muted)",
+                flexShrink: 0,
+              }}
+            />
+            <span
+              style={{
+                fontSize: "var(--text-cardtitle)",
+                fontWeight: 700,
+                flex: 1,
+                minWidth: 0,
+                color: "var(--muted)",
+              }}
+            >
+              Arquivo
+            </span>
+            <span
+              title={`${archivedCount} demanda(s) no arquivo`}
+              style={{
+                fontSize: "var(--text-eyebrow)",
+                fontWeight: 600,
+                padding: "0.1rem 0.5rem",
+                borderRadius: "var(--radius-pill)",
+                background: "var(--surface-sunken)",
+                color: "var(--muted)",
+              }}
+            >
+              {archivedCount}
+            </span>
+          </header>
+
+          {/*
+            Um card só, cinza e sem ações — a porta para o que saiu do quadro.
+            Cinza cheio, e não tracejado: ele não é um espaço vazio à espera de
+            conteúdo, é um cartão que está ali de vez.
+          */}
+          <article
+            role="button"
+            tabIndex={0}
+            title="Ver tudo que saiu do quadro"
+            onClick={onOpenArchive}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" || e.key === " ") {
+                e.preventDefault();
+                onOpenArchive();
+              }
+            }}
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: "0.5rem",
+              padding: "0.5rem 0.55rem",
+              borderRadius: "var(--radius-block)",
+              background: "var(--surface-sunken)",
+              border: "1px solid var(--surface-sunken-border)",
+              borderLeft: "3px solid var(--muted)",
+              color: "var(--muted)",
+              cursor: "pointer",
+              transition: "border-color 0.2s ease",
+            }}
+            // `borderColor` pinta os quatro lados, inclusive a faixa da
+            // esquerda: sem devolver a dela à parte, o cinza do acento se
+            // perderia no primeiro passar do mouse.
+            onMouseOver={(e) => (e.currentTarget.style.borderColor = "var(--primary)")}
+            onMouseOut={(e) => {
+              e.currentTarget.style.borderColor = "var(--surface-sunken-border)";
+              e.currentTarget.style.borderLeftColor = "var(--muted)";
+            }}
+          >
+            <Archive size={15} style={{ flexShrink: 0 }} />
+            <span style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", gap: "0.1rem" }}>
+              <span style={{ fontSize: "var(--text-control)", fontWeight: 600 }}>
+                Demandas arquivadas
+              </span>
+              <span style={{ fontSize: "var(--text-eyebrow)" }}>
+                entregas de meses anteriores
+              </span>
+            </span>
+          </article>
+        </section>
+        </div>
+      )}
     </div>
   );
 }

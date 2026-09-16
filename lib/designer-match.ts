@@ -7,11 +7,11 @@
  */
 
 import prisma from "./prisma";
-import { splitAcronyms } from "./acronyms";
+import { splitAcronyms, UNATTRIBUTED_ACRONYM } from "./acronyms";
 
 // Reexportado para quem já importava daqui; a regra em si mora em `acronyms`,
 // que não depende do Prisma e por isso serve também ao lado do cliente.
-export { splitAcronyms };
+export { splitAcronyms, UNATTRIBUTED_ACRONYM };
 
 /**
  * A sigla do balde: onde vai a peça cujo nome não contém sigla nenhuma.
@@ -24,7 +24,7 @@ export { splitAcronyms };
  * Não é a mesma coisa que `status` UNKNOWN, que é defeito: aqui a ausência de
  * atribuição é um fato sobre o nome do anúncio, e o balde a torna legível.
  */
-export const UNATTRIBUTED_ACRONYM = "UNKNOWN";
+
 
 /**
  * Siglas que existem apenas como rótulo de "sem atribuição" e nunca devem ser

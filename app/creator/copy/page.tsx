@@ -17,7 +17,6 @@ import {
 import { type CardAttachment } from "@/lib/attachments";
 import { PRIORITIES, PRIORITY_LABEL, type Priority } from "@/lib/kanban";
 import {
-  COPY_FORMATS,
   COPY_TONES,
   MAX_VARIATIONS,
   MIN_VARIATIONS,

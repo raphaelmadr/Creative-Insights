@@ -1,5 +1,15 @@
+/// O cliente, e para quais sistemas o motor de consulta é baixado.
+///
+/// `native` é esta máquina, para o `next dev`. Os dois `rhel` são a
+/// hospedagem: cPanel compartilhado roda CloudLinux, derivado do RHEL, e a
+/// variante certa depende do OpenSSL de lá — 1.1 no CL8, 3.0 no CL9. Baixar
+/// as duas custa alguns MB no pacote e evita descobrir a errada em produção,
+/// com o site fora do ar e sem `prisma generate` disponível no servidor.
+///
+/// Confirmada a distro, dá para remover a que sobrar.
 generator client {
-  provider = "prisma-client-js"
+  provider      = "prisma-client-js"
+  binaryTargets = ["native", "rhel-openssl-1.1.x", "rhel-openssl-3.0.x"]
 }
 
 datasource db {
@@ -349,6 +359,7 @@ model Board {
 
   columns BoardColumn[]
   fields  BoardField[]
+  groups  BoardGroup[]
   cards   BoardCard[]
 }
 
@@ -361,6 +372,42 @@ model BoardColumn {
 
   /// Token semântico da cor do topo da coluna (ex.: `var(--warning)`).
   color String?
+
+  /// O que acontece nesta etapa, em uma ou duas linhas.
+  ///
+  /// Fica visível no topo da coluna: o fluxo é combinado entre pessoas, e um
+  /// nome de etapa sozinho ("Em revisão") não diz quem revisa nem o que precisa
+  /// estar pronto para entrar ali.
+  description String? @db.Text
+
+  /// A partir desta etapa o card precisa ter um responsável.
+  ///
+  /// Antes da produção, demanda sem dono é normal — ela acabou de ser aberta.
+  /// Depois dela, é trabalho que ninguém assumiu e que ninguém vai cobrar.
+  requiresAssignee Boolean @default(false)
+
+  /// Quem responde por esta etapa, em JSON de siglas (`["RM","JV"]`).
+  ///
+  /// Uma etapa não é feita por qualquer um: quem escreve a copy não aprova a
+  /// arte. Com a equipe definida, o seletor de responsável do card passa a
+  /// oferecer só estas pessoas — a regra sai da cabeça de quem opera e vira
+  /// parte do quadro.
+  ///
+  /// Vazio é "qualquer um", e é o que todo quadro é antes de alguém configurar.
+  assignees String? @db.Text
+
+  /// Quem assume, das pessoas acima, quando o card chega nesta etapa.
+  ///
+  /// É o que torna a regra útil sem virar trabalho: sem um padrão, cada card
+  /// que avança pede uma escolha que quase sempre é a mesma. Ver
+  /// `resolveStageAssignee` em `lib/kanban.ts`.
+  defaultAssignee String?
+
+  /// O grupo de etapas — a fase do fluxo a que esta etapa pertence.
+  ///
+  /// Nulo é etapa solta, sem faixa acima dela. `SetNull` ao apagar o grupo:
+  /// desfazer uma fase não apaga as etapas que estavam nela.
+  groupId String?
 
   /// A coluna onde cai tudo que chega pelo formulário e pelo gerador de copy.
   ///
@@ -376,9 +423,11 @@ model BoardColumn {
   wipLimit Int?
 
   board Board       @relation(fields: [boardId], references: [id], onDelete: Cascade)
+  group BoardGroup? @relation(fields: [groupId], references: [id], onDelete: SetNull)
   cards BoardCard[]
 
   @@index([boardId])
+  @@index([groupId])
 }
 
 /// Um campo definível do formulário daquele quadro.
@@ -419,6 +468,30 @@ model BoardField {
 }
 
 /// Uma demanda.
+/// Uma fase do quadro — o grupo a que várias etapas pertencem.
+///
+/// Agrupa **etapas**, não cards. Um quadro com oito colunas é uma fileira sem
+/// forma; as mesmas oito sob "Briefing", "Produção" e "Entrega" mostram o
+/// macro-fluxo numa linha e o detalhe na linha de baixo.
+///
+/// A cor pinta a faixa da fase, e é ela que separa um bloco do seguinte.
+model BoardGroup {
+  id       String  @id @default(cuid())
+  boardId  String
+  name     String
+  /// Token semântico da cor da faixa (ex.: `var(--info)`). Ver `GROUP_COLORS`.
+  color    String
+  position Int     @default(0)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  board   Board         @relation(fields: [boardId], references: [id], onDelete: Cascade)
+  columns BoardColumn[]
+
+  @@index([boardId])
+}
+
 model BoardCard {
   id          String  @id @default(cuid())
   boardId     String

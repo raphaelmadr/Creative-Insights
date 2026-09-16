@@ -1,17 +1,20 @@
 "use client";
 
 import React, { useCallback, useEffect, useState } from "react";
-import { Plus, SlidersHorizontal, Columns3, LayoutGrid, Tags } from "lucide-react";
+import { Plus, SlidersHorizontal, Columns3, LayoutGrid, Tags, Layers } from "lucide-react";
 import KanbanBoard from "@/components/creator/KanbanBoard";
 import DemandDialog, { type CreatorOption } from "@/components/creator/DemandDialog";
 import FieldsDialog from "@/components/creator/FieldsDialog";
 import ColumnsDialog, { type ColumnDefinition } from "@/components/creator/ColumnsDialog";
 import BadgesDialog from "@/components/creator/BadgesDialog";
+import GroupsDialog from "@/components/creator/GroupsDialog";
 import ArchiveDialog from "@/components/creator/ArchiveDialog";
+import AssigneeDialog from "@/components/creator/AssigneeDialog";
 import CardDialog, { type CardData } from "@/components/creator/CardDialog";
 import { type FieldDefinition } from "@/components/creator/FieldInput";
 import { Skeleton } from "@/components/Skeleton";
-import { parseCardBadges } from "@/lib/kanban";
+import { parseCardBadges, stageCandidates, type GroupDefinition } from "@/lib/kanban";
+import { primaryAcronym, UNATTRIBUTED_ACRONYM } from "@/lib/acronyms";
 
 interface BoardSummary {
   id: string;
@@ -23,6 +26,7 @@ interface BoardSummary {
 interface BoardDetail extends BoardSummary {
   columns: ColumnDefinition[];
   fields: FieldDefinition[];
+  groups: GroupDefinition[];
   /** JSON dos mini-badges — cru, como está no banco. Ver `parseCardBadges`. */
   cardBadges: string | null;
 }
@@ -48,7 +52,18 @@ export default function KanbanPage() {
   const [editFields, setEditFields] = useState(false);
   const [editColumns, setEditColumns] = useState(false);
   const [editBadges, setEditBadges] = useState(false);
+  const [editGroups, setEditGroups] = useState(false);
   const [showArchive, setShowArchive] = useState(false);
+
+  /** O movimento que parou à espera de um dono. */
+  const [pendingMove, setPendingMove] = useState<{
+    cardId: string;
+    columnId: string;
+    order: string[];
+    columnName: string;
+    cardTitle: string;
+  } | null>(null);
+  const [assigning, setAssigning] = useState(false);
   const [openCard, setOpenCard] = useState<CardData | null>(null);
 
   const load = useCallback(
@@ -88,7 +103,25 @@ export default function KanbanPage() {
      */
     fetch("/api/creators")
       .then((res) => res.json())
-      .then((res) => setCreators(res.data || []))
+      .then((res) =>
+        /*
+         * A sigla é normalizada aqui, na entrada, e não em cada tela que a usa.
+         *
+         * O cadastro guarda uma lista de apelidos ("RM, RAPHAELMADUREIRA"), e é
+         * ela que casa com o nome dos anúncios. Para gravar um responsável
+         * precisa haver um valor só — a canônica —, senão o `<select>` grava a
+         * lista inteira, recebe de volta o texto normalizado pela rota e não
+         * encontra mais a própria opção: a escolha parece não pegar.
+         *
+         * O balde "sem atribuição" sai da lista: ele não é uma pessoa, e quem
+         * não tem dono já tem a opção "A definir".
+         */
+        setCreators(
+          (res.data || [])
+            .map((c: CreatorOption) => ({ ...c, acronym: primaryAcronym(c.acronym) }))
+            .filter((c: CreatorOption) => c.acronym && c.acronym !== UNATTRIBUTED_ACRONYM)
+        )
+      )
       .catch(() => setCreators([]));
   }, [load]);
 
@@ -100,7 +133,12 @@ export default function KanbanPage() {
     if (fresh && fresh !== openCard) setOpenCard(fresh);
   }, [cards, openCard]);
 
-  const move = async (cardId: string, columnId: string, order: string[]) => {
+  const move = async (
+    cardId: string,
+    columnId: string,
+    order: string[],
+    assigneeAcronym?: string
+  ) => {
     /*
      * A tela muda antes da resposta do servidor. Um arrasto que espera a ida e
      * volta da rede devolve o card ao lugar de origem por um instante — parece
@@ -113,11 +151,33 @@ export default function KanbanPage() {
     const res = await fetch("/api/creator/cards", {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ move: { cardId, columnId, order } }),
+      body: JSON.stringify({ move: { cardId, columnId, order, assigneeAcronym } }),
     });
 
-    // Falhou: recarrega e a verdade do banco volta à tela.
-    if (!res.ok) load(activeId);
+    if (res.ok) return true;
+
+    /*
+     * A etapa exige dono e o card não tem: a regra vive no servidor, e a tela
+     * reage à recusa perguntando quem assume — em vez de duplicar a condição
+     * aqui, onde ela envelheceria em silêncio no dia em que a etapa mudasse.
+     */
+    const data = await res.json().catch(() => ({}));
+    if (data?.needsAssignee) {
+      const coluna = board?.columns.find((c) => c.id === columnId);
+      const card = cards.find((c) => c.id === cardId);
+      setPendingMove({
+        cardId,
+        columnId,
+        order,
+        columnName: coluna?.name ?? "Esta etapa",
+        cardTitle: card?.title ?? "",
+      });
+    }
+
+    // Recarrega: a verdade do banco volta à tela, e o card retorna à etapa de
+    // origem até a pergunta ser respondida.
+    load(activeId);
+    return false;
   };
 
   const headerButton = { padding: "0.45rem 0.85rem", fontSize: "var(--text-caption)" } as const;
@@ -194,6 +254,16 @@ export default function KanbanPage() {
                 <Tags size={14} />
                 Card
               </button>
+              <button
+                className="btn btn-secondary"
+                style={headerButton}
+                onClick={() => setEditGroups(true)}
+                disabled={!board}
+                title="Agrupar as etapas em fases — Briefing, Produção, Entrega"
+              >
+                <Layers size={14} />
+                Fases
+              </button>
             </span>
           </div>
         </div>
@@ -227,6 +297,7 @@ export default function KanbanPage() {
             cards={cards}
             fields={board.fields}
             creators={creators}
+            groups={board.groups}
             badges={parseCardBadges(board.cardBadges)}
             archivedCount={archivedCount}
             onOpenCard={setOpenCard}
@@ -260,6 +331,7 @@ export default function KanbanPage() {
             onClose={() => setNewDemand(false)}
             boardId={board.id}
             boardName={board.name}
+            columns={board.columns}
             fields={board.fields}
             creators={creators}
             onCreated={() => load(activeId)}
@@ -278,6 +350,16 @@ export default function KanbanPage() {
             onClose={() => setEditColumns(false)}
             boardId={board.id}
             columns={board.columns}
+            groups={board.groups}
+            creators={creators}
+            onChanged={() => load(activeId)}
+          />
+
+          <GroupsDialog
+            open={editGroups}
+            onClose={() => setEditGroups(false)}
+            boardId={board.id}
+            groups={board.groups}
             onChanged={() => load(activeId)}
           />
 
@@ -303,6 +385,28 @@ export default function KanbanPage() {
               setOpenCard(card);
             }}
             onChanged={() => load(activeId)}
+          />
+
+          <AssigneeDialog
+            open={!!pendingMove}
+            columnName={pendingMove?.columnName ?? ""}
+            cardTitle={pendingMove?.cardTitle ?? ""}
+            /* Só quem responde pela etapa aparece: a pergunta é "quem assume
+               isto aqui", e o quadro inteiro na lista a transformaria em "quem
+               existe na empresa". */
+            creators={stageCandidates(
+              board.columns.find((c) => c.id === pendingMove?.columnId),
+              creators
+            )}
+            busy={assigning}
+            onClose={() => setPendingMove(null)}
+            onConfirm={async (acronym) => {
+              if (!pendingMove) return;
+              setAssigning(true);
+              const ok = await move(pendingMove.cardId, pendingMove.columnId, pendingMove.order, acronym);
+              setAssigning(false);
+              if (ok) setPendingMove(null);
+            }}
           />
 
           <CardDialog

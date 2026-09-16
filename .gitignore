@@ -41,3 +41,8 @@ next-env.d.ts
 dev.db
 *.db
 *.db-journal
+
+# pacote de deploy (ver DEPLOY.md)
+# Ignorado por ora: são ~142 MB de binários que o espelhamento do Git levaria
+# para a hospedagem a cada publicação. Ver DEPLOY.md antes de versionar isto.
+/deploy

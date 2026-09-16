@@ -170,17 +170,64 @@ A coluna de entrega só crescia. Em oito semanas ninguém mais rolava até o fim
 * **Roda na leitura do quadro, não num cron,** pelo mesmo motivo de `ensureDefaultBoard`: regra que depende de disparador externo é regra que não valeu no dia em que o disparador falhou. E acontece **antes** da consulta dos cards — depois dela, a tela receberia nesta visita os cards recém-arquivados, que só sumiriam no recarregamento seguinte.
 * **`completedAt` é o critério, e ele já sabe voltar atrás:** é carimbado ao entrar na coluna de entrega e apagado ao sair dela, então um card que voltou para revisão não conta como entrega antiga.
 * **Arquivar não apaga.** Briefing, copy, anexos, link e histórico ficam intactos — e o histórico ganha a linha que explica o sumiço, sem autor, porque não houve um.
-* **A coluna se explica na tela,** pelo card do arquivo no fim dela: "Arquivo — entregas de meses anteriores". Card que some sem aviso é card que alguém vai procurar.
+* **O quadro se explica na tela,** pela etapa de arquivo no fim dele: "Demandas arquivadas — entregas de meses anteriores". Card que some sem aviso é card que alguém vai procurar.
 
 ### O arquivo tem tela (Setembro 2026)
 Com o quadro se esvaziando sozinho no fim do mês, "sumiu da tela" e "foi apagado" passariam a ser a mesma coisa para quem olha. Não são: o card sai do quadro inteiro — briefing, copy, referências, link e histórico.
 
-* **A porta é um card, não um botão.** No fim da coluna de entrega, porque o arquivo é a última etapa do mesmo percurso — a fazer, produção, revisão, entregue, arquivo. Mesma moldura, mesmo espaçamento e mesmo alvo de clique dos outros cards; traz a contagem do que está lá dentro.
-* **Esse card é permanente, e se anuncia como tal.** Não arrasta, não tem prioridade nem dono, não se arquiva nem se apaga — a borda tracejada e a cor apagada dizem isso antes de qualquer tentativa. Fica na coluna mesmo com o arquivo vazio: ele é a única porta para o que saiu do quadro, e uma porta que some quando não há o que ver é uma porta que ninguém encontra quando houver. Sem coluna de entrega marcada, ele vai para a última.
+* **O arquivo é a última etapa do quadro,** depois de Entregue, com um card cinza dentro. Estar no fim da fileira o explica sem legenda: a demanda percorre as etapas e, depois de entregue, o mês vira e ela termina ali.
+* **A etapa não existe no banco,** e por isso não aparece no editor de etapas: não se renomeia, não se reordena e não se exclui. O card dentro dela é um só, cinza cheio e sem ações — não se arrasta, não tem prioridade nem dono, não se arquiva nem se apaga. Cinza cheio, e não tracejado: ele não é um espaço vazio à espera de conteúdo, é um cartão que está ali de vez.
+* **Ela não recebe arrasto.** Arquivar continua sendo um gesto deliberado, com confirmação, e não a consequência de soltar o cartão um pouco à direita.
 * **A lista é de reconhecimento; o conteúdo se vê abrindo o card** — no mesmo `CardDialog` de sempre, que agora sabe se apresentar em modo somente-leitura, com um aviso no topo e o botão de arquivar trocado pelo de restaurar. Um segundo visualizador só para o arquivo divergiria do primeiro na primeira mudança, e quem abre um card arquivado quer ver exatamente o que via antes.
 * **Restaurar uma entrega de mês passado a reabre.** Devolvê-la à coluna de entrega seria devolvê-la à regra que a arquivou: ela sumiria de novo no carregamento seguinte e o botão pareceria quebrado. Ela volta para a coluna de entrada, sem data de conclusão — que é o que alguém quer dizer ao trazer de volta uma peça entregue: há trabalho a fazer nela outra vez. **Verificado:** restaurada, ela permanece no quadro depois de dois recarregamentos. Um card arquivado à mão volta para a coluna onde estava, sem reabrir.
 * **Abrir um card do arquivo fecha a lista.** Dois diálogos empilhados dividiriam o Esc — uma tecla fecharia os dois — e o de baixo continuaria travando a rolagem do de cima.
 * **Teto de 200, com aviso.** A lista só cresce; quando o teto começar a ser atingido, o caminho é filtro por período, não um número maior.
+
+### As etapas se explicam, e algumas exigem dono (Setembro 2026)
+"Em revisão" não diz quem revisa nem o que precisa estar pronto para entrar ali. O fluxo é combinado entre pessoas, e a combinação vivia fora da ferramenta.
+
+* **Cada etapa tem descrição,** escrita no editor de etapas e exibida no topo da coluna — no quadro, onde a dúvida aparece. Num diálogo de configuração, só quem foi configurar leria.
+* **Uma etapa pode exigir responsável.** Antes da produção, demanda sem dono é normal — acabou de ser aberta. Depois dela, é trabalho que ninguém assumiu e que ninguém vai cobrar. A coluna que exige mostra um ícone no cabeçalho, antes de alguém arrastar até lá e ser recusado.
+* **A pergunta vem no gesto, não como erro depois dele.** Soltar um card sem dono numa etapa que exige abre "quem assume?", com a lista da equipe; a escolha viaja junto com o movimento, numa requisição só. Atribuir primeiro e mover depois deixaria, no meio do caminho, um card com dono na etapa errada se a segunda chamada falhasse.
+* **A regra vale nas três portas:** o arrasto, a troca de etapa pelo painel do card e a abertura da demanda. Uma delas de fora seria o buraco por onde passaria justamente o que a regra existe para impedir.
+* **A passagem de bastão automática fica no histórico dizendo que foi automática** — *"LM assumiu por ser o padrão de «Em produção»"*, e não *"atribuiu para LM"*. Sem a distinção, quem lê o card semanas depois procuraria a pessoa que atribuiu, e não houve nenhuma.
+
+### Cada etapa tem os seus responsáveis (Setembro 2026)
+"Exige responsável" dizia que **alguém** precisa assumir, e oferecia o quadro inteiro para escolher. Mas quem escreve a copy não aprova a arte: a etapa não quer um dono qualquer, quer o dono dela.
+
+* **A etapa passou a ter equipe e dono padrão.** No editor de etapas, clicar no nome põe e tira a pessoa da equipe; a estrela ao lado diz qual delas assume por padrão. Duas listas — "quem pode" e "quem é o padrão" — obrigariam a manter as duas em dia, e a segunda sairia da primeira no primeiro dia em que alguém trocasse de time.
+* **O card que chega já cai atribuído.** É a passagem de bastão acontecendo no gesto que a representa: a copy sai das mãos de quem escreveu e entra nas de quem desenha, sem ninguém precisar lembrar de repassar. **Verificado:** movido para uma etapa de equipe `RM, LM` com padrão `LM`, o card chegou com `LM`.
+* **Quem já estava tocando a demanda não é substituído** só porque ela avançou — se o dono atual é da equipe da etapa, ele fica. O padrão só entra quando o dono é de fora, ou quando não há dono.
+* **Sem padrão definido, o dono anterior fica em vez de ser apagado.** Perder o responsável em silêncio ao mover um card é pior que um responsável desatualizado, que ao menos se vê no quadro.
+* **Etapa que exige responsável exige um *da sua equipe*.** Ter dono deixou de bastar. **Verificado:** o mesmo card, com `LM`, foi recusado por uma etapa de equipe `RM` — *"só aceita quem responde por ela"* — e passou quando `RM` veio junto com o movimento.
+* **O seletor do card oferece só a equipe da etapa onde ele está.** Oferecer o quadro inteiro e recusar a escolha no servidor seria ensinar a regra pelo erro. Quem já é dono aparece mesmo fora da equipe: pode ter assumido antes de a regra existir, e sumi-lo do seletor faria a caixa mostrar "A definir" num card que tem dono — e o apagaria no salvamento seguinte.
+* **A equipe fica visível no topo da coluna,** com a estrela em quem assume. A regra só serve se for legível antes de alguém esbarrar nela.
+* **O padrão precisa ser da equipe,** e a rota recusa o contrário: um padrão de fora seria atribuído a cada card que chegasse, e o mesmo seletor que se recusa a oferecer aquela pessoa a mostraria como dona. Esvaziar a equipe esvazia o padrão junto.
+* **Equipe cujas siglas não casam com ninguém do cadastro devolve o quadro inteiro.** A pessoa pode ter saído da empresa depois de a etapa ser configurada, e uma lista vazia deixaria a etapa impossível de atribuir — um quadro travado por uma configuração velha.
+
+### Fases: o agrupamento era de etapas, não de cards (Setembro 2026)
+A primeira versão agrupou **cards** e pintou a borda deles. O pedido era agrupar **etapas**. São coisas diferentes, e a versão errada foi removida inteira — nenhum card tinha grupo atribuído, então nada se perdeu.
+
+* **Uma fase agrupa colunas e vira uma faixa sobre elas.** Oito etapas lado a lado são uma fileira sem forma; as mesmas oito sob "Briefing", "Produção" e "Entrega" mostram o macro-fluxo numa linha e o detalhe na de baixo.
+* **A faixa cresce com o número de etapas que cobre,** e as colunas mantêm a mesma largura entre fases diferentes.
+* **A fase ocupa a posição da sua primeira etapa, e as demais vêm atrás dela.** Uma faixa contínua precisa de colunas vizinhas; sem isso, marcar uma coluna do fim como "Briefing" partiria a faixa em duas. O efeito colateral é o desejado: a etapa vai para junto das irmãs de fase ao ser marcada, que é o que a pessoa queria ao marcar — e não há como reordenar colunas à mão na tela.
+* **Etapa sem fase guarda o espaço da faixa,** invisível. Sem ele, uma coluna solta subiria e o topo do quadro viraria uma linha quebrada. Sem nenhuma fase no quadro, o espaço não existe.
+* **A cor vem da paleta do design system,** e a rota recusa qualquer outra coisa: o valor vai direto para o `style` de um elemento, e aceitar texto livre ali é aceitar CSS de terceiros. **Verificado:** uma fase criada com `red; background:url(x)` nasceu com a cor padrão.
+* **A cor é uma linha sob o nome, não um fundo cheio.** Um bloco colorido atrás de tudo competiria com a prioridade dos cards, que é a cor que precisa saltar lá dentro.
+* **Desfazer uma fase não desfaz as etapas dela:** elas continuam no quadro, apenas sem faixa (`SetNull`). Com o cascade, iriam os cards junto.
+* **Quais etapas entram em cada fase se decide no editor de etapas,** e não no de fases: é lá que a pessoa está olhando a etapa quando a pergunta aparece.
+
+### O responsável não podia ser escolhido (Setembro 2026)
+No painel do card, escolher alguém em "Responsável" não pegava: a caixa voltava sozinha para "A definir".
+
+* **A causa era a sigla com apelidos.** O cadastro guarda uma lista (`"RM, RAPHAELMADUREIRA"`), que é o que casa com o nome dos anúncios. A caixa usava a lista inteira como valor, a rota gravava o texto normalizado e a caixa não encontrava mais a própria opção — a escolha parecia não pegar. O histórico registrava o sintoma: *"atribuiu para RM, RAPHAELMADUREIRA"*.
+* **A canônica passou a ser resolvida na entrada** (`primaryAcronym`, em `lib/acronyms.ts` — o módulo puro que já separava os apelidos), uma vez, onde a lista de criadores é carregada. Cada tela que a consome não precisa saber que existe uma lista.
+* **O balde "sem atribuição" saiu da lista de pessoas.** Ele não é alguém; quem não tem dono já tem "A definir".
+* **Os cards já gravados foram normalizados** — quatro tinham a lista inteira no lugar da sigla, e voltariam a aparecer sem responsável depois da correção.
+
+### O quadro ficou mais denso (Setembro 2026)
+* **As etapas dividem a largura disponível** em vez de ter 300px cravados. Com quatro colunas numa tela larga sobrava vazio; com seis, a última ficava fora da vista. O piso é 200px — onde um card ainda se lê —, e abaixo disso a fileira volta a rolar.
+* **Dois tokens novos, `--pad-compact` e `--gap-compact`,** para a densidade alta desta tela. Não substituem os de sempre: são a exceção de uma tela que é uma grade de muitas colunas, e ficam no design system em vez de virar números soltos dentro do componente.
 
 ### Pendência conhecida
 * **A cobertura de transcrição ainda é baixa fora dos vencedores.** 57 de 13.559 criativos têm `visionTranscript`. Para o gerador de copy isso deixou de ser bloqueio — o botão "Transcrever peças vencedoras" cobre as peças que ele lê —, mas as análises individuais de qualquer outra peça continuam partindo do zero na primeira abertura.

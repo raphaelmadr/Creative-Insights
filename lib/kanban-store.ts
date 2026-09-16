@@ -14,6 +14,7 @@ import { DEFAULT_BOARD, startOfCurrentMonth, uniqueFieldKey } from "./kanban";
 export const BOARD_INCLUDE = {
   columns: { orderBy: { position: "asc" } },
   fields: { orderBy: { position: "asc" } },
+  groups: { orderBy: { position: "asc" } },
 } as const;
 
 /**

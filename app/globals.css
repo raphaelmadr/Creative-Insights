@@ -62,6 +62,12 @@
   --pad-card-lg: 1.25rem;     /* cartão que é a peça principal da tela */
   --gap-grid: 1rem;           /* entre cartões de uma grade */
   --gap-stack: 0.85rem;       /* entre blocos dentro de um cartão */
+
+  /* Densidade alta — o quadro Kanban, onde caber todas as etapas na tela vale
+     mais do que respiro entre elas. Não substituem os de cima: são a exceção
+     de uma tela que é uma grade de muitas colunas. */
+  --pad-compact: 0.6rem;
+  --gap-compact: 0.5rem;
 }
 
 [data-theme='dark'] {

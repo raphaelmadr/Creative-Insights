@@ -1,13 +1,26 @@
 "use client";
 
 import React, { useState } from "react";
-import { Plus, Trash2 } from "lucide-react";
+import { Plus, Trash2, UserCheck, Users, Star } from "lucide-react";
 import Modal from "@/components/Modal";
+import { Avatar } from "@/components/Avatar";
+import { parseAssignees, type GroupDefinition } from "@/lib/kanban";
+import type { CreatorOption } from "./DemandDialog";
 
 export interface ColumnDefinition {
   id: string;
   name: string;
   color: string | null;
+  /** O que acontece nesta etapa — aparece no topo da coluna. */
+  description: string | null;
+  /** A partir daqui o card precisa de dono. */
+  requiresAssignee: boolean;
+  /** JSON de siglas de quem responde por esta etapa. Ver `parseAssignees`. */
+  assignees: string | null;
+  /** Quem assume quando o card chega aqui. */
+  defaultAssignee: string | null;
+  /** A fase a que esta etapa pertence, ou nulo. */
+  groupId: string | null;
   isIntake: boolean;
   isDone: boolean;
   wipLimit: number | null;
@@ -38,12 +51,18 @@ export default function ColumnsDialog({
   onClose,
   boardId,
   columns,
+  groups = [],
+  creators = [],
   onChanged,
 }: {
   open: boolean;
   onClose: () => void;
   boardId: string;
   columns: ColumnDefinition[];
+  /** As fases do quadro, para dizer a que bloco cada etapa pertence. */
+  groups?: GroupDefinition[];
+  /** A equipe, para escolher quem responde por cada etapa. */
+  creators?: CreatorOption[];
   onChanged: () => void;
 }) {
   const [newName, setNewName] = useState("");
@@ -86,7 +105,11 @@ export default function ColumnsDialog({
         </button>
       }
     >
-      {columns.map((column) => (
+      {columns.map((column) => {
+        const equipe = parseAssignees(column.assignees);
+        const padrao = column.defaultAssignee?.toUpperCase() ?? null;
+
+        return (
         <div
           key={column.id}
           style={{
@@ -140,6 +163,27 @@ export default function ColumnsDialog({
             </button>
           </div>
 
+          {/*
+            A descrição da etapa.
+
+            Salva ao sair do campo, como o nome logo acima: um botão de salvar
+            por etapa encheria o diálogo de botões, e o fluxo aqui é escrever,
+            ver o resultado no quadro, ajustar.
+          */}
+          <textarea
+            className="field-input field-prose"
+            defaultValue={column.description ?? ""}
+            placeholder="O que acontece nesta etapa? Quem faz, e o que precisa estar pronto para entrar aqui."
+            aria-label={`Descrição da etapa ${column.name}`}
+            style={{ minHeight: "56px" }}
+            onBlur={(e) => {
+              const description = e.target.value.trim();
+              if (description !== (column.description ?? "")) {
+                send("PUT", { id: column.id, description });
+              }
+            }}
+          />
+
           <div style={{ display: "flex", flexWrap: "wrap", gap: "0.35rem" }}>
             {COLORS.map((c) => (
               <button
@@ -165,6 +209,128 @@ export default function ColumnsDialog({
             ))}
           </div>
 
+          {/*
+            A fase a que a etapa pertence.
+
+            A etapa vai para junto das irmãs de fase ao ser marcada — a faixa
+            precisa de colunas vizinhas para existir, e ninguém deveria ter de
+            reordenar o quadro à mão para consegui-la. Ver `groupColumns`.
+          */}
+          {groups.length > 0 && (
+            <div className="field">
+              <label className="field-label" htmlFor={`fase-${column.id}`}>
+                Fase
+              </label>
+              <select
+                id={`fase-${column.id}`}
+                className="field-input"
+                value={column.groupId ?? ""}
+                // A cor da fase escolhida na própria caixa: sem ela, só se
+                // descobre qual faixa é depois de fechar o diálogo.
+                style={{ borderColor: groups.find((g) => g.id === column.groupId)?.color }}
+                onChange={(e) => send("PUT", { id: column.id, groupId: e.target.value || null })}
+              >
+                <option value="">Sem fase</option>
+                {groups.map((g) => (
+                  <option key={g.id} value={g.id}>
+                    {g.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
+
+          {/*
+            Quem responde por esta etapa.
+
+            Duas coisas num controle só: clicar no nome põe e tira a pessoa da
+            equipe; clicar na estrela diz qual delas assume por padrão. Separar
+            em duas listas — "quem pode" e "quem é o padrão" — obrigaria a
+            manter as duas em dia, e a segunda sairia da primeira no primeiro
+            dia em que alguém trocasse de time.
+          */}
+          {creators.length > 0 && (
+            <div className="field">
+              <label className="field-label">
+                <Users size={13} style={{ verticalAlign: "-2px", marginRight: "0.3rem" }} />
+                Responsáveis desta etapa
+              </label>
+
+              <div style={{ display: "flex", flexWrap: "wrap", gap: "0.35rem" }}>
+                {creators.map((c) => {
+                  const dentro = equipe.includes(c.acronym.toUpperCase());
+                  const ehPadrao = dentro && padrao === c.acronym.toUpperCase();
+
+                  return (
+                    <span
+                      key={c.acronym}
+                      style={{ display: "inline-flex", alignItems: "center", gap: "0.15rem" }}
+                    >
+                      <button
+                        type="button"
+                        className="btn btn-toggle"
+                        aria-pressed={dentro}
+                        title={dentro ? `Tirar ${c.name} desta etapa` : `${c.name} responde por esta etapa`}
+                        style={{ padding: "0.25rem 0.55rem", fontSize: "var(--text-caption)", gap: "0.35rem" }}
+                        onClick={() => {
+                          const proxima = dentro
+                            ? equipe.filter((a) => a !== c.acronym.toUpperCase())
+                            : [...equipe, c.acronym.toUpperCase()];
+                          send("PUT", {
+                            id: column.id,
+                            assignees: proxima,
+                            // Tirar da equipe quem era o padrão tira o padrão
+                            // junto: o servidor recusaria a combinação, e o
+                            // clique pareceria não ter pegado.
+                            ...(ehPadrao ? { defaultAssignee: null } : {}),
+                          });
+                        }}
+                      >
+                        <Avatar name={c.name} src={c.avatarUrl} size="xs" />
+                        {c.acronym}
+                      </button>
+
+                      {dentro && (
+                        <button
+                          type="button"
+                          className="btn btn-icon"
+                          aria-pressed={ehPadrao}
+                          title={
+                            ehPadrao
+                              ? `${c.name} deixa de assumir por padrão`
+                              : `${c.name} assume os cards que chegarem aqui`
+                          }
+                          style={{
+                            width: "1.6rem",
+                            height: "1.6rem",
+                            padding: "0.2rem",
+                            color: ehPadrao ? "var(--warning)" : "var(--muted)",
+                          }}
+                          onClick={() =>
+                            send("PUT", {
+                              id: column.id,
+                              defaultAssignee: ehPadrao ? null : c.acronym,
+                            })
+                          }
+                        >
+                          <Star size={13} fill={ehPadrao ? "var(--warning)" : "none"} />
+                        </button>
+                      )}
+                    </span>
+                  );
+                })}
+              </div>
+
+              <span className="field-hint">
+                {equipe.length === 0
+                  ? "Sem ninguém marcado, qualquer pessoa do quadro pode assumir."
+                  : padrao
+                    ? `O card que chegar aqui passa a ser de ${padrao}. Só estas pessoas aparecem no seletor de responsável.`
+                    : "Só estas pessoas aparecem no seletor de responsável. Marque a estrela de quem assume por padrão."}
+              </span>
+            </div>
+          )}
+
           <div style={{ display: "flex", flexWrap: "wrap", gap: "0.35rem", alignItems: "center" }}>
             <button
               type="button"
@@ -188,6 +354,18 @@ export default function ColumnsDialog({
               Entrega
             </button>
 
+            <button
+              type="button"
+              className="btn btn-toggle"
+              aria-pressed={column.requiresAssignee}
+              title="Um card só entra nesta etapa com responsável definido"
+              style={{ padding: "0.35rem 0.7rem", fontSize: "var(--text-caption)" }}
+              onClick={() => send("PUT", { id: column.id, requiresAssignee: !column.requiresAssignee })}
+            >
+              <UserCheck size={13} />
+              Exige responsável
+            </button>
+
             <input
               type="number"
               min={0}
@@ -203,7 +381,8 @@ export default function ColumnsDialog({
             <span className="field-hint">Limite de cards — em branco, sem limite.</span>
           </div>
         </div>
-      ))}
+        );
+      })}
 
       <div className="field">
         <label className="field-label" htmlFor="coluna-nova">

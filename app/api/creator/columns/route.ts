@@ -10,6 +10,7 @@ import { NextResponse } from "next/server";
 import prisma from "@/lib/prisma";
 import { getCurrentUser } from "@/lib/auth";
 import { intakeColumnId } from "@/lib/kanban-store";
+import { parseAssignees, serializeAssignees } from "@/lib/kanban";
 
 export async function POST(request: Request) {
   const user = await getCurrentUser();
@@ -65,11 +66,56 @@ export async function PUT(request: Request) {
       return NextResponse.json({ success: true });
     }
 
-    const { id, name, color, isIntake, isDone, wipLimit } = body;
+    const {
+      id,
+      name,
+      color,
+      description,
+      requiresAssignee,
+      assignees,
+      defaultAssignee,
+      groupId,
+      isIntake,
+      isDone,
+      wipLimit,
+    } = body;
     if (!id) return NextResponse.json({ error: "ID da coluna é obrigatório." }, { status: 400 });
 
-    const current = await prisma.boardColumn.findUnique({ where: { id }, select: { boardId: true } });
+    const current = await prisma.boardColumn.findUnique({
+      where: { id },
+      select: { boardId: true, assignees: true },
+    });
     if (!current) return NextResponse.json({ error: "Coluna não encontrada." }, { status: 404 });
+
+    /*
+     * O padrão precisa ser da equipe da etapa.
+     *
+     * Um padrão de fora seria atribuído a cada card que chegasse, e o mesmo
+     * seletor que se recusa a oferecer aquela pessoa a mostraria como dona —
+     * a regra se contradizendo dentro da mesma coluna. Quando a equipe muda na
+     * mesma requisição, vale a equipe nova; quando não, a que já estava.
+     */
+    const equipeFinal =
+      assignees !== undefined ? parseAssignees(serializeAssignees(assignees)) : parseAssignees(current.assignees);
+
+    const padraoPedido =
+      defaultAssignee !== undefined && defaultAssignee
+        ? String(defaultAssignee).trim().toUpperCase()
+        : null;
+
+    if (padraoPedido && equipeFinal.length && !equipeFinal.includes(padraoPedido)) {
+      return NextResponse.json(
+        { error: "O responsável padrão precisa fazer parte da equipe desta etapa." },
+        { status: 400 }
+      );
+    }
+
+    /*
+     * Esvaziar a equipe esvazia o padrão junto: "qualquer um pode assumir, e
+     * sempre cai na Ana" é uma combinação que ninguém pediu, e que sobraria
+     * invisível depois de alguém limpar a lista.
+     */
+    const limpaPadrao = assignees !== undefined && !equipeFinal.length;
 
     // Uma entrada por quadro: com duas, a demanda nova cairia na que a
     // ordenação devolvesse primeiro, que não é uma escolha de ninguém.
@@ -85,6 +131,17 @@ export async function PUT(request: Request) {
       data: {
         ...(name !== undefined ? { name: String(name).trim() } : {}),
         ...(color !== undefined ? { color: color || null } : {}),
+        ...(description !== undefined
+          ? { description: String(description).trim().slice(0, 500) || null }
+          : {}),
+        ...(requiresAssignee !== undefined ? { requiresAssignee: !!requiresAssignee } : {}),
+        ...(assignees !== undefined ? { assignees: serializeAssignees(assignees) } : {}),
+        ...(limpaPadrao
+          ? { defaultAssignee: null }
+          : defaultAssignee !== undefined
+            ? { defaultAssignee: padraoPedido }
+            : {}),
+        ...(groupId !== undefined ? { groupId: groupId || null } : {}),
         ...(isIntake !== undefined ? { isIntake: !!isIntake } : {}),
         ...(isDone !== undefined ? { isDone: !!isDone } : {}),
         ...(wipLimit !== undefined

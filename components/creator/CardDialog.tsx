@@ -13,7 +13,7 @@ import CardLinkField from "./CardLinkField";
 import { parseCopyVariations } from "@/lib/copy-parse";
 import { parseAttachments } from "@/lib/attachments";
 import type { CreatorOption } from "./DemandDialog";
-import { PRIORITIES, PRIORITY_LABEL, parseValues } from "@/lib/kanban";
+import { PRIORITIES, PRIORITY_LABEL, parseValues, parseAssignees, stageCandidates } from "@/lib/kanban";
 
 export interface CardData {
   id: string;
@@ -130,6 +130,22 @@ export default function CardDialog({
    */
   const arquivado = card.archived;
   const travado = busy || arquivado;
+
+  /*
+   * A etapa onde o card está — é ela que diz quem pode assumi-lo.
+   *
+   * Quem já é dono entra na lista mesmo estando fora da equipe: pode ter
+   * assumido antes de a regra existir, ou ter mudado de time depois. Sem isso o
+   * seletor mostraria "A definir" num card que tem responsável, e salvar
+   * qualquer outro campo o apagaria sem ninguém pedir.
+   */
+  const etapaAtual = columns.find((c) => c.id === card.columnId) ?? null;
+  const daEtapa = stageCandidates(etapaAtual, creators);
+  const foraDaEquipe =
+    card.assigneeAcronym && !daEtapa.some((c) => c.acronym === card.assigneeAcronym)
+      ? creators.find((c) => c.acronym === card.assigneeAcronym)
+      : undefined;
+  const candidatos = foraDaEquipe ? [foraDaEquipe, ...daEtapa] : daEtapa;
   const allOpen = variations.length > 0 && openVariations.size === variations.length;
 
   const patch = async (body: object) => {
@@ -244,6 +260,14 @@ export default function CardDialog({
           </select>
         </div>
 
+        {/*
+          O responsável sai da equipe da etapa em que o card está.
+
+          Oferecer o quadro inteiro aqui e recusar a escolha no servidor seria
+          ensinar a regra pelo erro. A pessoa que já é dona aparece mesmo fora
+          da equipe: ela está no card, e some-la do seletor faria a caixa
+          mostrar "A definir" para um card que tem dono.
+        */}
         <div className="field">
           <label className="field-label" htmlFor="card-responsavel">
             Responsável
@@ -256,12 +280,18 @@ export default function CardDialog({
             onChange={(e) => patch({ id: card.id, assigneeAcronym: e.target.value || null })}
           >
             <option value="">A definir</option>
-            {creators.map((c) => (
+            {candidatos.map((c) => (
               <option key={c.acronym} value={c.acronym}>
                 {c.name} ({c.acronym})
               </option>
             ))}
           </select>
+          {etapaAtual && parseAssignees(etapaAtual.assignees).length > 0 && (
+            <span className="field-hint">
+              Quem responde por &quot;{etapaAtual.name}&quot;.
+              {etapaAtual.defaultAssignee ? ` Por padrão, ${etapaAtual.defaultAssignee}.` : ""}
+            </span>
+          )}
         </div>
       </div>
 

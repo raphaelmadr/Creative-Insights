@@ -444,3 +444,187 @@ export function startOfCurrentMonth(timeZone = "America/Sao_Paulo", agora = new 
 
   return new Date(chute + deslocamento);
 }
+
+/**
+ * As cores de uma fase.
+ *
+ * Tokens do design system, e não hexadecimais escolhidos na hora: um azul
+ * literal que funciona no tema claro some no escuro — é o mesmo motivo de
+ * `PRIORITY_COLOR` não ter um cinza cravado. São as mesmas cinco
+ * que as etapas já oferecem — `--success` fica de fora porque é o mesmo verde de
+ * `--primary`, e duas opções idênticas na paleta só confundem quem escolhe.
+ */
+export const GROUP_COLORS = [
+  { token: "var(--primary)", label: "Verde" },
+  { token: "var(--info)", label: "Azul" },
+  { token: "var(--warning)", label: "Âmbar" },
+  { token: "var(--danger)", label: "Vermelho" },
+  { token: "var(--muted)", label: "Neutro" },
+] as const;
+
+export const DEFAULT_GROUP_COLOR = GROUP_COLORS[0].token;
+
+export function isGroupColor(value: unknown): boolean {
+  return typeof value === "string" && GROUP_COLORS.some((c) => c.token === value);
+}
+
+export interface GroupDefinition {
+  id: string;
+  name: string;
+  color: string;
+  position: number;
+}
+
+/** Uma faixa do quadro: a fase e as etapas que ela cobre. */
+export interface BoardSegment<T> {
+  group: GroupDefinition | null;
+  columns: T[];
+}
+
+/**
+ * As etapas do quadro, repartidas em faixas.
+ *
+ * Uma fase precisa de etapas **vizinhas** para ter uma faixa contínua acima
+ * delas. Em vez de exigir que alguém ordene as colunas até que fiquem juntas —
+ * e de quebrar a faixa em duas quando não ficarem —, a fase ocupa a posição da
+ * sua primeira etapa e as demais vêm atrás dela.
+ *
+ * O efeito colateral é bom: marcar uma coluna do fim como "Briefing" a traz
+ * para junto das outras do briefing, que é o que a pessoa queria ao marcar.
+ * Etapa sem fase vira uma faixa de uma coluna só, e mantém o lugar que tinha.
+ */
+export function groupColumns<T extends { id: string; position: number; groupId?: string | null }>(
+  columns: T[],
+  groups: GroupDefinition[]
+): BoardSegment<T>[] {
+  const porId = new Map(groups.map((g) => [g.id, g]));
+  const ordenadas = [...columns].sort((a, b) => a.position - b.position);
+
+  const segmentos: BoardSegment<T>[] = [];
+  const porChave = new Map<string, BoardSegment<T>>();
+
+  for (const coluna of ordenadas) {
+    // Grupo que não existe mais vale como etapa solta: o `SetNull` do banco
+    // cobre a exclusão, mas não uma tela carregada antes dela.
+    const grupo = coluna.groupId ? porId.get(coluna.groupId) ?? null : null;
+    const chave = grupo ? `g:${grupo.id}` : `c:${coluna.id}`;
+
+    const existente = porChave.get(chave);
+    if (existente) {
+      existente.columns.push(coluna);
+      continue;
+    }
+
+    const novo: BoardSegment<T> = { group: grupo, columns: [coluna] };
+    porChave.set(chave, novo);
+    segmentos.push(novo);
+  }
+
+  return segmentos;
+}
+
+/**
+ * Quem responde por uma etapa.
+ *
+ * JSON de siglas, e não uma tabela de ligação: a sigla é o vocabulário que já
+ * liga uma pessoa ao anúncio que ela assina (`lib/designer-match.ts`), a lista
+ * é curta, e só se lê junto com a coluna. Uma tabela nova daria um `JOIN` a
+ * cada carga do quadro para responder "quem pode assumir isto aqui".
+ */
+export function parseAssignees(value: string | null | undefined): string[] {
+  if (!value) return [];
+  try {
+    const parsed = JSON.parse(value);
+    if (!Array.isArray(parsed)) return [];
+    const limpas = parsed
+      .filter((s): s is string => typeof s === "string")
+      .map((s) => s.trim().toUpperCase())
+      .filter(Boolean);
+    return Array.from(new Set(limpas));
+  } catch {
+    return [];
+  }
+}
+
+/** A lista vinda da tela, pronta para gravar. Nulo é "qualquer um". */
+export function serializeAssignees(list: unknown): string | null {
+  if (!Array.isArray(list)) return null;
+  const limpas = Array.from(
+    new Set(
+      list
+        .filter((s): s is string => typeof s === "string")
+        .map((s) => s.trim().toUpperCase())
+        .filter(Boolean)
+    )
+  );
+  return limpas.length ? JSON.stringify(limpas) : null;
+}
+
+export interface StageOwnership {
+  assignees?: string | null;
+  defaultAssignee?: string | null;
+}
+
+/**
+ * Quem fica com o card ao chegar nesta etapa.
+ *
+ * Três situações, nesta ordem:
+ *
+ * 1. **Etapa sem equipe** — nada muda. É o quadro de antes de existir a regra,
+ *    e continua sendo o padrão de quem nunca configurou.
+ * 2. **O dono atual é da equipe** — fica. Quem já estava tocando a demanda não
+ *    é substituído só porque ela avançou.
+ * 3. **O dono atual não é da equipe (ou não há dono)** — entra o padrão da
+ *    etapa. É a passagem de bastão: a copy sai das mãos de quem escreveu e cai
+ *    nas de quem desenha, sem ninguém precisar lembrar de repassar.
+ *
+ * Sem padrão definido, o dono anterior **fica** em vez de ser apagado: perder o
+ * responsável em silêncio ao mover um card seria pior que um responsável
+ * desatualizado, que ao menos se vê no quadro.
+ */
+export function resolveStageAssignee(
+  column: StageOwnership,
+  current: string | null | undefined
+): string | null {
+  const equipe = parseAssignees(column.assignees);
+  const dono = current?.trim().toUpperCase() || null;
+  if (!equipe.length) return dono;
+  if (dono && equipe.includes(dono)) return dono;
+
+  const padrao = column.defaultAssignee?.trim().toUpperCase() || null;
+  return padrao && equipe.includes(padrao) ? padrao : dono;
+}
+
+/**
+ * Se esta etapa dá o card por bem-atribuído.
+ *
+ * Só vale para etapas que **exigem** responsável: com equipe definida, "tem
+ * dono" não basta — o dono precisa ser de quem responde ali. Sem isso, uma
+ * demanda de revisão chegaria carimbada com o nome de quem a desenhou, e o
+ * seletor recusaria a mesma pessoa que o card mostra como dona.
+ */
+export function stageAccepts(column: StageOwnership, acronym: string | null | undefined): boolean {
+  const dono = acronym?.trim().toUpperCase();
+  if (!dono) return false;
+
+  const equipe = parseAssignees(column.assignees);
+  return equipe.length === 0 || equipe.includes(dono);
+}
+
+/** As pessoas que esta etapa aceita — vazio é "qualquer uma do quadro". */
+export function stageCandidates<T extends { acronym: string }>(
+  column: StageOwnership | null | undefined,
+  everyone: T[]
+): T[] {
+  const equipe = column ? parseAssignees(column.assignees) : [];
+  if (!equipe.length) return everyone;
+
+  const daEtapa = everyone.filter((p) => equipe.includes(p.acronym.toUpperCase()));
+  /*
+   * Equipe cujas siglas não casam com ninguém do cadastro devolve o quadro
+   * inteiro. A pessoa pode ter saído da empresa depois de a etapa ser
+   * configurada, e uma lista vazia deixaria a etapa impossível de atribuir —
+   * um quadro travado por uma configuração velha.
+   */
+  return daEtapa.length ? daEtapa : everyone;
+}
