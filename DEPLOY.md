@@ -24,7 +24,12 @@ vem abaixo.
 `npm install` e `next build` não rodam na hospedagem. Com 1 núcleo e 5 MB/s, o
 install de ~700 MB leva o tempo que quiser e o build provavelmente não termina.
 
-O build acontece na máquina de desenvolvimento, e o que viaja é o resultado:
+Quem constrói é o GitHub. Você dá push na `main`, como sempre; a esteira em
+`.github/workflows/deploy.yml` builda no runner e publica o resultado no branch
+**`deploy`**, que é o que a hospedagem espelha. A `main` nunca recebe binário,
+e publicar não depende de estar na máquina certa.
+
+Para rodar o mesmo build localmente, quando precisar inspecionar o pacote:
 
 ```bash
 ./scripts/build-deploy.sh

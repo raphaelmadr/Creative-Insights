@@ -68,9 +68,13 @@ rm -rf "$SAIDA/node_modules/@img" "$SAIDA/node_modules/sharp"
 #
 # O pacote que sobe para a hospedagem é o do modo padrão.
 if [ "${MANTER_MOTOR_LOCAL:-0}" = "1" ]; then
-  echo "    MANTER_MOTOR_LOCAL=1 — motor do macOS preservado (pacote de TESTE, não publique)"
+  echo "    MANTER_MOTOR_LOCAL=1 — motor local preservado (pacote de TESTE, não publique)"
 else
-  find "$SAIDA" -name "libquery_engine-darwin*" -delete
+  # Tudo que não for RHEL sai. No Mac o que sobra é o `darwin`; no runner do
+  # GitHub, que é Ubuntu, é o `debian` — e os dois pesam ~18 MB de código que a
+  # hospedagem nunca vai abrir. Nomear a família que FICA, em vez das que saem,
+  # é o que faz esta linha valer nos dois lugares.
+  find "$SAIDA" -name "libquery_engine-*" ! -name "*rhel*" -delete
 fi
 
 # Os motores WASM dos bancos que este projeto não usa. O datasource é MySQL, e
@@ -99,6 +103,11 @@ fi
 
 echo "==> Motores que vão no pacote:"
 find "$SAIDA" -name "libquery_engine*" -exec basename {} \; | sort -u | sed 's/^/    /'
+
+if ! find "$SAIDA" -name "libquery_engine-*rhel*" | grep -q .; then
+  echo "ERRO: nenhum motor RHEL no pacote — a hospedagem não conseguiria falar com o banco." >&2
+  exit 1
+fi
 
 echo
 echo "==> Pronto. Tamanho do pacote:"

@@ -1,0 +1,108 @@
+# Constrói a aplicação e publica o resultado no branch `deploy`.
+#
+# O fluxo é o de sempre: você dá push na `main` com o código-fonte. O que muda
+# é quem builda. Antes seria a hospedagem — que não pode, com 1 núcleo, 2 GB e
+# teto de 5 MB/s de E-S — ou a máquina de quem programa, o que faria o deploy
+# depender de estar no computador certo. Aqui é o runner do GitHub, e o
+# espelhamento para o cPanel continua sendo o que sempre foi: puxar do GitHub.
+#
+# A `main` nunca recebe binário. O branch `deploy` é só o resultado, e pode ser
+# recriado do zero quando incomodar.
+
+name: Publicar build
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+# Dois pushes seguidos não podem publicar fora de ordem: o segundo espera o
+# primeiro, senão o branch `deploy` pode terminar com um build mais velho que a
+# `main`.
+concurrency:
+  group: publicar-build
+  cancel-in-progress: false
+
+jobs:
+  publicar:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # O worktree do branch `deploy` precisa da história; o padrão é raso.
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20.19.4"
+          cache: npm
+
+      - name: Instalar dependências
+        run: npm ci
+
+      - name: Montar o pacote
+        env:
+          # O Prisma exige a variável para validar o datasource, mas não abre
+          # conexão nenhuma para gerar o cliente, e nenhuma tela consulta o
+          # banco durante o build. Um valor de mentira basta — e evita apontar
+          # a esteira para o banco de produção sem necessidade.
+          DATABASE_URL: "mysql://build:build@127.0.0.1:3306/build"
+        run: ./scripts/build-deploy.sh
+
+      - name: Publicar no branch deploy
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          # Commits normais, um sobre o outro — nunca force-push. O Git do
+          # cPanel puxa com fast-forward, e uma história reescrita o faria
+          # recusar a atualização, quebrando o espelhamento justo na hora de
+          # publicar.
+          # `-B deploy` é obrigatório aqui. Sem ele — passando o ref como
+          # ponto de partida — o worktree nasce DESTACADO: o commit fica fora
+          # do branch, o push manda um `deploy` que não mudou, e a esteira
+          # reporta sucesso publicando o build anterior. Falha silenciosa, a
+          # pior espécie. `-B` nomeia o branch explicitamente, o que de quebra
+          # desfaz a ambiguidade com a pasta `deploy/`, que tem o mesmo nome.
+          if git ls-remote --exit-code --heads origin deploy >/dev/null 2>&1; then
+            git fetch origin deploy
+            git worktree add -B deploy saida origin/deploy
+          else
+            git worktree add --detach saida
+            git -C saida checkout --orphan deploy
+            git -C saida rm -rf . >/dev/null 2>&1 || true
+          fi
+
+          # Esvaziar e copiar, em vez de sincronizar.
+          #
+          # `rsync -a` decide por tamanho e data, e pula arquivo que mudou de
+          # conteúdo mantendo o tamanho — o caso de `.next/BUILD_ID`, que tem
+          # comprimento fixo e muda a cada build. Um BUILD_ID velho servido
+          # contra chunks novos dá 404 em tudo que a página carrega depois.
+          #
+          # Apagar primeiro também é o que faz sobra de build antigo sumir do
+          # branch, em vez de se acumular e continuar sendo servida.
+          find saida -mindepth 1 -maxdepth 1 ! -name .git -exec rm -rf {} +
+          cp -R deploy/. saida/
+
+          cd saida
+          git add -A
+          if git diff --cached --quiet; then
+            echo "Build idêntico ao publicado — nada a fazer."
+            exit 0
+          fi
+
+          # `-m` repetido vira parágrafo; um heredoc aqui carregaria a
+          # indentação do YAML para dentro do histórico.
+          git commit \
+            -m "Build de ${GITHUB_SHA::7}" \
+            -m "Gerado por scripts/build-deploy.sh a partir de ${GITHUB_REF_NAME}." \
+            -m "Fonte: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/commit/${GITHUB_SHA}"
+
+          git push origin refs/heads/deploy
+          echo "Publicado. Tamanho:"
+          du -sh --exclude=.git .
