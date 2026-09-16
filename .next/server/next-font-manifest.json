@@ -1,0 +1,71 @@
+{
+  "app": {
+    "[project]/app/_not-found/page": [
+      "static/media/83afe278b6a6bb3c-s.p.2bn3s6zvc0dyp.woff2",
+      "static/media/017d9bea37084d9b-s.p.41rroleoq1br7.woff2"
+    ],
+    "[project]/app/configuracoes/api/page": [
+      "static/media/83afe278b6a6bb3c-s.p.2bn3s6zvc0dyp.woff2",
+      "static/media/017d9bea37084d9b-s.p.41rroleoq1br7.woff2"
+    ],
+    "[project]/app/configuracoes/equipe/page": [
+      "static/media/83afe278b6a6bb3c-s.p.2bn3s6zvc0dyp.woff2",
+      "static/media/017d9bea37084d9b-s.p.41rroleoq1br7.woff2"
+    ],
+    "[project]/app/configuracoes/ia/page": [
+      "static/media/83afe278b6a6bb3c-s.p.2bn3s6zvc0dyp.woff2",
+      "static/media/017d9bea37084d9b-s.p.41rroleoq1br7.woff2"
+    ],
+    "[project]/app/configuracoes/logs/page": [
+      "static/media/83afe278b6a6bb3c-s.p.2bn3s6zvc0dyp.woff2",
+      "static/media/017d9bea37084d9b-s.p.41rroleoq1br7.woff2"
+    ],
+    "[project]/app/configuracoes/metas/page": [
+      "static/media/83afe278b6a6bb3c-s.p.2bn3s6zvc0dyp.woff2",
+      "static/media/017d9bea37084d9b-s.p.41rroleoq1br7.woff2"
+    ],
+    "[project]/app/configuracoes/page": [
+      "static/media/83afe278b6a6bb3c-s.p.2bn3s6zvc0dyp.woff2",
+      "static/media/017d9bea37084d9b-s.p.41rroleoq1br7.woff2"
+    ],
+    "[project]/app/configuracoes/sistema/page": [
+      "static/media/83afe278b6a6bb3c-s.p.2bn3s6zvc0dyp.woff2",
+      "static/media/017d9bea37084d9b-s.p.41rroleoq1br7.woff2"
+    ],
+    "[project]/app/configuracoes/usuarios/page": [
+      "static/media/83afe278b6a6bb3c-s.p.2bn3s6zvc0dyp.woff2",
+      "static/media/017d9bea37084d9b-s.p.41rroleoq1br7.woff2"
+    ],
+    "[project]/app/creator/copy/page": [
+      "static/media/83afe278b6a6bb3c-s.p.2bn3s6zvc0dyp.woff2",
+      "static/media/017d9bea37084d9b-s.p.41rroleoq1br7.woff2"
+    ],
+    "[project]/app/creator/kanban/page": [
+      "static/media/83afe278b6a6bb3c-s.p.2bn3s6zvc0dyp.woff2",
+      "static/media/017d9bea37084d9b-s.p.41rroleoq1br7.woff2"
+    ],
+    "[project]/app/creator/page": [
+      "static/media/83afe278b6a6bb3c-s.p.2bn3s6zvc0dyp.woff2",
+      "static/media/017d9bea37084d9b-s.p.41rroleoq1br7.woff2"
+    ],
+    "[project]/app/equipe/page": [
+      "static/media/83afe278b6a6bb3c-s.p.2bn3s6zvc0dyp.woff2",
+      "static/media/017d9bea37084d9b-s.p.41rroleoq1br7.woff2"
+    ],
+    "[project]/app/insights/page": [
+      "static/media/83afe278b6a6bb3c-s.p.2bn3s6zvc0dyp.woff2",
+      "static/media/017d9bea37084d9b-s.p.41rroleoq1br7.woff2"
+    ],
+    "[project]/app/login/page": [
+      "static/media/83afe278b6a6bb3c-s.p.2bn3s6zvc0dyp.woff2",
+      "static/media/017d9bea37084d9b-s.p.41rroleoq1br7.woff2"
+    ],
+    "[project]/app/page": [
+      "static/media/83afe278b6a6bb3c-s.p.2bn3s6zvc0dyp.woff2",
+      "static/media/017d9bea37084d9b-s.p.41rroleoq1br7.woff2"
+    ]
+  },
+  "appUsingSizeAdjust": true,
+  "pages": {},
+  "pagesUsingSizeAdjust": false
+}

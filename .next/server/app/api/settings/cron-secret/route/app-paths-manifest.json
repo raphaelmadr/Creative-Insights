@@ -1,0 +1,3 @@
+{
+  "/api/settings/cron-secret/route": "app/api/settings/cron-secret/route.js"
+}

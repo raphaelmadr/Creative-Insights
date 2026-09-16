@@ -1,0 +1,3 @@
+{
+  "/api/cron/sync-media/route": "app/api/cron/sync-media/route.js"
+}
