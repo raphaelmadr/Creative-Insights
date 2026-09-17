@@ -1,6 +1,47 @@
 # Changelog: Creative Insights (Fase 1)
 Data: 31 de Agosto de 2026
 
+## 🔎 A Home Acha a Peça pelo Nome (Setembro 2026)
+A home abre como um índice: as seis categorias vêm recolhidas, e cada uma pode ter centenas de cartões. Para conferir uma peça específica — a que o time citou na reunião, a que subiu ontem — era preciso expandir todas e usar o Ctrl+F do navegador, que só enxerga o que já foi renderizado. Agora há uma lupa na barra de filtros.
+
+* **Varre todos os funis de uma vez,** inclusive os recolhidos, e a linha do resultado diz em qual a peça está, com canal, criador, status e os números de veiculação — quem só queria conferir o resultado não precisa abrir nada.
+* **Casa por pedaços soltos, em qualquer ordem e sem acento.** A convenção de nomenclatura empilha origem, campanha e assinatura no mesmo nome; quem procura lembra de dois pedaços — `nando ez` acha "VD_allu_ads_influenciadores_Nando Viana-ez" — e quase nunca da ordem exata.
+* **A varredura ignora os filtros de tela de propósito.** Quem procura pelo nome quer saber **onde a peça está**, não se ela passa no filtro de criador que ficou ligado da sessão passada. Quando um filtro a esconde da grade, a própria linha diz qual — e é o filtro de lançamento, ligado por padrão, que esconde a maioria.
+* **Clicar expande o funil, rola até o cartão e o destaca por três segundos.** A rolagem acontece no quadro seguinte ao fechamento: ao fechar, o diálogo devolve o foco ao ícone que o abriu, e devolver foco rola a página até ele — no topo. Sem esperar esse salto, ele desfazia o nosso.
+* **O alcance é o que a home carregou:** os anúncios com veiculação no período, no recorte de status escolhido. Fora dessa janela o dado não está no navegador, e ir buscá-lo custaria a consulta mais cara da tela. O diálogo diz isso em vez de deixar "nenhum resultado" parecer ausência de cadastro.
+* **Pendência conhecida:** peças que não atingem critério de categoria nenhum ficam em **Testes**, fora dos funis, e a busca não as cobre — por ora ela apenas avisa isso quando não encontra nada.
+
+### O disparador do cron nunca tinha batido (Setembro 2026)
+A sincronização automática estava muda havia mais de 22 horas. O painel tinha tudo certo: ligada, intervalo de 15 minutos, segredo gerado, URL pública alcançável.
+
+* **`lastCronPingAt` estava em "nunca",** e esse carimbo é gravado antes de qualquer decisão — antes da janela de intervalo, antes de saber se a sincronização está ligada. Nunca ter sido carimbado só pode significar uma coisa: nada estava chamando o endpoint.
+* **Não era segredo errado.** Batida recusada deixa rastro próprio em Configurações → Logs, e não havia nenhuma. Segredo errado, URL velha e cron inexistente davam a mesma tela antes desse registro existir; agora se distinguem.
+* **O build no ar tinha o carimbo — provado, não suposto.** Uma batida de teste **sem segredo** gravou o aviso de recusa, mensagem que só existe a partir do commit que introduziu o carimbo de ping. Se o log aparece, o código que carimba está rodando.
+* **Os dois carimbos antigos eram teste local,** não batida recorrente: isolados, e a 30 segundos de um commit. Um cron de 15 minutos não bate uma vez só.
+* **O comando cadastrado funcionava, mas faltavam duas flags.** Sem `-o /dev/null` o cPanel envia um e-mail com o JSON inteiro a cada batida — 96 por dia. Sem `-f`, o curl trata 401 e 500 como sucesso: a falha que mais importa é justamente a que não geraria e-mail nenhum.
+* **Cadastrado, bateu.** A primeira batida reivindicou a passada de **mídia**, que era a mais atrasada das duas — a alternância caiu sozinha, como projetado.
+* **O passo do cron tem que ser no máximo metade do intervalo do painel.** Uma batida roda uma das duas passadas, então o piso de cada uma é o dobro do passo: com `*/15` e o painel em 15 minutos, cada passada sai a cada 30.
+
+### A barra de filtros em uma linha só (Setembro 2026)
+Os seis controles da home quebravam em duas fileiras, e um deles era redondo no meio de cinco retângulos.
+
+* **`.filter-control` substituiu seis cópias da mesma dezena de propriedades inline.** O seletor de período nem isso tinha: virou `.btn` numa conversão anterior e herdou com ele o raio de pílula — era o único arredondado da fileira.
+* **`nowrap` sem `overflow-x`.** Qualquer overflow no pai vira contexto de recorte e comeria o calendário do seletor de período, que abre em posição absoluta dentro da própria linha. Abaixo de 1200px a linha volta a quebrar: transbordar esconderia filtro sem nada indicar que ele existe.
+
+### A home apertou o passo (Setembro 2026)
+O ritmo era 2rem entre quase tudo. Com os funis recolhidos, boa parte da primeira dobra era espaço vazio entre blocos.
+
+* **O compasso caiu para 1.25rem** no container e na pilha da seção, e a grade de cartões passou de 1.5rem para o token `--gap-grid` — era a única grade do sistema fora do compasso das outras.
+* **A ressalva sobre a atribuição da Meta virou nota.** Era um bloco azul com padding de cartão, disputando atenção com os indicadores logo abaixo. Guardou o que importa — os dois prazos e as três fontes — em tamanho de rodapé.
+* **A legenda dos funis perdeu o botão de rótulo comprido.** Era ele que, no celular, espremia o texto numa coluna de duzentos pixels: a leitura virava duas colunas sem que ninguém tivesse pedido duas colunas. Reduzido ao ícone, o texto volta a ocupar a largura toda em qualquer tela — e por isso não foi preciso empilhamento por media query. Sem rótulo, o que o botão faz vive no `title`/`aria-label` e o estado no `aria-expanded`.
+* **Limpar notificações deixou de ser um botão cheio** e virou só a escrita, em `.btn-ghost` — o papel do design system para o que não deve competir por atenção.
+
+### O cache estourava a cota e derrubava a tela (Setembro 2026)
+Encontrado ao verificar outra coisa, no log do próprio servidor de desenvolvimento.
+
+* **A gravação do cache vinha antes da entrega dos dados.** `sessionStorage.setItem` lança `QuotaExceededError` quando a resposta não cabe nos ~5 MB — e um mês inteiro com "todos os status" traz milhares de anúncios. A exceção pulava direto para o `catch` do fetch, e a tela exibia "Erro ao carregar os dados" com a resposta completa na mão.
+* **Guardar em cache é otimização, e falhar nela não pode custar os dados que já chegaram.** A gravação agora falha em silêncio — o que vale também para janela anônima, onde o armazenamento pode estar bloqueado.
+
 ## 🎨 Módulo Creator: o Trabalho Entra na Mesma Ferramenta (Setembro 2026)
 A plataforma sabia dizer o que funcionou e não tinha onde receber o pedido da próxima peça. A demanda vivia em outra ferramenta, a copy num chat genérico, e o único elo entre as duas coisas era alguém copiando e colando. O módulo **Creator** traz a produção para dentro: o mesmo login, o mesmo design, o mesmo banco.
 

@@ -9,6 +9,7 @@ import { CreativeCard } from "@/components/CreativeCard";
 import styles from "./CreativeGrid.module.css";
 import { ChevronDown, ChevronRight, HelpCircle, Info } from "lucide-react";
 import { FbIcon, TikTokIcon, formatCurrencyFull } from "@/components/CreativeCardPrimitives";
+import CreativeSearchDialog, { type SearchGroup } from "@/components/CreativeSearchDialog";
 
 const GoogleIcon = ({ size = 12 }) => (
   <svg width={size} height={size} viewBox="0 0 24 24" fill="currentColor">
@@ -120,7 +121,7 @@ const THRESHOLD_STYLE: React.CSSProperties = {
 
 /** Botão de ícone da barra do cabeçalho: só o traço, sem moldura. */
 
-export default function FunnelsOverview({ dateFrom, dateTo, statusFilter, channelFilter, onMetricsUpdate, selectedDesigner, creators = [], hideOldAds = true }: { dateFrom: string; dateTo: string; statusFilter?: string; channelFilter?: string; onMetricsUpdate?: (metrics: any) => void; selectedDesigner: string | null; creators: any[]; hideOldAds?: boolean }) {
+export default function FunnelsOverview({ dateFrom, dateTo, statusFilter, channelFilter, onMetricsUpdate, selectedDesigner, creators = [], hideOldAds = true, searchOpen = false, onSearchClose }: { dateFrom: string; dateTo: string; statusFilter?: string; channelFilter?: string; onMetricsUpdate?: (metrics: any) => void; selectedDesigner: string | null; creators: any[]; hideOldAds?: boolean; searchOpen?: boolean; onSearchClose?: () => void }) {
   const { syncCounter } = useNotifications();
   const statusParam = statusFilter || "ACTIVE";
   const url = `/api/db-ads?from=${dateFrom}&to=${dateTo}&status=${statusParam}`;
@@ -189,6 +190,77 @@ export default function FunnelsOverview({ dateFrom, dateTo, statusFilter, channe
   const isWhyOpen = (funnel: any) => whyOpen[funnelKey(funnel)] ?? false;
   const toggleWhy = (funnel: any) =>
     setWhyOpen(prev => ({ ...prev, [funnelKey(funnel)]: !(prev[funnelKey(funnel)] ?? false) }));
+
+  /**
+   * O que a busca varre: as categorias como vieram da API, sem os filtros da
+   * tela.
+   *
+   * Filtrar aqui também transformaria a busca em mais um recorte — e quem
+   * procura uma peça pelo nome quer saber onde ela está, não se ela passa no
+   * filtro de criador que ficou ligado da sessão passada. O filtro volta a
+   * importar na hora de mostrar o cartão, e é o que `hiddenReason` explica.
+   */
+  const searchGroups: SearchGroup[] = useMemo(
+    () =>
+      (data?.categorizedAds ?? []).map((cat: any) => ({
+        key: cat.id || cat.name,
+        name: cat.name,
+        emoji: cat.emoji,
+        ads: cat.ads ?? [],
+      })),
+    [data]
+  );
+
+  /*
+   * Por que uma peça encontrada não está na grade.
+   *
+   * São os mesmos predicados que montam `validAds` — perguntados um a um, na
+   * ordem, para poder nomear o culpado. Com o filtro de lançamento ligado (o
+   * padrão), a maioria das peças de um período está nesta situação: some da
+   * grade sem nunca ter deixado de existir.
+   */
+  const hiddenReason = React.useCallback(
+    (ad: any): string | null => {
+      if (!filterByDesigner(ad)) return "filtro de criador";
+      if (!filterByChannel(ad)) return "filtro de canal";
+      if (!filterByDate(ad)) return "filtro de lançamento";
+      return null;
+    },
+    [filterByDesigner, filterByChannel, filterByDate]
+  );
+
+  /**
+   * A peça que a busca acabou de apontar: expande o funil, rola até o cartão e
+   * o destaca por alguns segundos.
+   *
+   * O `requestAnimationFrame` não é enfeite: ao fechar, o diálogo devolve o
+   * foco ao ícone que o abriu, e devolver foco rola a página até ele — no topo.
+   * Rolar no quadro seguinte deixa esse salto acontecer primeiro, senão ele
+   * desfaz o nosso.
+   */
+  const [revealed, setRevealed] = useState<string | null>(null);
+
+  const revealCreative = (groupKey: string, adId: string) => {
+    setCollapsed(prev => ({ ...prev, [groupKey]: false }));
+    setRevealed(adId);
+    onSearchClose?.();
+  };
+
+  useEffect(() => {
+    if (!revealed) return;
+
+    const quadro = requestAnimationFrame(() => {
+      document
+        .getElementById(`criativo-${revealed}`)
+        ?.scrollIntoView({ behavior: "smooth", block: "center" });
+    });
+    const relogio = setTimeout(() => setRevealed(null), 3000);
+
+    return () => {
+      cancelAnimationFrame(quadro);
+      clearTimeout(relogio);
+    };
+  }, [revealed]);
 
   const { funnels, globalMetrics } = useMemo(() => {
     if (!data || !data.categorizedAds) return { funnels: [], globalMetrics: null };
@@ -367,13 +439,39 @@ export default function FunnelsOverview({ dateFrom, dateTo, statusFilter, channe
   }, [visibleAnalyzedIds]);
 
 
-  if (loading && !data) return (
-    <div style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
-      {[1,2,3].map(i => <Skeleton key={i} width="100%" height="150px" borderRadius="12px" />)}
-    </div>
+  /*
+   * A caixa acompanha os três desfechos da tela — carregando, erro e conteúdo —
+   * porque o ícone que a abre vive na barra de filtros, acima, e não some
+   * enquanto os funis carregam. Ficando só no desfecho feliz, clicar nele
+   * durante o carregamento não fazia nada.
+   */
+  const caixaDeBusca = (
+    <CreativeSearchDialog
+      open={searchOpen}
+      onClose={() => onSearchClose?.()}
+      groups={searchGroups}
+      creators={creators}
+      hiddenReason={hiddenReason}
+      onSelect={revealCreative}
+      loading={loading}
+    />
   );
 
-  if (!data) return <div>Erro ao carregar os dados.</div>;
+  if (loading && !data) return (
+    <>
+      {caixaDeBusca}
+      <div style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
+        {[1,2,3].map(i => <Skeleton key={i} width="100%" height="150px" borderRadius="12px" />)}
+      </div>
+    </>
+  );
+
+  if (!data) return (
+    <>
+      {caixaDeBusca}
+      <div>Erro ao carregar os dados.</div>
+    </>
+  );
 
   const allCollapsed = funnels.length > 0 && funnels.every((f: any) => isCollapsed(f));
 
@@ -390,15 +488,16 @@ export default function FunnelsOverview({ dateFrom, dateTo, statusFilter, channe
   };
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: "1.5rem" }}>
+    <div style={{ display: "flex", flexDirection: "column", gap: "0.85rem" }}>
 
       {/* Contexto para quem chega agora: o que é um funil e como um criativo cai nele. */}
       {funnels.length > 0 && (
-        <div style={{ display: "flex", gap: "0.75rem", alignItems: "flex-start", background: "var(--card-bg)", border: "1px solid var(--card-border)", borderRadius: "12px", padding: "1rem" }}>
-          <Info size={16} style={{ flexShrink: 0, marginTop: "0.15rem", color: "var(--primary)" }} />
-          <div style={{ display: "flex", flexDirection: "column", gap: "0.35rem", fontSize: "var(--text-control)", lineHeight: 1.6 }}>
-            <span style={{ fontWeight: 600, color: "var(--foreground)" }}>Como ler estes funis</span>
-            <span style={{ color: "var(--muted)" }}>
+        <div className="funnels-legend">
+          <div className="funnels-legend-text">
+            <Info size={14} style={{ flexShrink: 0, marginTop: "0.2rem", color: "var(--primary)" }} />
+            <div style={{ display: "flex", flexDirection: "column", gap: "0.25rem", minWidth: 0 }}>
+              <span style={{ fontWeight: 600, color: "var(--foreground)" }}>Como ler estes funis</span>
+              <span style={{ color: "var(--muted)" }}>
               Cada anúncio é avaliado pelos critérios do <strong>canal em que ele roda</strong>, e fica na{" "}
               <strong>primeira categoria em que se encaixa</strong>, de cima para baixo. Por isso um{" "}
               <strong>{funnels[0]?.name}</strong> vale mais que os de baixo: ele atingiu uma exigência maior.
@@ -406,16 +505,25 @@ export default function FunnelsOverview({ dateFrom, dateTo, statusFilter, channe
               {hideOldAds
                 ? " A contagem abaixo mostra só os anúncios que estrearam dentro do período; desligue o filtro de lançamento para ver todos os que tiveram veiculação."
                 : " A contagem abaixo mostra todos os anúncios com veiculação no período, inclusive os lançados antes dele."}
-            </span>
+              </span>
+            </div>
           </div>
-          <button onClick={toggleAll} className="btn btn-secondary" style={{ marginLeft: "auto", flexShrink: 0, color: "var(--muted)" }} >
-            {allCollapsed ? <><ChevronRight size={13} /> Expandir tudo</> : <><ChevronDown size={13} /> Recolher tudo</>}
+          {/* Sem rótulo, o que o botão faz passa a depender do `title` e do
+              `aria-label` — e o estado, do `aria-expanded`. */}
+          <button
+            onClick={toggleAll}
+            className="btn btn-icon funnels-legend-action"
+            title={allCollapsed ? "Expandir todas as categorias" : "Recolher todas as categorias"}
+            aria-label={allCollapsed ? "Expandir todas as categorias" : "Recolher todas as categorias"}
+            aria-expanded={!allCollapsed}
+          >
+            {allCollapsed ? <ChevronRight size={16} /> : <ChevronDown size={16} />}
           </button>
         </div>
       )}
 
       {funnels.map((funnel: any) => (
-        <div key={funnel.id || funnel.name} style={{ background: "var(--card-bg)", border: "1px solid var(--card-border)", borderRadius: "12px", padding: "1rem", display: "flex", flexDirection: "column", gap: "1rem" }}>
+        <div key={funnel.id || funnel.name} style={{ background: "var(--card-bg)", border: "1px solid var(--card-border)", borderRadius: "var(--radius-card)", padding: "var(--pad-card)", display: "flex", flexDirection: "column", gap: "0.75rem" }}>
           
           {/*
             Uma linha só: identidade da categoria e a barra de ações. O critério
@@ -533,13 +641,15 @@ export default function FunnelsOverview({ dateFrom, dateTo, statusFilter, channe
 
           {/* Cards Grid */}
           {!isCollapsed(funnel) && funnel.validAds && funnel.validAds.length > 0 && (
-            <div className={styles.grid} style={{ marginTop: "0.5rem" }}>
+            <div className={styles.grid} style={{ marginTop: "0.25rem" }}>
               {funnel.validAds.map((c: any) => (
                 <CreativeCard
                   key={c.id}
                   creative={c}
                   creators={creators}
                   savedAnalysis={savedAnalyses[c.id]}
+                  anchorId={`criativo-${c.id}`}
+                  highlighted={revealed === c.id}
                 />
               ))}
             </div>
@@ -547,6 +657,8 @@ export default function FunnelsOverview({ dateFrom, dateTo, statusFilter, channe
 
         </div>
       ))}
+
+      {caixaDeBusca}
     </div>
   );
 }

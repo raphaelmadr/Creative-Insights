@@ -1,7 +1,9 @@
 .grid {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 1.5rem;
+  /* O mesmo respiro das outras grades do sistema; 1.5rem era o único fora do
+     compasso, e numa categoria com dezenas de peças virava rolagem. */
+  gap: var(--gap-grid);
   width: 100%;
 }
 

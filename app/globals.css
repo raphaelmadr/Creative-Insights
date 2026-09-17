@@ -256,20 +256,83 @@ p {
   }
 }
 
+/*
+ * A barra de filtros da home, em uma linha só.
+ *
+ * `nowrap` porque os seis controles se leem como um conjunto: quebrados em duas
+ * fileiras, o último parece pertencer a outra coisa. Não há `overflow-x` aqui de
+ * propósito — qualquer overflow no pai vira contexto de recorte e comeria o
+ * calendário do seletor de período, que abre em posição absoluta dentro desta
+ * linha. Quando a largura não dá, a linha volta a quebrar (ver o media query).
+ */
 .dashboard-filters {
   display: flex;
   align-items: center;
-  gap: 1rem;
-  flex-wrap: wrap;
+  gap: 0.75rem;
+  flex-wrap: nowrap;
   max-width: 100%;
   padding-bottom: 0.5rem;
   margin-bottom: -0.5rem;
 }
 
+/* Abaixo disto os controles não cabem lado a lado, e transbordar seria pior que
+   quebrar: some filtro da vista sem nada indicar que ele existe. */
+@media (max-width: 1200px) {
+  .dashboard-filters {
+    flex-wrap: wrap;
+  }
+}
+
+/*
+ * Um controle da barra de filtros.
+ *
+ * Existe porque cada um vinha com a própria cópia da mesma dezena de
+ * propriedades inline, e o seletor de período nem isso: virou `.btn`, e com ele
+ * herdou o raio de pílula — ficava redondo no meio de cinco retângulos. Aqui a
+ * geometria é uma só, e serve tanto para a caixa que embrulha um `select`
+ * quanto para um botão inteiro.
+ */
+.filter-control {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-shrink: 0;
+  height: 36px;
+  padding: 0 0.75rem;
+  border-radius: var(--radius-block);
+  border: 1px solid var(--card-border);
+  background: var(--card-bg);
+  box-shadow: var(--card-shadow);
+  color: var(--foreground);
+  font-family: inherit;
+  font-size: var(--text-control);
+  font-weight: 600;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+/* Só os que são botões de fato reagem ao ponteiro; os que embrulham um `select`
+   reagem ao foco de dentro. */
+button.filter-control {
+  cursor: pointer;
+  transition: border-color 0.2s ease, color 0.2s ease;
+}
+
+button.filter-control:hover {
+  border-color: var(--primary);
+  color: var(--primary);
+}
+
+.filter-control:focus-within {
+  border-color: var(--primary);
+}
+
+/* O respiro da home. Era 2rem em tudo — com seis funis recolhidos, metade da
+   primeira dobra era espaço vazio entre blocos. */
 .dashboard-container {
-  padding: 2rem;
+  padding: 1.25rem;
   display: flex;
-  gap: 2rem;
+  gap: 1.25rem;
   flex: 1;
   max-width: 1400px;
   margin: 0 auto;
@@ -361,7 +424,7 @@ p {
   display: flex;
   align-items: baseline;
   gap: 0.5rem;
-  margin-bottom: 1rem;
+  margin-bottom: 0.6rem;
   flex-wrap: wrap;
 }
 
@@ -384,6 +447,75 @@ p {
   color: var(--muted);
   font-weight: 400;
   text-transform: lowercase;
+}
+
+/*
+ * A legenda dos funis — "Como ler estes funis" — e o botão de expandir tudo.
+ *
+ * Eram um `flex` de três itens numa linha só: ícone, texto e botão de rótulo
+ * comprido. No celular esse botão espremia o texto numa coluna de duzentos
+ * pixels — a leitura virava duas colunas sem que ninguém tivesse pedido duas
+ * colunas. Quem resolveu foi o botão virar ícone; ver `.funnels-legend-action`.
+ */
+.funnels-legend {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.6rem;
+  background: var(--card-bg);
+  border: 1px solid var(--card-border);
+  border-radius: var(--radius-card);
+  padding: 0.7rem 0.85rem;
+  /* Texto de apoio: quem já sabe ler os funis não relê isto toda vez. */
+  font-size: var(--text-caption);
+  line-height: 1.55;
+}
+
+.funnels-legend-text {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.6rem;
+  flex: 1;
+  min-width: 0;
+}
+
+/*
+ * O expandir/recolher: só o traço, encostado na direita e centrado na altura do
+ * box.
+ *
+ * Era um botão com rótulo, e com ele voltou o problema que esta caixa tinha no
+ * celular — o texto espremido numa coluna estreita ao lado do botão. Reduzido ao
+ * ícone, o texto volta a ocupar a largura toda em qualquer tela, e por isso não
+ * há mais um empilhamento para telas pequenas: não existe mais o que empilhar.
+ */
+.funnels-legend-action {
+  margin-left: auto;
+  flex-shrink: 0;
+  align-self: center;
+}
+
+/*
+ * Nota de pé de seção — a ressalva sobre a atribuição da Meta.
+ *
+ * É informação de consulta, não de leitura: vale saber uma vez e lembrar quando
+ * os números não batem. Era um bloco azul com padding de cartão e corpo de
+ * texto, e por isso disputava atenção com os próprios indicadores logo abaixo.
+ */
+.dashboard-note {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.5rem;
+  padding: 0.5rem 0.7rem;
+  border-radius: var(--radius-block);
+  background: var(--surface-sunken);
+  border: 1px solid var(--surface-sunken-border);
+  font-size: var(--text-caption);
+  line-height: 1.5;
+  color: var(--muted);
+}
+
+.dashboard-note a {
+  color: var(--info);
+  text-decoration: none;
 }
 
 .allu-card {

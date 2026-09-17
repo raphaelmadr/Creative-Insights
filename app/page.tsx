@@ -8,7 +8,7 @@ import { useEffect, useState, useMemo, useRef } from "react";
 import { motion } from "framer-motion";
 import AnimatedNumber from "@/components/AnimatedNumber";
 import { useNotifications } from "@/components/NotificationProvider";
-import { Sparkles, Loader2, Calendar, ChevronDown, Users, Globe } from "lucide-react";
+import { Sparkles, Loader2, Calendar, ChevronDown, Users, Globe, Search } from "lucide-react";
 import { useUserPreferences } from "@/components/UserPreferencesProvider";
 // A definição de "hoje" mora em um lugar só — ver o comentário em DateRangePicker.
 import { todayUtcDay } from "@/lib/calendar";
@@ -43,15 +43,18 @@ function formatCurrencyBR(value: string): string {
  *
  * "Lançados no período" não dizia nada a quem não tinha o intervalo em mente.
  * Como o painel abre no mês corrente — do dia 1º até hoje —, o que o filtro faz
- * na prática é mostrar só o que estreou desde o começo do mês, e é isso que o
- * rótulo passa a dizer. Em um intervalo que não começa no dia 1º, o texto volta
- * a falar de período, porque aí não é de mês que se trata.
+ * na prática é mostrar só o que estreou desde o início do mês, e é isso que o
+ * rótulo diz. Em um intervalo que não começa no dia 1º, o texto volta a falar de
+ * período, porque aí não é de mês que se trata.
+ *
+ * O rótulo nomeia a JANELA, não a ação: o que ela significa — só as estreias
+ * dentro dela — está no `title` do controle, que é onde cabe a frase inteira.
  */
 function launchFilterLabel(dateFrom: string, dateTo: string): string {
   const [fromYear, fromMonth, fromDay] = dateFrom.split("-");
   const [toYear, toMonth] = dateTo.split("-");
   const wholeMonthSoFar = fromDay === "01" && fromMonth === toMonth && fromYear === toYear;
-  return wholeMonthSoFar ? "Lançados desde o começo do mês" : "Lançados dentro do período";
+  return wholeMonthSoFar ? "Desde o início do mês" : "Dentro do período";
 }
 
 function formatPercentBR(value: string): string {
@@ -76,6 +79,14 @@ export default function Home() {
   const [selectedDesigner, setSelectedDesigner] = useState<string | null>(null);
   const [creators, setCreators] = useState<any[]>([]);
   const [hideOldAds, setHideOldAds] = useState(true);
+
+  /*
+   * A caixa de busca de criativo. O estado mora aqui porque o ícone que a abre
+   * fica nesta barra, mas quem a desenha é o `FunnelsOverview` — é ele que tem
+   * os anúncios de todos os funis carregados, e buscá-los de novo aqui seria
+   * repetir a consulta mais cara da tela.
+   */
+  const [searchOpen, setSearchOpen] = useState(false);
 
   /*
    * Os filtros são da pessoa, não da aba: quem fecha o painel filtrando por um
@@ -218,9 +229,9 @@ export default function Home() {
     <main style={{ minHeight: "100vh", display: "flex", flexDirection: "column" }}>
       <TopBar />
       <div className="dashboard-container">
-        <section style={{ flex: 3, display: "flex", flexDirection: "column", gap: "2rem", width: "100%" }}>
+        <section style={{ flex: 3, display: "flex", flexDirection: "column", gap: "1.25rem", width: "100%" }}>
           
-          <div style={{ display: "flex", flexDirection: "column", gap: "1.5rem", marginBottom: "1rem" }}>
+          <div style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
             <div style={{ display: "flex", flexDirection: "column", gap: "0.25rem" }}>
               <h1 style={{ fontSize: "var(--text-page)", fontWeight: 800, margin: 0, wordBreak: "break-word" }} className="lowercase-title">
                 dashboard criativo<span className="dot-green">.</span>
@@ -230,12 +241,27 @@ export default function Home() {
               </p>
             </div>
             
-            <div className="dashboard-filters" style={{ display: "flex", alignItems: "center", flexWrap: "wrap", gap: "0.75rem" }}>
-              
-              
+            <div className="dashboard-filters">
+
+              {/*
+                Busca de criativo — ação, não filtro: procura pelo nome em todos
+                os funis de uma vez, inclusive nos que estão recolhidos. Veste a
+                mesma moldura dos filtros ao lado, só que quadrada: é um ícone,
+                e não um controle com rótulo.
+              */}
+              <button
+                onClick={() => setSearchOpen(true)}
+                title="Buscar criativo pelo nome em todos os funis"
+                aria-label="Buscar criativo pelo nome em todos os funis"
+                className="filter-control"
+                style={{ width: "36px", padding: 0, justifyContent: "center" }}
+              >
+                <Search size={16} />
+              </button>
+
               {/* Filtro de Criador */}
               {creators.length > 0 && (
-                <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", background: "var(--card-bg)", padding: "0.4rem 0.75rem", borderRadius: "8px", border: "1px solid var(--card-border)", boxShadow: "var(--card-shadow)", whiteSpace: "nowrap", flexShrink: 0 }}>
+                <div className="filter-control">
                   <div style={{ display: "flex", alignItems: "center", color: "var(--foreground)", opacity: 0.8 }}>
                     <Users size={16} />
                   </div>
@@ -260,7 +286,7 @@ export default function Home() {
               )}
 
               {/* Filtro de Canal */}
-              <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", background: "var(--card-bg)", padding: "0.4rem 0.75rem", borderRadius: "8px", border: "1px solid var(--card-border)", boxShadow: "var(--card-shadow)", whiteSpace: "nowrap", flexShrink: 0 }}>
+              <div className="filter-control">
                 <div style={{ display: "flex", alignItems: "center", color: "var(--foreground)", opacity: 0.8 }}>
                   <Globe size={16} />
                 </div>
@@ -283,7 +309,7 @@ export default function Home() {
               </div>
 
               {/* Filtro de Status */}
-              <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", background: "var(--card-bg)", padding: "0.4rem 0.75rem", borderRadius: "8px", border: "1px solid var(--card-border)", boxShadow: "var(--card-shadow)", whiteSpace: "nowrap", flexShrink: 0 }}>
+              <div className="filter-control">
                 <div style={{ display: "flex", alignItems: "center", color: "var(--foreground)", opacity: 0.8 }}>
                   <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path><polyline points="22 4 12 14.01 9 11.01"></polyline></svg>
                 </div>
@@ -320,11 +346,8 @@ export default function Home() {
                 title={hideOldAds
                   ? "Ligado: só os anúncios que estrearam dentro do período selecionado. Desligue para ver também os lançados antes dele que seguiram veiculando."
                   : "Desligado: mostra todos os anúncios com veiculação no período, inclusive os lançados antes dele. Ligue para ver só as estreias do período."}
-                style={{ 
-                  display: "flex", alignItems: "center", gap: "0.6rem", background: "var(--card-bg)", padding: "0.4rem 0.75rem", 
-                  borderRadius: "8px", border: "1px solid var(--card-border)", boxShadow: "var(--card-shadow)", whiteSpace: "nowrap", cursor: "pointer", userSelect: "none",
-                  fontSize: "var(--text-control)", fontWeight: 600, color: "var(--foreground)", flexShrink: 0, height: "36px"
-                }}
+                className="filter-control"
+                style={{ gap: "0.6rem", cursor: "pointer", userSelect: "none" }}
               >
                 <div style={{
                   width: "36px", height: "20px", borderRadius: "100px", background: hideOldAds ? "var(--primary)" : "var(--muted)", 
@@ -349,15 +372,16 @@ export default function Home() {
               <span className="section-subtitle">período selecionado</span>
             </div>
             
-            <div style={{ display: "flex", alignItems: "flex-start", gap: "0.75rem", background: "rgba(59, 130, 246, 0.05)", border: "1px solid rgba(59, 130, 246, 0.15)", padding: "1rem", borderRadius: "8px", marginBottom: "1.5rem" }}>
-              <div style={{ color: "var(--info)", flexShrink: 0, marginTop: "2px" }}>
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="16" x2="12" y2="12"></line><line x1="12" y1="8" x2="12.01" y2="8"></line></svg>
-              </div>
-              <p style={{ margin: 0, fontSize: "var(--text-control)", color: "var(--foreground)", opacity: 0.8, lineHeight: 1.5 }}>
-                <strong>Aviso sobre Atribuição da Meta:</strong> O Meta Ads leva de 1 a 24 horas para atualizar e exibir os dados de uma compra no Gerenciador de Anúncios. Em muitos casos o evento aparece em poucas horas, mas o painel pode demorar até 48 horas para consolidar a atribuição correta e refletir todas as conversões.{" "}
-                <a href="https://www.reddit.com/r/FacebookAds/comments/1t4kh4m/ads_manager_data_update_time/?tl=pt-br" target="_blank" rel="noopener noreferrer" style={{ color: "var(--info)", textDecoration: "none" }}>[1]</a>{" "}
-                <a href="https://www.reddit.com/r/PPC/comments/1ku6n7h/how_long_does_it_take_for_meta_ads_to_start/?tl=pt-br" target="_blank" rel="noopener noreferrer" style={{ color: "var(--info)", textDecoration: "none" }}>[2]</a>{" "}
-                <a href="https://www.reddit.com/r/PPC/comments/122p8ge/how_long_does_it_take_for_conversions_to_show_up/?tl=pt-br" target="_blank" rel="noopener noreferrer" style={{ color: "var(--info)", textDecoration: "none" }}>[3]</a>
+            {/* A ressalva continua inteira no essencial — os dois prazos e as
+                fontes —, mas em tamanho de nota: ela explica um desencontro de
+                números, não é o que se vem ler na home. */}
+            <div className="dashboard-note" style={{ marginBottom: "0.75rem" }}>
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0, marginTop: "0.15rem", opacity: 0.8 }}><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="16" x2="12" y2="12"></line><line x1="12" y1="8" x2="12.01" y2="8"></line></svg>
+              <p style={{ margin: 0 }}>
+                <strong style={{ color: "var(--foreground)", fontWeight: 600 }}>Atribuição da Meta:</strong> uma compra leva de 1 a 24 h para aparecer no Gerenciador, e até 48 h para a atribuição consolidar — números recentes podem subir depois.{" "}
+                <a href="https://www.reddit.com/r/FacebookAds/comments/1t4kh4m/ads_manager_data_update_time/?tl=pt-br" target="_blank" rel="noopener noreferrer">[1]</a>{" "}
+                <a href="https://www.reddit.com/r/PPC/comments/1ku6n7h/how_long_does_it_take_for_meta_ads_to_start/?tl=pt-br" target="_blank" rel="noopener noreferrer">[2]</a>{" "}
+                <a href="https://www.reddit.com/r/PPC/comments/122p8ge/how_long_does_it_take_for_conversions_to_show_up/?tl=pt-br" target="_blank" rel="noopener noreferrer">[3]</a>
               </p>
             </div>
 
@@ -452,7 +476,7 @@ export default function Home() {
             </motion.div>
           </div>
           
-          <div style={{ flex: 1, marginTop: "-1rem" }}>
+          <div style={{ flex: 1 }}>
             <FunnelsOverview 
               dateFrom={dateFrom} 
               dateTo={dateTo} 
@@ -462,6 +486,8 @@ export default function Home() {
               creators={creators}
               hideOldAds={hideOldAds}
               onMetricsUpdate={setMetrics} 
+              searchOpen={searchOpen}
+              onSearchClose={() => setSearchOpen(false)}
             />
           </div>
         </section>
