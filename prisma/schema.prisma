@@ -227,6 +227,11 @@ model SystemSettings {
   lastSyncAt      DateTime? // Fim da última sincronização, manual ou automática
   lastCronSyncAt  DateTime? // Início da última passada de métricas; base do portão de intervalo
   lastMediaSyncAt DateTime? // Início da última passada de mídia; o cron alterna entre as duas
+  // Carimbo de toda batida autorizada do disparador externo, mesmo a que não
+  // roda passada nenhuma. É o que separa "o cron não está chegando" de "o cron
+  // chega e está dentro do intervalo" — sem isto, as duas situações produzem a
+  // mesma tela: nenhum log e nenhum carimbo.
+  lastCronPingAt DateTime?
   // Dia do mês corrente em que a leitura fatiada de insights retoma na próxima
   // passada ("YYYY-MM-DD"). Nulo = recomeçar pelo dia mais recente da cauda.
   lastBackfillDayYmd String?

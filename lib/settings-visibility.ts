@@ -35,6 +35,7 @@ const PUBLIC_SETTINGS_FIELDS = [
   "cronSyncInterval",
   "lastSyncAt",
   "lastCronSyncAt",
+  "lastCronPingAt",
   "updatedAt",
 ] as const;
 
