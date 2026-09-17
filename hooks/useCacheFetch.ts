@@ -45,12 +45,28 @@ export function useCacheFetch<T>(url: string | null) {
       .then(freshData => {
         if (!isMounted) return;
         
-        // Update session storage
-        sessionStorage.setItem(cacheKey, JSON.stringify(freshData));
-        
+        const freshStr = JSON.stringify(freshData);
+
+        /*
+         * Guardar em cache é otimização — falhar nisso não pode custar os dados
+         * que já chegaram.
+         *
+         * `setItem` lança `QuotaExceededError` quando a resposta não cabe nos
+         * ~5 MB do sessionStorage, e é fácil chegar lá: um mês inteiro com
+         * "todos os status" traz milhares de anúncios. Como a gravação vinha
+         * ANTES do `setData`, a exceção pulava direto para o `catch` do fetch e
+         * a tela exibia "Erro ao carregar os dados" com a resposta completa na
+         * mão. O mesmo vale para janela anônima, onde o armazenamento pode
+         * estar bloqueado.
+         */
+        try {
+          sessionStorage.setItem(cacheKey, freshStr);
+        } catch (e) {
+          console.warn("Cache não gravado (segue sem ele) para", url, e);
+        }
+
         // Only trigger a re-render if we didn't have cache OR if the data actually changed.
         // We do a simple stringify comparison to avoid React re-renders if identical
-        const freshStr = JSON.stringify(freshData);
         if (!hasValidCache || cached !== freshStr) {
           setData(freshData);
         }

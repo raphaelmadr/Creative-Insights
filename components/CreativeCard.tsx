@@ -440,9 +440,13 @@ interface CreativeCardProps {
   tier?: "super" | "winner";
   /** Análise salva desta peça, quando a grade já a trouxe do banco. */
   savedAnalysis?: SavedAnalysis;
+  /** Id do elemento, para a busca da home rolar até este cartão. */
+  anchorId?: string;
+  /** Em destaque por alguns segundos: foi esta a peça que a busca apontou. */
+  highlighted?: boolean;
 }
 
-export function CreativeCard({ creative, creators, tier, savedAnalysis }: CreativeCardProps) {
+export function CreativeCard({ creative, creators, tier, savedAnalysis, anchorId, highlighted }: CreativeCardProps) {
   const ai = useHypothesis(creative, savedAnalysis);
 
   /*
@@ -472,9 +476,19 @@ export function CreativeCard({ creative, creators, tier, savedAnalysis }: Creati
   
   return (
     <motion.div
+      id={anchorId}
       variants={{ hidden: { opacity: 0, y: 20 }, show: { opacity: 1, y: 0, transition: { type: "spring", stiffness: 200, damping: 20 } } }}
       className={`glass-panel ${styles.card}`}
-      style={{ position: "relative", transition: "all 0.3s ease" }}
+      style={{
+        position: "relative",
+        transition: "all 0.3s ease",
+        /* Anel, e não mudança de fundo: o cartão já tem tom próprio por
+           categoria, e trocá-lo faria a peça destacada parecer de outro funil. */
+        ...(highlighted && {
+          outline: "2px solid var(--primary)",
+          outlineOffset: "3px",
+        }),
+      }}
     >
       {/*
         A mídia do cartão é sempre miniatura, vídeo incluído: o player embutido

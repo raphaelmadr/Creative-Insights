@@ -269,9 +269,12 @@ export default function DateRangePicker({ dateFrom, dateTo, onChange }: DateRang
   const nextMonthViewYear = viewMonth === 11 ? viewYear + 1 : viewYear;
 
   return (
-    <div ref={wrapperRef} style={{ position: "relative" }}>
+    <div ref={wrapperRef} style={{ position: "relative", flexShrink: 0 }}>
       {/* Trigger Button */}
-      <button onClick={() => setIsOpen(!isOpen)} className="btn btn-secondary" style={{ width: "270px", color: "var(--foreground)" }} >
+      {/* `filter-control`, e não `.btn`: este gatilho vive na barra de filtros da
+          home e precisa da geometria dos vizinhos. Como `.btn-secondary` ele
+          herdava o raio de pílula e era o único redondo da fileira. */}
+      <button onClick={() => setIsOpen(!isOpen)} className="filter-control" style={{ width: "270px" }} >
         <CalendarIcon size={16} style={{ opacity: 0.8 }} />
         <span style={{ flex: 1, textAlign: "left" }}>
           {dateFrom && dateTo ? `${formatDisplay(initialStart)} ~ ${formatDisplay(initialEnd)}` : "Selecionar período"}

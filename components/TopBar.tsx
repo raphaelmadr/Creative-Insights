@@ -3,7 +3,7 @@
 import React, { useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Moon, Sun, Bell, Settings, RefreshCw, Image as ImageIcon, Sparkles, Menu, X, CheckCheck, LayoutDashboard, PenTool } from "lucide-react";
+import { Moon, Sun, Bell, Settings, RefreshCw, Image as ImageIcon, Sparkles, Menu, X, LayoutDashboard, PenTool } from "lucide-react";
 import { useSession } from "next-auth/react";
 import { useTheme } from "./ThemeProvider";
 import { hasCreatorAccess } from "@/lib/roles";
@@ -163,8 +163,7 @@ export default function TopBar() {
         {/* Limpar não apaga demanda nenhuma: marca até onde esta pessoa já leu,
             no servidor. A tarefa continua dela — o que some é o aviso. */}
         {taskUnreadCount > 0 && (
-          <button onClick={(e) => { e.stopPropagation(); clearTaskNotifications(); }} title="Limpar todas as notificações" className="btn btn-primary" >
-            <CheckCheck size={13} />
+          <button onClick={(e) => { e.stopPropagation(); clearTaskNotifications(); }} title="Limpar todas as notificações" className="btn btn-ghost">
             Limpar todas
           </button>
         )}
