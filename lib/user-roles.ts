@@ -14,10 +14,13 @@
 
 import prisma from "./prisma";
 import { DEV_USER_EMAIL, isDevEnvironment } from "./dev-user";
+import { USER_ROLES, isValidRole, type UserRole } from "./roles";
 
-export type UserRole = "ADMIN" | "MEMBER";
-
-export const USER_ROLES: UserRole[] = ["ADMIN", "MEMBER"];
+/* O vocabulário vem de `lib/roles.ts`, que não carrega Prisma — aqui ficam só a
+ * escrita e a regra que a protege. Reexportado porque este é o endereço que a
+ * rota de usuários já conhece. */
+export { USER_ROLES, isValidRole };
+export type { UserRole };
 
 export const LAST_ADMIN_MESSAGE =
   "Este é o único administrador. Promova outra pessoa antes de remover o acesso deste usuário — " +
@@ -35,10 +38,6 @@ export type RoleChangeResult =
   | { ok: true; previousRole: string; user: RoleChangeUser }
   | { ok: false; reason: "not-found" }
   | { ok: false; reason: "last-admin" };
-
-export function isValidRole(value: unknown): value is UserRole {
-  return typeof value === "string" && (USER_ROLES as string[]).includes(value);
-}
 
 /**
  * Quantos administradores existem além deste usuário.
@@ -80,7 +79,16 @@ export async function changeUserRole(
 
   if (!target) return { ok: false, reason: "not-found" };
 
-  const isDemotion = target.role === "ADMIN" && role === "MEMBER";
+  /*
+   * Rebaixar é sair de ADMIN, seja para onde for.
+   *
+   * Comparar com "MEMBER" bastava enquanto só existiam dois papéis. Com o
+   * degrau CREATOR no meio, `ADMIN → CREATOR` passaria reto pela trava e o
+   * último administrador conseguiria se rebaixar — trancando o painel de
+   * configurações para todo mundo, que é exatamente o que ela existe para
+   * impedir.
+   */
+  const isDemotion = target.role === "ADMIN" && role !== "ADMIN";
 
   if (isDemotion) {
     /*
@@ -92,7 +100,7 @@ export async function changeUserRole(
 
     const affected = await prisma.$executeRaw`
       UPDATE \`User\`
-         SET \`role\` = 'MEMBER'
+         SET \`role\` = ${role}
        WHERE \`id\` = ${userId}
          AND \`role\` = 'ADMIN'
          AND (

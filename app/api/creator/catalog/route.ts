@@ -7,12 +7,13 @@
  */
 
 import { NextResponse } from "next/server";
-import { getCurrentUser } from "@/lib/auth";
+import { getCurrentCreator } from "@/lib/auth";
+import { CREATOR_ONLY_ERROR } from "@/lib/roles";
 import { fetchAlluCatalog } from "@/lib/allu-catalog";
 
 export async function GET(request: Request) {
-  const user = await getCurrentUser();
-  if (!user) return NextResponse.json({ error: "Não autenticado." }, { status: 401 });
+  const user = await getCurrentCreator();
+  if (!user) return NextResponse.json({ error: CREATOR_ONLY_ERROR }, { status: 403 });
 
   try {
     const force = new URL(request.url).searchParams.get("refresh") === "1";

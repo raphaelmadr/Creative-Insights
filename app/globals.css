@@ -1177,3 +1177,78 @@ p {
     transform: none;
   }
 }
+
+/* ------------------------------------------------------------------ *
+ * Preferências do quadro: controles à esquerda, prévia do card à direita
+ * ------------------------------------------------------------------ */
+
+/*
+ * Duas colunas, e a da direita não rola junto.
+ *
+ * Quem mexe nas preferências está decidindo a aparência do card — e decidia
+ * olhando para uma lista de nomes de selo, imaginando o resultado. Com a prévia
+ * presa ao lado, a decisão vira comparação: liga, vê, desliga.
+ *
+ * `position: sticky` e não `fixed`: a prévia acompanha a rolagem DENTRO do
+ * corpo do diálogo, e continua dentro dele quando a janela é pequena.
+ */
+.board-setup {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 300px;
+  gap: 1.25rem;
+  align-items: start;
+}
+
+.board-setup-controls {
+  display: flex;
+  flex-direction: column;
+  gap: 0.9rem;
+  min-width: 0;
+}
+
+.board-setup-preview {
+  position: sticky;
+  top: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  padding: 0.75rem;
+  border-radius: var(--radius-block);
+  background: var(--surface-sunken);
+  border: 1px solid var(--surface-sunken-border);
+}
+
+/* A moldura que imita a coluna do quadro, para o card não flutuar no vazio. */
+.board-setup-preview-stage {
+  padding: 0.5rem;
+  border-radius: var(--radius-block);
+  background: var(--card-bg);
+  border: 1px dashed var(--card-border);
+}
+
+/*
+ * A prévia se olha, não se usa.
+ *
+ * O card de verdade tem partes clicáveis — o selo de anexo abre o visualizador,
+ * o do link sai para o Drive. Num exemplo, o visualizador abriria sobre uma
+ * imagem que não existe e o link tiraria a pessoa do meio da configuração.
+ */
+.board-setup-preview-stage * {
+  pointer-events: none;
+}
+
+/*
+ * Abaixo de 900px a prévia vai para cima dos controles, e não para o lado.
+ *
+ * Empilhada embaixo ela ficaria fora da vista justamente enquanto alguém mexe
+ * nos interruptores, que é quando ela serve para alguma coisa.
+ */
+@media (max-width: 900px) {
+  .board-setup {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .board-setup-preview {
+    position: static;
+    order: -1;
+  }
+}

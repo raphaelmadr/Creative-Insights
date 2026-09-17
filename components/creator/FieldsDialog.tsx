@@ -9,6 +9,7 @@ import {
   FIELD_TYPE_LABEL,
   FIELD_TYPES_WITH_OPTIONS,
   parseOptions,
+  parseOptionsMap,
   type FieldType,
 } from "@/lib/kanban";
 
@@ -25,6 +26,10 @@ interface Draft {
   label: string;
   type: FieldType;
   options: string;
+  /** A chave do campo pai, ou "" para campo independente. */
+  dependsOn: string;
+  /** Com pai: as opções de cada valor dele, uma por linha. Ver `optionsFor`. */
+  optionsByParent: Record<string, string>;
   placeholder: string;
   helpText: string;
   required: boolean;
@@ -35,11 +40,20 @@ const EMPTY: Draft = {
   label: "",
   type: "TEXT",
   options: "",
+  dependsOn: "",
+  optionsByParent: {},
   placeholder: "",
   helpText: "",
   required: false,
   showOnCard: false,
 };
+
+/** Um campo que pode ser pai de outro: escolha única, com opções próprias. */
+interface ParentOption {
+  key: string;
+  label: string;
+  values: string[];
+}
 
 /** As opções são digitadas uma por linha — mais simples de revisar que vírgulas. */
 const splitOptions = (raw: string) =>
@@ -55,6 +69,7 @@ function DraftForm({
   onCancel,
   submitLabel,
   busy,
+  parents,
 }: {
   draft: Draft;
   setDraft: (d: Draft) => void;
@@ -62,8 +77,10 @@ function DraftForm({
   onCancel: () => void;
   submitLabel: string;
   busy: boolean;
+  parents: ParentOption[];
 }) {
   const needsOptions = FIELD_TYPES_WITH_OPTIONS.includes(draft.type);
+  const pai = parents.find((p) => p.key === draft.dependsOn) ?? null;
 
   return (
     <div
@@ -110,7 +127,32 @@ function DraftForm({
         </div>
       </div>
 
-      {needsOptions && (
+      {needsOptions && parents.length > 0 && (
+        <div className="field">
+          <label className="field-label" htmlFor="campo-depende">
+            Depende de
+          </label>
+          <select
+            id="campo-depende"
+            className="field-input"
+            value={draft.dependsOn}
+            onChange={(e) => setDraft({ ...draft, dependsOn: e.target.value })}
+          >
+            <option value="">Nada — as opções são sempre as mesmas</option>
+            {parents.map((p) => (
+              <option key={p.key} value={p.key}>
+                {p.label}
+              </option>
+            ))}
+          </select>
+          <span className="field-hint">
+            Com um pai escolhido, este campo só oferece as opções do valor que a pessoa
+            marcar lá — &quot;Formato&quot; mostra outra lista para cada canal.
+          </span>
+        </div>
+      )}
+
+      {needsOptions && !pai && (
         <div className="field">
           <label className="field-label" htmlFor="campo-opcoes">
             Opções
@@ -123,6 +165,46 @@ function DraftForm({
             onChange={(e) => setDraft({ ...draft, options: e.target.value })}
           />
           <span className="field-hint">Uma opção por linha.</span>
+        </div>
+      )}
+
+      {/*
+        Uma caixa por valor do pai, e não uma sintaxe dentro de uma caixa só.
+        Os valores do pai já são conhecidos — pedir que sejam redigitados com
+        algum separador seria inventar uma linguagem só para errá-la.
+      */}
+      {needsOptions && pai && (
+        <div className="field">
+          <label className="field-label">Opções por {pai.label.toLowerCase()}</label>
+          <div style={{ display: "flex", flexDirection: "column", gap: "0.6rem" }}>
+            {pai.values.length === 0 && (
+              <span className="field-hint">
+                &quot;{pai.label}&quot; ainda não tem opções — cadastre-as primeiro.
+              </span>
+            )}
+            {pai.values.map((valor) => (
+              <div key={valor} className="field">
+                <label className="field-label" htmlFor={`campo-opcoes-${valor}`}>
+                  {valor}
+                </label>
+                <textarea
+                  id={`campo-opcoes-${valor}`}
+                  className="field-input field-prose"
+                  value={draft.optionsByParent[valor] ?? ""}
+                  placeholder={"Uma por linha"}
+                  onChange={(e) =>
+                    setDraft({
+                      ...draft,
+                      optionsByParent: { ...draft.optionsByParent, [valor]: e.target.value },
+                    })
+                  }
+                />
+              </div>
+            ))}
+          </div>
+          <span className="field-hint">
+            Valor sem nenhuma opção some do formulário em vez de abrir um seletor vazio.
+          </span>
         </div>
       )}
 
@@ -216,10 +298,30 @@ export default function FieldsDialog({
     }
   };
 
+  /*
+   * Quem pode ser pai: os SELECT do quadro, menos o que está sendo editado.
+   *
+   * MULTISELECT fica de fora porque o valor precisa ser UM para servir de chave
+   * no mapa — com várias marcas, não há uma lista a escolher.
+   */
+  const parents: ParentOption[] = fields
+    .filter((f) => f.type === "SELECT" && f.id !== editingId)
+    .map((f) => ({ key: f.key, label: f.label, values: parseOptions(f.options) }));
+
   const payload = () => ({
     label: draft.label,
     type: draft.type,
-    options: splitOptions(draft.options),
+    dependsOn: draft.dependsOn || null,
+    // A forma acompanha a dependência: lista sem pai, mapa com pai. É o mesmo
+    // par que `normalizeOptions` espera do outro lado.
+    options: draft.dependsOn
+      ? Object.fromEntries(
+          Object.entries(draft.optionsByParent).map(([valor, texto]) => [
+            valor,
+            splitOptions(texto),
+          ])
+        )
+      : splitOptions(draft.options),
     placeholder: draft.placeholder,
     helpText: draft.helpText,
     required: draft.required,
@@ -252,7 +354,14 @@ export default function FieldsDialog({
     setDraft({
       label: field.label,
       type: field.type as FieldType,
-      options: parseOptions(field.options).join("\n"),
+      options: field.dependsOn ? "" : parseOptions(field.options).join("\n"),
+      dependsOn: field.dependsOn || "",
+      optionsByParent: Object.fromEntries(
+        Object.entries(parseOptionsMap(field.options)).map(([valor, lista]) => [
+          valor,
+          lista.join("\n"),
+        ])
+      ),
       placeholder: field.placeholder || "",
       helpText: field.helpText || "",
       required: field.required,
@@ -291,6 +400,7 @@ export default function FieldsDialog({
             }}
             submitLabel="Salvar campo"
             busy={busy}
+            parents={parents}
           />
         ) : (
           <div
@@ -363,6 +473,7 @@ export default function FieldsDialog({
           }}
           submitLabel="Criar campo"
           busy={busy}
+          parents={parents}
         />
       ) : (
         <button

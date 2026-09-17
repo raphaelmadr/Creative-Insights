@@ -46,3 +46,7 @@ dev.db
 # Ignorado por ora: são ~142 MB de binários que o espelhamento do Git levaria
 # para a hospedagem a cada publicação. Ver DEPLOY.md antes de versionar isto.
 /deploy
+
+# Exports de dados feitos antes de mudanças destrutivas. Ficam na máquina:
+# são cópia de produção, não fonte.
+backups/

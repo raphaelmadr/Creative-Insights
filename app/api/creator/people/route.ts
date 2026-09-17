@@ -19,14 +19,15 @@
 
 import { NextResponse } from "next/server";
 import prisma from "@/lib/prisma";
-import { getCurrentUser } from "@/lib/auth";
+import { getCurrentCreator } from "@/lib/auth";
+import { CREATOR_ONLY_ERROR } from "@/lib/roles";
 import { excludeDevUserWhere } from "@/lib/dev-user";
 
 export const dynamic = "force-dynamic";
 
 export async function GET() {
-  const user = await getCurrentUser();
-  if (!user) return NextResponse.json({ error: "Não autenticado." }, { status: 401 });
+  const user = await getCurrentCreator();
+  if (!user) return NextResponse.json({ error: CREATOR_ONLY_ERROR }, { status: 403 });
 
   try {
     const [users, creators] = await Promise.all([

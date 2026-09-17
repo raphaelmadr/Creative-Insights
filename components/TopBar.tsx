@@ -6,8 +6,10 @@ import { usePathname } from "next/navigation";
 import { Moon, Sun, Bell, Settings, RefreshCw, Image as ImageIcon, Sparkles, Menu, X, CheckCheck, LayoutDashboard, PenTool } from "lucide-react";
 import { useSession } from "next-auth/react";
 import { useTheme } from "./ThemeProvider";
+import { hasCreatorAccess } from "@/lib/roles";
 import { useNotifications } from "./NotificationProvider";
 import OnlineUsers from "./OnlineUsers";
+import NovaDemandaButton from "./creator/NovaDemandaButton";
 import UserMenu from "./UserMenu";
 import styles from "./TopBar.module.css";
 
@@ -115,7 +117,16 @@ export default function TopBar() {
   const { theme, toggleTheme } = useTheme();
   const { data: session } = useSession();
   const isAdmin = session?.user?.role === "ADMIN";
-  const { unreadCount, isSyncingAll, lastSyncAt, nextAutoSyncAt, syncAll, updates, isSyncingMeta, syncMessage, syncProgress, isSearching, loadingText, markAllAsRead } = useNotifications();
+  /*
+   * Quem alcança o modo Creator. A MESMA regra do servidor, importada de
+   * `lib/roles` — se esta linha divergir da guarda de `app/creator/layout.tsx`,
+   * a barra oferece uma porta que a página recusa.
+   *
+   * Esconder aqui é conveniência, nunca proteção: quem colar o endereço chega
+   * na mesma. Quem protege é o layout, e cada rota de `/api/creator`.
+   */
+  const podeCriar = hasCreatorAccess(session?.user?.role);
+  const { isSyncingAll, lastSyncAt, nextAutoSyncAt, syncAll, isSyncingMeta, syncMessage, syncProgress, isSearching, loadingText, integrations, taskNotifications, taskUnreadCount, clearTaskNotifications } = useNotifications();
 
   const formatSyncStamp = (value: string) =>
     new Date(value).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' });
@@ -129,44 +140,30 @@ export default function TopBar() {
     new Date(value).getTime() <= Date.now() ? 'a qualquer momento' : formatSyncStamp(value);
   const [isNotificationsOpen, setIsNotificationsOpen] = useState(false);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
-  const [integrations, setIntegrations] = useState({ meta: true, tiktok: false, google: false });
-
-  React.useEffect(() => {
-    /*
-     * O estado vem de `integrations`, que são booleanos, e não dos tokens em
-     * `data`: o cabeçalho só precisa saber se o canal está conectado, e as
-     * credenciais agora só saem do servidor para quem administra.
-     */
-    fetch('/api/settings')
-      .then(res => res.json())
-      .then(res => {
-        if (res.success && Array.isArray(res.integrations)) {
-          const configured = (id: string) =>
-            !!res.integrations.find((i: { id: string; configured: boolean }) => i.id === id)?.configured;
-
-          setIntegrations({
-            meta: configured('META'),
-            tiktok: configured('TIKTOK'),
-            google: false
-          });
-        }
-      })
-      .catch(err => console.error("Error fetching integrations:", err));
-  }, []);
+  /*
+   * O estado dos canais vem do contexto, não de uma busca própria.
+   *
+   * Este componente pedia `/api/settings` só para dois booleanos, enquanto o
+   * `NotificationProvider` pedia a MESMA rota, no mesmo instante, para a data
+   * da última sincronização. Eram duas requisições à mesma linha do banco em
+   * todo carregamento de página, ambas devolvendo a configuração inteira —
+   * prompts de IA e chaves de API incluídos — para acender dois ícones.
+   *
+   * Agora o provedor busca uma vez, do resumo, e reparte.
+   */
 
   const notificationsContent = (
     <div className={styles.notificationsPopup}>
       <div style={{ padding: '1rem', borderBottom: '1px solid var(--card-border)', fontWeight: 600, display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '0.5rem' }}>
         <span style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
           Notificações
-          {unreadCount > 0 && <span style={{ fontSize: '0.75rem', background: 'var(--primary)', color: '#fff', padding: '0.1rem 0.5rem', borderRadius: '10px' }}>{unreadCount} novas</span>}
+          {taskUnreadCount > 0 && <span style={{ fontSize: '0.75rem', background: 'var(--primary)', color: '#fff', padding: '0.1rem 0.5rem', borderRadius: '10px' }}>{taskUnreadCount}</span>}
         </span>
 
-        {/* Limpar aqui é marcar como lidas, não apagar: as novidades são as
-            mesmas para todo o time, e apagá-las tiraria de todo mundo. O que é
-            de cada pessoa é o ponto de leitura. */}
-        {unreadCount > 0 && (
-          <button onClick={(e) => { e.stopPropagation(); markAllAsRead(); }} title="Marcar todas as notificações como lidas" className="btn btn-primary" >
+        {/* Limpar não apaga demanda nenhuma: marca até onde esta pessoa já leu,
+            no servidor. A tarefa continua dela — o que some é o aviso. */}
+        {taskUnreadCount > 0 && (
+          <button onClick={(e) => { e.stopPropagation(); clearTaskNotifications(); }} title="Limpar todas as notificações" className="btn btn-primary" >
             <CheckCheck size={13} />
             Limpar todas
           </button>
@@ -191,38 +188,57 @@ export default function TopBar() {
           </div>
         )}
         
-        {updates.length === 0 ? (
+        {taskNotifications.length === 0 ? (
           <div style={{ padding: '2rem 1rem', textAlign: 'center', color: 'var(--muted)', fontSize: '0.85rem' }}>
-            Nenhuma novidade no momento.
+            Nenhuma tarefa atribuída a você.
           </div>
         ) : (
-          updates.slice(0, 5).map(update => {
-            const isSystemUpdate = update.category?.toLowerCase() === 'sistema';
-            
-            const innerContent = (
-              <div style={{ padding: '1rem', borderBottom: '1px solid var(--card-border)', display: 'flex', flexDirection: 'column', gap: '0.25rem', background: unreadCount > 0 ? 'rgba(255,255,255,0.02)' : 'transparent', cursor: isSystemUpdate ? 'default' : 'pointer', transition: 'background 0.2s' }} onMouseOver={(e) => { if(!isSystemUpdate) e.currentTarget.style.background = 'rgba(255,255,255,0.05)' }} onMouseOut={(e) => { if(!isSystemUpdate) e.currentTarget.style.background = unreadCount > 0 ? 'rgba(255,255,255,0.02)' : 'transparent' }}>
-                <span style={{ fontSize: '0.8rem', fontWeight: 600 }}>{update.title}</span>
-                <span style={{ fontSize: '0.75rem', color: 'var(--muted)', display: '-webkit-box', WebkitLineClamp: 3, WebkitBoxOrient: 'vertical', overflow: 'hidden', textOverflow: 'ellipsis', lineHeight: '1.4' }}>{update.content}</span>
+          taskNotifications.map(nota => {
+            const corpo = (
+              <div
+                style={{ padding: '1rem', borderBottom: '1px solid var(--card-border)', display: 'flex', flexDirection: 'column', gap: '0.25rem', cursor: podeCriar ? 'pointer' : 'default', transition: 'background 0.2s' }}
+                onMouseOver={(e) => { e.currentTarget.style.background = 'rgba(255,255,255,0.05)' }}
+                onMouseOut={(e) => { e.currentTarget.style.background = 'transparent' }}
+              >
+                {/* A frase vem montada do servidor — é ele que sabe o número da
+                    demanda, e montá-la aqui abriria uma segunda versão dela. */}
+                <span style={{ fontSize: '0.8rem', fontWeight: 600 }}>{nota.message}</span>
+                <span style={{ fontSize: '0.75rem', color: 'var(--muted)', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden', textOverflow: 'ellipsis', lineHeight: '1.4' }}>{nota.title}</span>
                 <span style={{ fontSize: '0.65rem', color: 'var(--primary)', marginTop: '0.25rem' }}>
-                   {new Date(update.timestamp).toLocaleDateString('pt-BR', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })}
+                  {new Date(nota.at).toLocaleDateString('pt-BR', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })}
                 </span>
               </div>
             );
 
-            return isSystemUpdate ? (
-              <div key={update.id}>{innerContent}</div>
-            ) : (
-              <Link key={update.id} href={`/insights#update-${update.id}`} onClick={() => setIsNotificationsOpen(false)} style={{ textDecoration: 'none', color: 'inherit' }}>
-                {innerContent}
+            /*
+             * Só vira link para quem tem o board.
+             *
+             * Uma pessoa sem o modo Creator pode ser marcada numa demanda — o
+             * aviso é legítimo e ela precisa vê-lo. O que ela não pode é abrir
+             * o quadro, e um aviso clicável que responde "área restrita" é pior
+             * do que um aviso que não clica.
+             */
+            return podeCriar ? (
+              <Link
+                key={nota.id}
+                href="/creator/kanban"
+                onClick={() => setIsNotificationsOpen(false)}
+                style={{ textDecoration: 'none', color: 'inherit', display: 'block' }}
+              >
+                {corpo}
               </Link>
+            ) : (
+              <React.Fragment key={nota.id}>{corpo}</React.Fragment>
             );
           })
         )}
       </div>
       
-      <Link href="/insights" onClick={() => setIsNotificationsOpen(false)} style={{ padding: '0.75rem', textAlign: 'center', background: 'rgba(255,255,255,0.02)', color: 'var(--foreground)', fontSize: '0.8rem', fontWeight: 600, textDecoration: 'none', borderTop: '1px solid var(--card-border)', transition: 'background 0.2s' }} onMouseOver={(e) => e.currentTarget.style.background = 'rgba(255,255,255,0.05)'} onMouseOut={(e) => e.currentTarget.style.background = 'rgba(255,255,255,0.02)'}>
-        Ver todas as novidades
-      </Link>
+      {podeCriar && (
+        <Link href="/creator/kanban" onClick={() => setIsNotificationsOpen(false)} style={{ padding: '0.75rem', textAlign: 'center', background: 'rgba(255,255,255,0.02)', color: 'var(--foreground)', fontSize: '0.8rem', fontWeight: 600, textDecoration: 'none', borderTop: '1px solid var(--card-border)', transition: 'background 0.2s' }} onMouseOver={(e) => e.currentTarget.style.background = 'rgba(255,255,255,0.05)'} onMouseOut={(e) => e.currentTarget.style.background = 'rgba(255,255,255,0.02)'}>
+          Ver o quadro
+        </Link>
+      )}
     </div>
   );
 
@@ -233,13 +249,17 @@ export default function TopBar() {
    * que só uma opção vale por vez. Cada visão leva à sua tela inicial, e não à
    * rota equivalente da outra — não existe "o Kanban do Dash".
    */
-  const viewSwitcher = (
+  const visoes = VIEWS.filter((view) => view.id !== "creator" || podeCriar);
+
+  /* Com uma visão só não há o que alternar: dois botões em que um está sempre
+     apertado é ruído permanente na barra. */
+  const viewSwitcher = visoes.length < 2 ? null : (
     <div
       role="group"
       aria-label="Alternar visão"
       style={{ display: "flex", gap: "0.25rem" }}
     >
-      {VIEWS.map((view) => {
+      {visoes.map((view) => {
         const active = view.id === "creator" ? isCreator : !isCreator;
         const Icon = view.icon;
         return (
@@ -299,9 +319,11 @@ export default function TopBar() {
             <img src="/logo.png" alt="allu.mkt creative insights" style={{ height: "32px", width: "auto" }} />
           </Link>
 
-          <div className={styles.desktopNav} style={{ marginLeft: "0.5rem" }}>
-            {viewSwitcher}
-          </div>
+          {viewSwitcher && (
+            <div className={styles.desktopNav} style={{ marginLeft: "0.5rem" }}>
+              {viewSwitcher}
+            </div>
+          )}
 
           <nav className={styles.desktopNav} style={{ display: "flex", gap: "1.5rem", alignItems: "center", marginLeft: "1.5rem" }}>
             {navLinks.map((link) => (
@@ -330,9 +352,11 @@ export default function TopBar() {
               </div>
             {/* A visão vem antes dos destinos: é ela que define quais destinos
                 existem logo abaixo. */}
-            <div style={{ paddingBottom: "0.75rem", marginBottom: "0.25rem", borderBottom: "1px solid var(--sidebar-border)" }}>
-              {viewSwitcher}
-            </div>
+            {viewSwitcher && (
+              <div style={{ paddingBottom: "0.75rem", marginBottom: "0.25rem", borderBottom: "1px solid var(--sidebar-border)" }}>
+                {viewSwitcher}
+              </div>
+            )}
 
             <nav style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
               {navLinks.map((link) => (
@@ -354,6 +378,11 @@ export default function TopBar() {
             </div>
             
             <div style={{ borderTop: "1px solid var(--sidebar-border)", paddingTop: "1rem", marginTop: "0.5rem", display: "flex", flexDirection: "column", gap: "1rem" }}>
+              <NovaDemandaButton
+                style={{ width: '100%', justifyContent: 'center' }}
+                onOpen={() => setIsMobileMenuOpen(false)}
+              />
+
               <div style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem', width: '100%' }}>
                 {/* Mesmo botão e mesmo comportamento do desktop: sincronização
                     profunda de todas as redes, sempre no mês corrente. */}
@@ -373,6 +402,18 @@ export default function TopBar() {
           </>
         )}
         <div className={styles.actions} style={{ display: 'flex', alignItems: 'center', gap: '1rem', marginLeft: 'auto' }}>
+          {/*
+            Pedir uma peça é de qualquer pessoa autenticada, e por isso mora na
+            barra do topo: quem não produz não tem o board para clicar em "Nova
+            demanda", e sem este botão a plataforma teria fechado a porta junto
+            com o módulo. Aparece para todo mundo de propósito — abrir demanda
+            do painel de performance é o caminho mais curto de quem viu um
+            número cair e quer pedir criativo novo.
+          */}
+          <div className={styles.desktopOnly}>
+            <NovaDemandaButton style={{ padding: '0.45rem 0.9rem', fontSize: 'var(--text-caption)' }} />
+          </div>
+
           {/* Quem está com o painel aberto agora. Some sozinho quando não há
               ninguém — ver OnlineUsers. */}
           <div className={styles.desktopOnly} style={{ marginRight: '0.25rem', paddingRight: '1rem', borderRight: '1px solid var(--sidebar-border)' }}>
@@ -401,10 +442,10 @@ export default function TopBar() {
             <button 
               className={styles.iconButton} 
               onClick={() => setIsNotificationsOpen(!isNotificationsOpen)} 
-              title="Notificações e Insights"
+              title="Tarefas atribuídas a você"
             >
               <Bell size={20} />
-              {unreadCount > 0 && (
+              {taskUnreadCount > 0 && (
                 <span style={{
                   position: "absolute", top: -2, right: -2,
                   background: "red", color: "white",
@@ -412,7 +453,7 @@ export default function TopBar() {
                   width: 16, height: 16, borderRadius: "50%",
                   display: "flex", alignItems: "center", justifyContent: "center"
                 }}>
-                  {unreadCount}
+                  {taskUnreadCount}
                 </span>
               )}
             </button>

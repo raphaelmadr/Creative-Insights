@@ -2,13 +2,25 @@ import Link from "next/link";
 import { ShieldAlert } from "lucide-react";
 
 /**
- * O que alguém sem permissão vê no lugar do painel.
+ * O que alguém sem permissão vê no lugar da área.
  *
  * Uma tela, e não um redirecionamento silencioso para a home: quem clicou num
- * link de configurações precisa entender que a página existe e que falta
- * permissão — senão a impressão é de que o link está quebrado.
+ * link precisa entender que a página existe e que falta permissão — senão a
+ * impressão é de que o link está quebrado.
+ *
+ * Genérica desde que passaram a existir duas áreas restritas: as configurações
+ * globais e o modo Creator. Uma cópia por área envelheceria em ritmos
+ * diferentes, e a que ninguém revisasse seria a que dá a instrução errada de
+ * como pedir acesso.
  */
-export default function AccessDenied() {
+export default function AccessDenied({
+  title,
+  children,
+}: {
+  title: string;
+  /** Por que é restrita, e o que fazer para entrar. */
+  children: React.ReactNode;
+}) {
   return (
     <div
       style={{
@@ -23,12 +35,10 @@ export default function AccessDenied() {
     >
       <ShieldAlert size={40} color="var(--muted)" style={{ marginBottom: "1rem" }} />
       <h2 style={{ fontSize: "var(--text-metric)", fontWeight: 700, marginBottom: "0.75rem" }}>
-        Área restrita a administradores
+        {title}
       </h2>
       <p style={{ color: "var(--muted)", lineHeight: 1.6, fontSize: "var(--text-cardtitle)" }}>
-        As configurações globais guardam metas, credenciais das integrações e as chaves dos
-        provedores de IA. Peça a um administrador que libere seu acesso em{" "}
-        <strong>Configurações › Usuários</strong>.
+        {children}
       </p>
       <Link
         href="/"

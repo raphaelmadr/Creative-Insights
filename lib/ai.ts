@@ -2,7 +2,7 @@ import { GoogleGenerativeAI } from "@google/generative-ai";
 import Anthropic from "@anthropic-ai/sdk";
 import OpenAI from "openai";
 import prisma from "./prisma";
-import { logExternalFailure } from "./external-log";
+import { friendlyFailureMessage, logExternalFailure } from "./external-log";
 
 export type AiImageInput = {
   base64: string;
@@ -206,7 +206,13 @@ export async function generateWithFallback(
     return "Nenhuma inteligência artificial configurada no sistema. O sistema está funcionando em modo de fallback seguro. Para habilitar a geração de insights e hipóteses, adicione pelo menos uma chave de API no painel de configurações ou nas variáveis de ambiente.";
   }
 
-  const errors: string[] = [];
+  /*
+   * As falhas ficam estruturadas — serviço e erro cru, separados — em vez de já
+   * concatenadas em texto. A string pronta servia a um leitor só; guardando o
+   * par, o log continua recebendo o texto do provedor e a tela recebe a causa
+   * classificada, sem que nenhum dos dois tenha que desmontar a frase do outro.
+   */
+  const failures: { service: string; error: unknown }[] = [];
 
   let finalResult: string | null = null;
 
@@ -216,7 +222,7 @@ export async function generateWithFallback(
     if (finalResult) return cleanAiOutput(finalResult);
   } catch (error: any) {
     console.error("[Fallback] Gemini failed:", error);
-    errors.push(`Gemini: ${error.message || "Erro desconhecido"}`);
+    failures.push({ service: "Gemini", error });
     // Registrado no painel de logs com o diagnóstico e a correção: uma
     // chave morta na cadeia é invisível enquanto outro provedor cobre.
     await logExternalFailure({ service: "Gemini", operation, error });
@@ -228,7 +234,7 @@ export async function generateWithFallback(
     if (finalResult) return cleanAiOutput(finalResult);
   } catch (error: any) {
     console.error("[Fallback] Groq failed:", error);
-    errors.push(`Groq: ${error.message || "Erro desconhecido"}`);
+    failures.push({ service: "Groq", error });
     // Registrado no painel de logs com o diagnóstico e a correção: uma
     // chave morta na cadeia é invisível enquanto outro provedor cobre.
     await logExternalFailure({ service: "Groq", operation, error });
@@ -240,7 +246,7 @@ export async function generateWithFallback(
     if (finalResult) return cleanAiOutput(finalResult);
   } catch (error: any) {
     console.error("[Fallback] OpenRouter failed:", error);
-    errors.push(`OpenRouter: ${error.message || "Erro desconhecido"}`);
+    failures.push({ service: "OpenRouter", error });
     // Registrado no painel de logs com o diagnóstico e a correção: uma
     // chave morta na cadeia é invisível enquanto outro provedor cobre.
     await logExternalFailure({ service: "OpenRouter", operation, error });
@@ -252,7 +258,7 @@ export async function generateWithFallback(
     if (finalResult) return cleanAiOutput(finalResult);
   } catch (error: any) {
     console.error("[Fallback] OpenAI failed:", error);
-    errors.push(`OpenAI: ${error.message || "Erro desconhecido"}`);
+    failures.push({ service: "OpenAI", error });
     // Registrado no painel de logs com o diagnóstico e a correção: uma
     // chave morta na cadeia é invisível enquanto outro provedor cobre.
     await logExternalFailure({ service: "OpenAI", operation, error });
@@ -264,7 +270,7 @@ export async function generateWithFallback(
     if (finalResult) return cleanAiOutput(finalResult);
   } catch (error: any) {
     console.error("[Fallback] Anthropic failed:", error);
-    errors.push(`Anthropic: ${error.message || "Erro desconhecido"}`);
+    failures.push({ service: "Anthropic", error });
     // Registrado no painel de logs com o diagnóstico e a correção: uma
     // chave morta na cadeia é invisível enquanto outro provedor cobre.
     await logExternalFailure({ service: "Anthropic", operation, error });
@@ -276,7 +282,7 @@ export async function generateWithFallback(
     if (finalResult) return cleanAiOutput(finalResult);
   } catch (error: any) {
     console.error("[Fallback] Cohere failed:", error);
-    errors.push(`Cohere: ${error.message || "Erro desconhecido"}`);
+    failures.push({ service: "Cohere", error });
     // Registrado no painel de logs com o diagnóstico e a correção: uma
     // chave morta na cadeia é invisível enquanto outro provedor cobre.
     await logExternalFailure({ service: "Cohere", operation, error });
@@ -288,7 +294,7 @@ export async function generateWithFallback(
     if (finalResult) return cleanAiOutput(finalResult);
   } catch (error: any) {
     console.error("[Fallback] Hugging Face failed:", error);
-    errors.push(`HuggingFace: ${error.message || "Erro desconhecido"}`);
+    failures.push({ service: "HuggingFace", error });
     await logExternalFailure({ service: "HuggingFace", operation, error });
   }
 
@@ -301,11 +307,19 @@ export async function generateWithFallback(
   await logExternalFailure({
     service: "IA",
     operation: `${operation} — todos os provedores configurados falharam`,
-    error: new Error(errors.join(" | ")),
-    context: { provedoresTentados: errors.length },
+    error: new Error(
+      failures.map((f) => `${f.service}: ${(f.error as any)?.message || "Erro desconhecido"}`).join(" | ")
+    ),
+    context: { provedoresTentados: failures.length },
   });
 
-  throw new Error(`Nenhuma IA disponível. Detalhes: ${errors.join(" | ")}`);
+  /*
+   * O que sobe daqui é lido na tela por quem clicou. O texto cru dos provedores
+   * já foi registrado — duas vezes: uma por provedor, acima, e outra no log de
+   * fechamento logo acima desta linha. Repeti-lo na interface só entregava um
+   * parágrafo ilegível, e junto com ele um pedaço da chave da OpenAI.
+   */
+  throw new Error(friendlyFailureMessage(failures, "Nenhuma IA"));
 }
 
 function cleanAiOutput(text: string): string {

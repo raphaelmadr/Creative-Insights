@@ -4,10 +4,9 @@ import React, { useEffect, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import { Trash2, Send, History, Copy as CopyIcon, Check, ChevronsDownUp, ChevronsUpDown, ArchiveRestore, Archive } from "lucide-react";
 import Modal from "@/components/Modal";
-import CardLabelChip from "./CardLabelChip";
 import { Avatar } from "@/components/Avatar";
 import { type FieldDefinition, formatFieldValue } from "./FieldInput";
-import { type ColumnDefinition } from "./ColumnsDialog";
+import { type ColumnDefinition } from "./ColumnsSection";
 import VariationCard from "./VariationCard";
 import AttachmentGallery from "./AttachmentGallery";
 import CardLinkField from "./CardLinkField";
@@ -18,16 +17,22 @@ import {
   PRIORITIES,
   PRIORITY_LABEL,
   parseValues,
-  labelsForCard,
-  type CardLabel,
   parseAssignees,
   stageCandidates,
   ownershipOf,
   type GroupDefinition,
+  formatCardCode,
 } from "@/lib/kanban";
 
 export interface CardData {
   id: string;
+  /**
+   * O número da demanda — "MKT-42" depois de `formatCardCode`.
+   *
+   * Nulo só nas demandas abertas antes da coluna existir; a tela desenha o selo
+   * apenas quando há número, em vez de inventar um traço no lugar.
+   */
+  code: number | null;
   boardId: string;
   columnId: string;
   title: string;
@@ -73,7 +78,6 @@ export default function CardDialog({
   fields,
   columns,
   groups,
-  labels,
   people,
   onClose,
   onChanged,
@@ -92,8 +96,6 @@ export default function CardDialog({
    * erro de compilação, e o silêncio é mais caro.
    */
   groups: GroupDefinition[];
-  /** As etiquetas do quadro — as mesmas que o card mostra na etapa. */
-  labels: CardLabel[];
   people: PersonOption[];
   onClose: () => void;
   onChanged: () => void;
@@ -137,7 +139,6 @@ export default function CardDialog({
   if (!card) return null;
 
   const values = parseValues(card.values);
-  const etiquetas = labelsForCard(values, labels);
 
   /*
    * A copy do card, quebrada em variações. Vazio quando o texto não segue o
@@ -230,11 +231,16 @@ export default function CardDialog({
       open={!!card}
       onClose={onClose}
       title={card.title}
-      description={
+      // O número abre a linha porque é o que se copia para citar a demanda
+      // em outro lugar; a procedência vem depois dele.
+      description={[
+        formatCardCode(card.code),
         card.requesterName
           ? `Aberta por ${card.requesterName} em ${stamp(card.createdAt)}`
-          : `Aberta em ${stamp(card.createdAt)}`
-      }
+          : `Aberta em ${stamp(card.createdAt)}`,
+      ]
+        .filter(Boolean)
+        .join(" · ")}
       width="min(760px, 100%)"
       footer={
         <>
@@ -280,21 +286,6 @@ export default function CardDialog({
         </>
       }
     >
-      {/*
-        As mesmas etiquetas do quadro, e não uma segunda leitura do briefing.
-
-        Quem abre o card veio do quadro, onde acabou de ver "Vídeo"; encontrar
-        aqui outra coisa — ou nada — faria duvidar de qual das duas telas está
-        certa. Elas saem do mesmo cálculo, sobre os mesmos campos.
-      */}
-      {etiquetas.length > 0 && (
-        <div style={{ display: "flex", flexWrap: "wrap", gap: "0.25rem" }}>
-          {etiquetas.map((label) => (
-            <CardLabelChip key={label.id} label={label} />
-          ))}
-        </div>
-      )}
-
       {/* Etapa, prioridade e responsável: o que muda com mais frequência fica
           no topo, editável sem abrir outra tela. */}
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: "0.9rem" }}>

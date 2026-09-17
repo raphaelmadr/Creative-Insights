@@ -3,7 +3,7 @@
  * preenchidos pelo callback `session` em `lib/auth.ts`.
  */
 import "next-auth";
-import type { UserRole } from "@/lib/auth";
+import type { UserRole } from "@/lib/roles";
 
 declare module "next-auth" {
   interface Session {

@@ -19,9 +19,19 @@
 import prisma from "./prisma";
 import { runMetaSync } from "./meta-sync";
 import { runTikTokSync } from "./tiktok-sync";
-import { isSlackConfigured, runSlackSync } from "./slack-sync";
+import { classifyFailure, friendlyFailureMessage, logExternalFailure } from "./external-log";
 
-export type SourceId = "META" | "TIKTOK" | "SLACK";
+/*
+ * O Slack saiu daqui.
+ *
+ * As entregas eram lidas de mensagens num canal — alguém anunciava "entreguei 8
+ * peças" e a sincronização contava. Passaram a ser medidas no Kanban, quando o
+ * card chega à coluna de conclusão: o trabalho já é organizado ali, e medir no
+ * quadro não depende de ninguém lembrar de avisar. Ver `lib/kanban-deliveries.ts`.
+ *
+ * As credenciais do Slack continuam em Configurações, sem uso nesta rota.
+ */
+export type SourceId = "META" | "TIKTOK";
 
 export interface SourceRunResult {
   /** A fonte parou no teto de tempo e tem mais a fazer na próxima execução. */
@@ -42,6 +52,14 @@ type SettingsRow = Awaited<ReturnType<typeof prisma.systemSettings.findUnique>>;
 interface SourceDefinition {
   id: SourceId;
   label: string;
+  /**
+   * O nome pelo qual `lib/external-log.ts` conhece o serviço.
+   *
+   * Separado de `label` de propósito: a tela chama de "Entregas" o que o
+   * provedor chama de "Slack", e é o nome do provedor que sabe apontar o campo
+   * e a tela onde a credencial se conserta.
+   */
+  service: string;
   /** Uma fonte só entra na execução quando tem credenciais utilizáveis. */
   isConfigured(settings: SettingsRow): boolean;
   run(onProgress: (message: string, percentage: number) => void): Promise<SourceRunResult>;
@@ -50,6 +68,7 @@ interface SourceDefinition {
 export const SOURCES: SourceDefinition[] = [
   {
     id: "META",
+    service: "Meta Ads",
     label: "Meta",
     isConfigured: (settings) => !!settings?.metaAdAccountId && !!settings?.metaAccessToken,
     run: async (onProgress) => {
@@ -84,6 +103,7 @@ export const SOURCES: SourceDefinition[] = [
   },
   {
     id: "TIKTOK",
+    service: "TikTok Ads",
     label: "TikTok",
     isConfigured: (settings) => !!settings?.tiktokAdvertiserId && !!settings?.tiktokAccessToken,
     run: async (onProgress) => {
@@ -91,21 +111,6 @@ export const SOURCES: SourceDefinition[] = [
       return {
         reachedLimit: result.reachedLimit,
         summary: `${result.syncedAds} criativos / ${result.syncedMetrics} métricas`,
-      };
-    },
-  },
-  {
-    id: "SLACK",
-    label: "Entregas",
-    isConfigured: (settings) => isSlackConfigured(settings),
-    run: async (onProgress) => {
-      const result = await runSlackSync({}, onProgress);
-      return {
-        reachedLimit: false,
-        summary:
-          result.newDeliveries === 0 && result.updatedDeliveries === 0
-            ? "nenhuma nova"
-            : `${result.newDeliveries} novas / ${result.updatedDeliveries} atualizadas`,
       };
     },
   },
@@ -174,16 +179,33 @@ export async function runSync(
     } catch (error: any) {
       // Uma fonte que falha não pode derrubar as demais — nem passar despercebida.
       console.error(`[Sync] Fonte ${source.label} falhou:`, error);
+
+      /*
+       * O log fica com o texto cru do provedor; o toast, com a causa traduzida.
+       *
+       * A mensagem da Meta para um token vencido é um parágrafo com código,
+       * subcódigo e `fbtrace_id` — informação para quem vai corrigir, não para
+       * quem está olhando a barra de progresso. As fontes já registram as falhas
+       * das próprias chamadas, mas nem todo caminho que lança até aqui passou
+       * por um desses registros: sem esta linha, a mensagem de tela mandaria
+       * procurar nos logs um detalhe que poderia não estar lá.
+       */
+      await logExternalFailure({
+        service: source.service,
+        operation: `sincronizar ${source.label}`,
+        error,
+      });
+
       outcomes.push({
         id: source.id,
         label: source.label,
         ok: false,
-        error: error?.message || "Erro desconhecido",
+        error: friendlyFailureMessage([{ service: source.service, error }]),
         reachedLimit: false,
         summary: "falhou",
       });
       onProgress?.(
-        `[${source.label}] Falhou: ${error?.message || "erro desconhecido"}`,
+        `[${source.label}] Falhou — ${classifyFailure(error).meaning}.`,
         Math.round(base + slice),
         source.id
       );

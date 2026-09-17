@@ -2,10 +2,8 @@
 
 import React, { useState } from "react";
 import { Clock, Link2, Paperclip } from "lucide-react";
-import Modal from "@/components/Modal";
-import CardLabelChip from "./CardLabelChip";
 import { type FieldDefinition } from "./FieldInput";
-import { useRascunho } from "./useRascunho";
+import { useRascunho, type SecaoHandle } from "./useRascunho";
 import {
   CARD_BADGES,
   PRIORITY_COLOR,
@@ -29,22 +27,33 @@ import {
  * motivo que aquelas duas: quem decide o que precisa ver no quadro é quem olha
  * o quadro todo dia, não quem administra a plataforma.
  */
-export default function BadgesDialog({
-  open,
-  onClose,
-  boardId,
-  badges,
-  fields,
-  onChanged,
-}: {
-  open: boolean;
-  onClose: () => void;
-  boardId: string;
-  badges: CardBadgeKey[];
-  /** Os campos do formulário — cada um com o seu próprio `showOnCard`. */
-  fields: FieldDefinition[];
-  onChanged: () => void;
-}) {
+const CardFaceSection = React.forwardRef<
+  SecaoHandle,
+  {
+    open: boolean;
+    boardId: string;
+    badges: CardBadgeKey[];
+    /** Os campos do formulário — cada um com o seu próprio `showOnCard`. */
+    fields: FieldDefinition[];
+    onChanged: () => void;
+    /**
+     * Avisa o diálogo que contém esta seção que há (ou deixou de haver) algo a
+     * salvar. O `ref` entrega o `salvar`, mas não serve para isto: mudar uma
+     * ref não renderiza ninguém, e o botão de Salvar do pai ficaria eternamente
+     * desabilitado enquanto o rascunho daqui já tinha mudado.
+     */
+    onSujo?: (sujo: boolean) => void;
+    /**
+     * O rascunho corrente, para quem quiser desenhá-lo.
+     *
+     * É o que faz a prévia reagir ao interruptor antes de qualquer gravação:
+     * sem isto ela mostraria o estado do servidor, e ligar um selo não mudaria
+     * nada na tela até alguém salvar — que é justamente a dúvida que a prévia
+     * existe para tirar.
+     */
+    onDraft?: (d: { badges: CardBadgeKey[]; campos: FieldDefinition[] }) => void;
+  }
+>(function CardFaceSection({ open, boardId, badges, fields, onChanged, onSujo, onDraft }, ref) {
   const { draft, setDraft, sujo, adotar } = useRascunho(open, { badges, campos: fields });
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -115,15 +124,24 @@ export default function BadgesDialog({
     }
   };
 
-  /** Fechar com alteração pendente avisa — é o que o clique fora da janela faz. */
-  const fechar = () => {
-    if (sujo && !confirm("Há alterações não salvas na exibição do card. Fechar e perdê-las?")) return;
-    onClose();
-  };
 
   /** O badge como ele sai no card — a prévia usa a mesma pílula, não uma imitação. */
   const preview = (key: CardBadgeKey) => {
     switch (key) {
+      case "code":
+        return (
+          <span
+            style={{
+              fontSize: "var(--text-eyebrow)",
+              fontWeight: 700,
+              letterSpacing: "0.04em",
+              color: "var(--muted)",
+              fontVariantNumeric: "tabular-nums",
+            }}
+          >
+            MKT-42
+          </span>
+        );
       case "priority":
         return (
           <span
@@ -162,12 +180,6 @@ export default function BadgesDialog({
             />
             Em produção
           </span>
-        );
-      case "labels":
-        return (
-          <CardLabelChip
-            label={{ id: "x", name: "Vídeo", color: "var(--info)", fieldKey: "formato", match: ["video"] }}
-          />
         );
       case "briefing":
         return (
@@ -252,31 +264,30 @@ export default function BadgesDialog({
     </div>
   );
 
+  /*
+   * O handle aponta para a versão MAIS RECENTE de `salvar`, sem se recriar por
+   * causa dela.
+   *
+   * `salvar` é redefinida a cada renderização e fecha sobre o rascunho daquele
+   * instante. Colocá-la nas dependências recriava o handle a cada tecla digitada
+   * numa etapa; tirá-la sem o ref congelaria a função na primeira renderização,
+   * e o Salvar do diálogo gravaria o rascunho de quando a janela abriu.
+   */
+  const salvarRef = React.useRef(salvar);
+  salvarRef.current = salvar;
+
+  React.useImperativeHandle(ref, () => ({ sujo, salvar: () => salvarRef.current() }), [sujo]);
+
+  React.useEffect(() => {
+    onSujo?.(sujo);
+  }, [sujo, onSujo]);
+
+  React.useEffect(() => {
+    onDraft?.({ badges: draft.badges, campos: draft.campos });
+  }, [draft, onDraft]);
+
   return (
-    <Modal
-      open={open}
-      onClose={fechar}
-      title="O que o card mostra"
-      description="Tudo o que pode aparecer na frente do card, sem precisar abri-lo — o que o card já traz e o que a demanda respondeu."
-      footer={
-        <>
-          <button type="button" className="btn btn-secondary" onClick={fechar} disabled={busy}>
-            {sujo ? "Cancelar" : "Fechar"}
-          </button>
-          <button
-            type="button"
-            className="btn btn-primary"
-            onClick={async () => {
-              if (await salvar()) onClose();
-            }}
-            disabled={busy || !sujo}
-            title={sujo ? "Gravar as alterações" : "Nada alterado"}
-          >
-            {busy ? "Salvando…" : "Salvar alterações"}
-          </button>
-        </>
-      }
-    >
+    <>
       <span className="field-label">Do card</span>
 
       {CARD_BADGES.map((badge) =>
@@ -320,19 +331,16 @@ export default function BadgesDialog({
         </span>
       )}
 
-      <span className="field-hint">
-        As etiquetas coloridas — Vídeo, Feed, Stories — são configuradas em{" "}
-        <strong>Etiquetas</strong>; aqui só se decide se elas aparecem.
-      </span>
-
       {error && (
         <span className="field-hint" role="alert" style={{ color: "var(--danger)" }}>
           {error}
         </span>
       )}
-    </Modal>
+    </>
   );
-}
+});
+
+export default CardFaceSection;
 
 /** Uma resposta plausível do campo, para a prévia não ser um retângulo vazio. */
 function exemploDoCampo(field: FieldDefinition): string {
@@ -353,6 +361,42 @@ function exemploDoCampo(field: FieldDefinition): string {
   if (primeira) return primeira;
   if (field.type === "DATE") return "30/09/2026";
   if (field.type === "URL") return "drive.google.com/…";
-  if (field.type === "NUMBER") return "12";
+  if (field.type === "NUMBER" || field.type === "RANGE") return "12";
   return field.placeholder || "texto respondido";
+}
+
+/**
+ * Um conjunto de respostas plausível para os campos do quadro.
+ *
+ * A prévia precisa de VALORES, não de rótulos: o card formata data, número e
+ * escolha múltipla de jeitos diferentes, e um card de exemplo com tudo em texto
+ * mostraria uma formatação que o card de verdade nunca produz.
+ */
+export function exemploDeRespostas(fields: FieldDefinition[]): Record<string, unknown> {
+  const respostas: Record<string, unknown> = {};
+
+  for (const field of fields) {
+    switch (field.type) {
+      case "DATE":
+        respostas[field.key] = "2026-09-30";
+        break;
+      case "NUMBER":
+      case "RANGE":
+        respostas[field.key] = 12;
+        break;
+      case "CHECKBOX":
+        respostas[field.key] = true;
+        break;
+      case "URL":
+        respostas[field.key] = "https://drive.google.com/drive/folders/exemplo";
+        break;
+      case "MULTISELECT":
+        respostas[field.key] = [exemploDoCampo(field)];
+        break;
+      default:
+        respostas[field.key] = exemploDoCampo(field);
+    }
+  }
+
+  return respostas;
 }

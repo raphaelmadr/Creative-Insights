@@ -8,6 +8,8 @@
  */
 
 import { NextAuthOptions, getServerSession } from "next-auth";
+import { ALLOWED_EMAIL_DOMAIN } from "./corporate-email";
+import { hasCreatorAccess, isAdminRole, type UserRole } from "./roles";
 import GoogleProvider from "next-auth/providers/google";
 import CredentialsProvider from "next-auth/providers/credentials";
 import { PrismaAdapter } from "@next-auth/prisma-adapter";
@@ -15,7 +17,14 @@ import prisma from "@/lib/prisma";
 import { ensureAuthUrlEnv } from "@/lib/auth-url";
 import { DEV_USER_EMAIL } from "@/lib/dev-user";
 
-export type UserRole = "ADMIN" | "MEMBER";
+/*
+ * O vocabulário dos papéis mora em `lib/roles.ts`, que é um módulo puro.
+ * Reexportado aqui porque este continua sendo o endereço que as rotas conhecem
+ * — e porque um componente de cliente não pode importar deste arquivo, que
+ * carrega Prisma e NextAuth junto.
+ */
+export { isAdminRole, hasCreatorAccess };
+export type { UserRole };
 
 export interface CurrentUser {
   id: string;
@@ -23,13 +32,6 @@ export interface CurrentUser {
   email: string;
   image: string | null;
   role: UserRole;
-}
-
-/** Só e-mails da empresa entram — a regra já valia e continua valendo. */
-const ALLOWED_EMAIL_DOMAIN = "@allugator.com";
-
-export function isAdminRole(role: string | null | undefined): boolean {
-  return role === "ADMIN";
 }
 
 export async function getAuthOptions(): Promise<NextAuthOptions> {
@@ -152,6 +154,21 @@ export async function getCurrentUser(): Promise<CurrentUser | null> {
 export async function getCurrentAdmin(): Promise<CurrentUser | null> {
   const user = await getCurrentUser();
   return user && isAdminRole(user.role) ? user : null;
+}
+
+/**
+ * A pessoa autenticada, desde que alcance o modo Creator — o board e a copy.
+ *
+ * Existe pela mesma razão de `getCurrentAdmin`: a rota não deve conhecer quais
+ * papéis passam, só perguntar se este passa. No dia em que houver um quarto
+ * papel, nenhuma rota muda.
+ *
+ * Não cobre a ABERTURA de demanda, que é de qualquer pessoa autenticada e mora
+ * em `/api/demanda` — ver `lib/demanda-intake.ts`.
+ */
+export async function getCurrentCreator(): Promise<CurrentUser | null> {
+  const user = await getCurrentUser();
+  return user && hasCreatorAccess(user.role) ? user : null;
 }
 
 /**

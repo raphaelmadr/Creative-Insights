@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { friendlyFailureMessage } from "@/lib/external-log";
 import prisma from "@/lib/prisma";
 import { loadAliasIndex, resolveDesigner } from "@/lib/designer-match";
 
@@ -182,6 +183,9 @@ export async function GET() {
 
   } catch (err: any) {
     console.error("Meta API Error:", err);
-    return NextResponse.json({ error: err.message }, { status: 500 });
+    return NextResponse.json(
+      { error: friendlyFailureMessage([{ service: "Meta Ads", error: err }]) },
+      { status: 500 }
+    );
   }
 }

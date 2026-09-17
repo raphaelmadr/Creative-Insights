@@ -2,9 +2,8 @@
 
 import React, { useState } from "react";
 import { Plus, Trash2 } from "lucide-react";
-import Modal from "@/components/Modal";
 import {  type GroupDefinition } from "@/lib/kanban";
-import { useRascunho } from "./useRascunho";
+import { useRascunho, type SecaoHandle } from "./useRascunho";
 
 export interface ColumnDefinition {
   id: string;
@@ -15,7 +14,7 @@ export interface ColumnDefinition {
   /** A partir daqui o card precisa de dono. */
   /** JSON de siglas de quem responde por esta etapa. Ver `parseAssignees`. */
   /** Quem assume quando o card chega aqui. */
-  /** A fase a que esta etapa pertence, ou nulo. */
+  /** O grupo a que esta etapa pertence, ou nulo. */
   groupId: string | null;
   isIntake: boolean;
   isDone: boolean;
@@ -42,22 +41,24 @@ const COLORS = [
   { token: "var(--danger)", label: "Vermelho" },
 ];
 
-export default function ColumnsDialog({
-  open,
-  onClose,
-  boardId,
-  columns,
-  groups = [],
-  onChanged,
-}: {
-  open: boolean;
-  onClose: () => void;
-  boardId: string;
-  columns: ColumnDefinition[];
-  /** As fases do quadro, para dizer a que bloco cada etapa pertence. */
-  groups?: GroupDefinition[];
-  onChanged: () => void;
-}) {
+const ColumnsSection = React.forwardRef<
+  SecaoHandle,
+  {
+    open: boolean;
+    boardId: string;
+    columns: ColumnDefinition[];
+    /** Os grupos do quadro, para dizer a que faixa cada etapa pertence. */
+    groups?: GroupDefinition[];
+    onChanged: () => void;
+    /**
+     * Avisa o diálogo que contém esta seção que há (ou deixou de haver) algo a
+     * salvar. O `ref` entrega o `salvar`, mas não serve para isto: mudar uma
+     * ref não renderiza ninguém, e o botão de Salvar do pai ficaria eternamente
+     * desabilitado enquanto o rascunho daqui já tinha mudado.
+     */
+    onSujo?: (sujo: boolean) => void;
+  }
+>(function ColumnsSection({ open, boardId, columns, groups = [], onChanged, onSujo }, ref) {
   const { draft, setDraft, sujo, adotar } = useRascunho(open, columns);
   const [newName, setNewName] = useState("");
   const [busy, setBusy] = useState(false);
@@ -173,37 +174,26 @@ export default function ColumnsDialog({
     }
   };
 
-  /** Fechar com alteração pendente avisa — é o que o clique fora da janela faz. */
-  const fechar = () => {
-    if (sujo && !confirm("Há alterações não salvas nas etapas. Fechar e perdê-las?")) return;
-    onClose();
-  };
+  /*
+   * O handle aponta para a versão MAIS RECENTE de `salvar`, sem se recriar por
+   * causa dela.
+   *
+   * `salvar` é redefinida a cada renderização e fecha sobre o rascunho daquele
+   * instante. Colocá-la nas dependências recriava o handle a cada tecla digitada
+   * numa etapa; tirá-la sem o ref congelaria a função na primeira renderização,
+   * e o Salvar do diálogo gravaria o rascunho de quando a janela abriu.
+   */
+  const salvarRef = React.useRef(salvar);
+  salvarRef.current = salvar;
+
+  React.useImperativeHandle(ref, () => ({ sujo, salvar: () => salvarRef.current() }), [sujo]);
+
+  React.useEffect(() => {
+    onSujo?.(sujo);
+  }, [sujo, onSujo]);
 
   return (
-    <Modal
-      open={open}
-      onClose={fechar}
-      title="Etapas do quadro"
-      description="As colunas por onde a demanda passa, na ordem."
-      footer={
-        <>
-          <button type="button" className="btn btn-secondary" onClick={fechar} disabled={busy}>
-            {sujo ? "Cancelar" : "Fechar"}
-          </button>
-          <button
-            type="button"
-            className="btn btn-primary"
-            onClick={async () => {
-              if (await salvar()) onClose();
-            }}
-            disabled={busy || !sujo}
-            title={sujo ? "Gravar as alterações" : "Nada alterado"}
-          >
-            {busy ? "Salvando…" : "Salvar alterações"}
-          </button>
-        </>
-      }
-    >
+    <>
       {draft.map((column) => {
 
         return (
@@ -289,42 +279,53 @@ export default function ColumnsDialog({
           </div>
 
           {/*
-            A fase a que a etapa pertence.
+            O grupo a que a etapa pertence.
 
-            A etapa vai para junto das irmãs de fase ao ser marcada — a faixa
+            Chamava-se "Fase" só aqui, enquanto o botão da barra, o diálogo e o
+            próprio modelo já diziam "Grupo" — quem procurasse onde mexer nas
+            fases não achava, e quem achava não sabia que era a mesma coisa.
+
+            A etapa vai para junto das irmãs de grupo ao ser marcada — a faixa
             precisa de colunas vizinhas para existir, e ninguém deveria ter de
             reordenar o quadro à mão para consegui-la. Ver `groupColumns`.
           */}
           {groups.length > 0 && (
             <div className="field">
-              <label className="field-label" htmlFor={`fase-${column.id}`}>
-                Fase
+              <label className="field-label" htmlFor={`grupo-${column.id}`}>
+                Grupo
               </label>
               <select
-                id={`fase-${column.id}`}
+                id={`grupo-${column.id}`}
                 className="field-input"
                 value={column.groupId ?? ""}
-                // A cor da fase escolhida na própria caixa: sem ela, só se
+                // A cor do grupo escolhido na própria caixa: sem ela, só se
                 // descobre qual faixa é depois de fechar o diálogo.
                 style={{ borderColor: groups.find((g) => g.id === column.groupId)?.color }}
                 onChange={(e) => mexer(column.id, { groupId: e.target.value || null })}
               >
-                <option value="">Sem fase</option>
+                <option value="">Sem grupo</option>
                 {groups.map((g) => (
                   <option key={g.id} value={g.id}>
                     {g.name}
                   </option>
                 ))}
               </select>
+              <span className="field-hint">
+                O grupo é a faixa que aparece sobre as etapas no quadro — Criação, Growth,
+                Mídia — e é quem carrega a EQUIPE: quando uma demanda entra numa etapa
+                deste grupo, ela chega para as pessoas responsáveis por ele. Etapas do
+                mesmo grupo ficam lado a lado, e marcar aqui já move esta para junto das
+                outras. Sem grupo, a etapa fica solta, sem faixa e sem time.
+              </span>
             </div>
           )}
 
           {/*
-            A equipe NÃO se define aqui — ela mora na fase, em "Fases".
+            A equipe NÃO se define aqui — ela mora no grupo, em "Grupos".
 
-            A fase é o time: "Produção" nomeia um conjunto de pessoas tanto
+            O grupo é o time: "Produção" nomeia um conjunto de pessoas tanto
             quanto um trecho do fluxo, e repetir a mesma equipe em cada etapa
-            dela era descrever três vezes o mesmo fato — e garantir que um dia
+            dele era descrever três vezes o mesmo fato — e garantir que um dia
             as três divergissem. Ver `ownershipOf` em `lib/kanban.ts`.
           */}
 
@@ -396,17 +397,13 @@ export default function ColumnsDialog({
         </div>
       </div>
 
-      {sujo && (
-        <span className="field-hint">
-          Há alterações não salvas. Elas só vão ao quadro no <strong>Salvar alterações</strong>.
-        </span>
-      )}
-
       {error && (
         <span className="field-hint" role="alert" style={{ color: "var(--danger)" }}>
           {error}
         </span>
       )}
-    </Modal>
+    </>
   );
-}
+});
+
+export default ColumnsSection;

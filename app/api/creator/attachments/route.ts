@@ -14,7 +14,8 @@
 
 import { NextResponse } from "next/server";
 import prisma from "@/lib/prisma";
-import { getCurrentUser } from "@/lib/auth";
+import { getCurrentCreator } from "@/lib/auth";
+import { CREATOR_ONLY_ERROR } from "@/lib/roles";
 import { resolveStorageConfig, isStorageConfigured, uploadToStorage } from "@/lib/media-upload";
 import {
   ATTACHMENT_MAX_BYTES,
@@ -26,8 +27,8 @@ import {
 } from "@/lib/attachments";
 
 export async function POST(request: Request) {
-  const user = await getCurrentUser();
-  if (!user) return NextResponse.json({ error: "Não autenticado." }, { status: 401 });
+  const user = await getCurrentCreator();
+  if (!user) return NextResponse.json({ error: CREATOR_ONLY_ERROR }, { status: 403 });
 
   try {
     const settings = await prisma.systemSettings.findUnique({ where: { id: 1 } });

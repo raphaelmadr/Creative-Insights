@@ -29,6 +29,22 @@ export async function POST(req: NextRequest) {
 }
 
 export async function GET(req: NextRequest) {
+  /*
+   * Leitura restrita a administradores, como a limpeza logo abaixo.
+   *
+   * Ficou aberta a qualquer pessoa autenticada por descuido: só a DELETE tinha
+   * guarda. E é a LEITURA que expõe — os registros trazem a mensagem crua dos
+   * provedores de IA e das APIs de anúncio, que vêm com fragmentos de chave,
+   * identificadores de conta e o motivo da recusa. Quem só abre demanda não tem
+   * nada a ver com isso.
+   *
+   * A única tela que consome esta rota é `configuracoes/logs`, que já é do
+   * painel restrito — ninguém perde nada que usasse.
+   */
+  if (!(await getCurrentAdmin())) {
+    return NextResponse.json({ error: "Acesso restrito." }, { status: 403 });
+  }
+
   try {
     const logs = await prisma.systemLog.findMany({
       orderBy: { createdAt: 'desc' },

@@ -10,19 +10,15 @@ import AnimatedNumber from "@/components/AnimatedNumber";
 import { useNotifications } from "@/components/NotificationProvider";
 import { Sparkles, Loader2, Calendar, ChevronDown, Users, Globe } from "lucide-react";
 import { useUserPreferences } from "@/components/UserPreferencesProvider";
+// A definição de "hoje" mora em um lugar só — ver o comentário em DateRangePicker.
+import { todayUtcDay } from "@/lib/calendar";
 
 function toDateInputValue(date: Date): string {
   return date.toISOString().split("T")[0];
 }
 
-function todayUTC(): Date {
-  const now = new Date();
-  const spTime = new Date(now.toLocaleString("en-US", { timeZone: "America/Sao_Paulo" }));
-  return new Date(Date.UTC(spTime.getFullYear(), spTime.getMonth(), spTime.getDate()));
-}
-
 function daysAgoUTC(days: number): Date {
-  const d = todayUTC();
+  const d = todayUtcDay();
   d.setUTCDate(d.getUTCDate() - days);
   return d;
 }
@@ -69,11 +65,11 @@ export default function Home() {
   const [currentGoal, setCurrentGoal] = useState({ spendGoal: 0, revenueGoal: 0, cpaGoal: 0 });
 
   const [dateFrom, setDateFrom] = useState<string>(() => {
-    const today = todayUTC();
+    const today = todayUtcDay();
     const firstDay = new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), 1));
     return toDateInputValue(firstDay);
   });
-  const [dateTo, setDateTo] = useState<string>(() => toDateInputValue(todayUTC()));
+  const [dateTo, setDateTo] = useState<string>(() => toDateInputValue(todayUtcDay()));
 
   const [statusFilter, setStatusFilter] = useState("ALL");
   const [channelFilter, setChannelFilter] = useState("ALL");

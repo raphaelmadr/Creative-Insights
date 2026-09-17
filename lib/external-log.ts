@@ -54,6 +54,7 @@ export type FailureCause =
   | "permission"
   | "quota"
   | "rate-limit"
+  | "request-too-large"
   | "not-found"
   | "provider-down"
   | "network"
@@ -94,6 +95,13 @@ const DIAGNOSES: Record<FailureCause, Diagnosis> = {
     meaning: "a cota da conta acabou",
     fix: (service) =>
       `Revise o plano e o faturamento de ${service} no painel do provedor, ou remova a chave em ${screenOf(service)} para o sistema parar de tentar por ela e passar direto ao próximo provedor.`,
+    transient: false,
+  },
+  "request-too-large": {
+    cause: "request-too-large",
+    meaning: "o pedido excede o limite por requisição do plano e é recusado antes de rodar",
+    fix: (service) =>
+      `Não adianta esperar: ${service} recusa este tamanho de pedido em toda tentativa. Reduza \`AI_MAX_TOKENS\` em \`lib/ai.ts\`, suba o plano do provedor, ou remova a chave em ${screenOf(service)} para a cadeia passar direto ao próximo.`,
     transient: false,
   },
   "rate-limit": {
@@ -196,6 +204,22 @@ export function classifyFailure(error: unknown): Diagnosis {
   if (typeof metaCode === "number" && metaCode >= 80000 && metaCode <= 80004) return DIAGNOSES["rate-limit"];
   if (metaCode === 200 || metaCode === 10) return DIAGNOSES.permission;
 
+  /*
+   * Primeiro de todos, e por um motivo que custou um teste para aparecer.
+   *
+   * Os dois voltam 429, mas este não passa com o tempo: o Groq recusa por
+   * "output tokens per minute" quando o teto de saída pedido (`AI_MAX_TOKENS`)
+   * é maior que o limite do plano, e toda chamada morre igual. Tratá-lo como
+   * passageiro mandava tentar de novo indefinidamente.
+   *
+   * E tem que vir antes de `quota`, não só antes de `rate-limit`: a mensagem do
+   * Groq termina em "Upgrade to Dev Tier today at .../settings/billing", e a
+   * palavra `billing` nesse link fazia a regra de cota vencer a corrida.
+   */
+  if (/request too large|reduce max_tokens|expected output tokens exceed/.test(message)) {
+    return DIAGNOSES["request-too-large"];
+  }
+
   if (/expired|expirou|expirado|token has expired/.test(message)) return DIAGNOSES["credential-expired"];
   if (/quota|billing|insufficient_quota|exceeded your current quota|plano/.test(message)) return DIAGNOSES.quota;
   if (/rate ?limit|too many requests|slow down/.test(message)) return DIAGNOSES["rate-limit"];
@@ -212,6 +236,68 @@ export function classifyFailure(error: unknown): Diagnosis {
   if (status !== null && status >= 500) return DIAGNOSES["provider-down"];
 
   return DIAGNOSES.unknown;
+}
+
+/** Onde a mensagem de tela manda procurar o detalhe que ela omite. */
+const ONDE_ESTA_O_DETALHE = "Os detalhes técnicos estão em Configurações › Logs.";
+
+/**
+ * A mesma falha, dita para quem clicou no botão.
+ *
+ * O log e a tela têm leitores diferentes. O log é para quem vai corrigir, e por
+ * isso carrega a mensagem crua do provedor. A tela é para quem só precisa saber
+ * se tenta de novo ou se chama alguém — e recebia, no lugar disso, os quatro
+ * erros concatenados: código de status, nome de modelo, limite de tokens por
+ * minuto, link de upgrade. E, no caso da OpenAI, **um pedaço da própria chave de
+ * API**, que a mensagem de erro deles inclui e que não tem por que aparecer na
+ * interface.
+ *
+ * Aqui não entra nada cru. Só a causa já traduzida por `classifyFailure`, o que
+ * fazer, e onde ler o resto. Nenhuma informação se perde: ela continua inteira
+ * no painel de logs, que é onde serve para alguma coisa.
+ */
+export function friendlyFailureMessage(
+  failures: { service: string; error: unknown }[],
+  subject = "Nenhum provedor"
+): string {
+  if (failures.length === 0) {
+    return `${subject} respondeu. Tente de novo em alguns minutos. ${ONDE_ESTA_O_DETALHE}`;
+  }
+
+  const diagnoses = failures.map((failure) => ({
+    service: failure.service,
+    diagnosis: classifyFailure(failure.error),
+  }));
+
+  // Uma falha só: dá para nomear o serviço e a causa sem virar parágrafo.
+  if (diagnoses.length === 1) {
+    const [only] = diagnoses;
+    const acao = only.diagnosis.transient
+      ? "Tente de novo em alguns minutos."
+      : `Revise a configuração em ${screenOf(only.service)}.`;
+    return `${only.service} não respondeu: ${only.diagnosis.meaning}. ${acao} ${ONDE_ESTA_O_DETALHE}`;
+  }
+
+  const pedemAcao = diagnoses.filter((item) => !item.diagnosis.transient);
+
+  if (pedemAcao.length === 0) {
+    return `${subject} respondeu: todos estão congestionados ou instáveis neste momento. Tente de novo em alguns minutos. ${ONDE_ESTA_O_DETALHE}`;
+  }
+
+  /*
+   * A tela de correção só é nomeada quando é UMA. Com provedores de telas
+   * diferentes na mesma queda, apontar a primeira mandaria a pessoa ao lugar
+   * errado — e a lista das telas já seria o parágrafo que estamos evitando.
+   */
+  const telas = new Set(pedemAcao.map((item) => CREDENTIALS[item.service]?.screen).filter(Boolean));
+  const onde = telas.size === 1 ? ` em ${[...telas][0]}` : "";
+
+  const quantos = pedemAcao.length;
+  const sujeito = quantos > 1 ? `${quantos} provedores precisam` : "1 provedor precisa";
+  const resto =
+    quantos < diagnoses.length ? "; os demais estão temporariamente indisponíveis" : "";
+
+  return `${subject} respondeu: ${sujeito} de atenção na configuração${onde}${resto}. ${ONDE_ESTA_O_DETALHE}`;
 }
 
 export interface ExternalFailure {

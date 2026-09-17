@@ -9,7 +9,8 @@
 
 import { NextResponse } from "next/server";
 import prisma from "@/lib/prisma";
-import { getCurrentUser } from "@/lib/auth";
+import { getCurrentCreator } from "@/lib/auth";
+import { CREATOR_ONLY_ERROR } from "@/lib/roles";
 import { isAiConfigured } from "@/lib/ai";
 import {
   generateCopy,
@@ -18,7 +19,9 @@ import {
   type CopyBrief,
 } from "@/lib/creator-copy";
 import { copyTargetBoard, groupIntake, topPosition, logActivity } from "@/lib/kanban-store";
-import { isPriority, matchOption, optionsFor, parseDueDate, serializeAssignees } from "@/lib/kanban";
+import { isPriority, matchOption, optionsFor, parseDueDate, serializeAssignees,
+  criarCardComCodigo,
+} from "@/lib/kanban";
 import {
   buildCopyCardTitle,
   clampVariations,
@@ -37,8 +40,8 @@ import { findMetaAudience } from "@/lib/meta-audiences";
 
 /** Onde a copy vai cair, para a tela poder dizer isso antes de gerar. */
 export async function GET() {
-  const user = await getCurrentUser();
-  if (!user) return NextResponse.json({ error: "Não autenticado." }, { status: 401 });
+  const user = await getCurrentCreator();
+  if (!user) return NextResponse.json({ error: CREATOR_ONLY_ERROR }, { status: 403 });
 
   try {
     const target = await copyTargetBoard();
@@ -159,8 +162,8 @@ async function buildBrief(body: any): Promise<CopyBrief> {
 }
 
 export async function POST(request: Request) {
-  const user = await getCurrentUser();
-  if (!user) return NextResponse.json({ error: "Não autenticado." }, { status: 401 });
+  const user = await getCurrentCreator();
+  if (!user) return NextResponse.json({ error: CREATOR_ONLY_ERROR }, { status: 403 });
 
   try {
     const body = await request.json();
@@ -372,6 +375,18 @@ export async function POST(request: Request) {
       }
     }
 
+    /*
+     * A volumetria vai junto — é o número que o gerador já sabe.
+     *
+     * O campo de peças do quadro é o que conta a entrega quando o card chega à
+     * coluna de conclusão (ver `lib/kanban-deliveries.ts`). Sem preencher aqui,
+     * uma demanda de doze copys entraria no ranking valendo UMA peça, e o
+     * gerador — que é justamente quem sabe o número — ficaria de fora da conta.
+     */
+    const campoPecas =
+      camposDoQuadro.find((f) => f.type === "RANGE" || f.type === "NUMBER") ?? null;
+    if (campoPecas) respostas[campoPecas.key] = pecas;
+
     const destino = await groupIntake(target.board.id, { groupId: body.groupId });
     if (!destino) {
       return NextResponse.json(
@@ -380,29 +395,33 @@ export async function POST(request: Request) {
       );
     }
 
-    const card = await prisma.boardCard.create({
-      data: {
-        boardId: target.board.id,
-        columnId: destino.columnId,
-        assignees: serializeAssignees(destino.assignees),
-        // Espelho do primeiro, enquanto a versão publicada ainda lê este campo.
-        assigneeEmail: destino.assignees[0] ?? null,
-        title:
+    const card = await criarCardComCodigo(prisma, async (code) =>
+      prisma.boardCard.create({
+        data: {
+          // O número que a equipe usa para falar da demanda. Ver
+          // `criarCardComCodigo` — ele é quem resolve a corrida por MAX+1.
+          code,
+          boardId: target.board.id,
+          columnId: destino.columnId,
+          assignees: serializeAssignees(destino.assignees),
+          // Espelho do primeiro, enquanto a versão publicada ainda lê este campo.
+          assigneeEmail: destino.assignees[0] ?? null,
+          title:
           String(body.title ?? "").trim().slice(0, 180) ||
           buildCopyCardTitle({
             formatId: brief.formatId,
             productName: briefProductName(brief),
             variations: pecas,
           }),
-        /*
-         * O briefing vira a descrição do card, e não só a copy.
-         *
-         * Quem recebe a demanda precisa saber para quem e para quê o texto foi
-         * escrito — sem isso, adaptar a copy à peça é adivinhação. O preço entra
-         * aqui também: é o número que a arte vai estampar, e ele não pode
-         * depender de alguém voltar ao site para conferir.
-         */
-        description: [
+          /*
+           * O briefing vira a descrição do card, e não só a copy.
+           *
+           * Quem recebe a demanda precisa saber para quem e para quê o texto foi
+           * escrito — sem isso, adaptar a copy à peça é adivinhação. O preço entra
+           * aqui também: é o número que a arte vai estampar, e ele não pode
+           * depender de alguém voltar ao site para conferir.
+           */
+          description: [
           `**Produto:** ${briefProductName(brief)}`,
           brief.product ? `**Preço:** ${describePricing(brief.product)}` : null,
           brief.product?.url ? `**No site:** ${brief.product.url}` : null,
@@ -418,25 +437,26 @@ export async function POST(request: Request) {
               : `**Tom:** ${brief.toneText}`
             : null,
           brief.constraints ? `**Restrições:** ${brief.constraints}` : null,
-        ]
+          ]
           .filter(Boolean)
           .join("\n"),
-        copyText: finalText,
-        values: Object.keys(respostas).length ? JSON.stringify(respostas) : null,
-        attachments: serializeAttachments(anexos),
-        origin: "COPY",
-        priority: isPriority(body.priority) ? body.priority : "MEDIA",
-        /*
-         * A data vem como "AAAA-MM-DD" do campo de data do navegador. Uma data
-         * inválida vira nulo em vez de derrubar a criação do card: perder a copy
-         * recém-aprovada por causa de um prazo mal digitado seria desproporcional.
-         */
-        dueDate: parseDueDate(body.dueDate),
-        requesterEmail: user.email,
-        requesterName: user.name,
-        position: await topPosition(destino.columnId),
-      },
-    });
+          copyText: finalText,
+          values: Object.keys(respostas).length ? JSON.stringify(respostas) : null,
+          attachments: serializeAttachments(anexos),
+          origin: "COPY",
+          priority: isPriority(body.priority) ? body.priority : "MEDIA",
+          /*
+           * A data vem como "AAAA-MM-DD" do campo de data do navegador. Uma data
+           * inválida vira nulo em vez de derrubar a criação do card: perder a copy
+           * recém-aprovada por causa de um prazo mal digitado seria desproporcional.
+           */
+          dueDate: parseDueDate(body.dueDate),
+          requesterEmail: user.email,
+          requesterName: user.name,
+          position: await topPosition(destino.columnId),
+        },
+      })
+    );
 
     /*
      * O histórico registra quem escreveu, e não só que o card nasceu. Meses

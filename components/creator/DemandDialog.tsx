@@ -55,7 +55,8 @@ export default function DemandDialog({
   /** Os grupos do quadro — cada um é um time, e é neles que a equipe mora. */
   groups?: GroupDefinition[];
   fields: FieldDefinition[];
-  onCreated: () => void;
+  /** Recebe o card recém-criado — o quadro recarrega, a barra do topo confirma. */
+  onCreated: (card: { code: number | null; title: string }) => void;
 }) {
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
@@ -108,7 +109,12 @@ export default function DemandDialog({
     setError(null);
 
     try {
-      const res = await fetch("/api/creator/cards", {
+      /*
+       * `/api/demanda`, e não `/api/creator/cards`: abrir demanda é de qualquer
+       * pessoa autenticada, e este mesmo diálogo é aberto pela barra do topo por
+       * quem não tem o board. Uma porta só — ver `lib/demanda-intake.ts`.
+       */
+      const res = await fetch("/api/demanda", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -129,7 +135,7 @@ export default function DemandDialog({
         return;
       }
 
-      onCreated();
+      onCreated(data.card ?? { code: null, title });
       onClose();
     } catch {
       setError("Falha de conexão ao abrir a demanda.");

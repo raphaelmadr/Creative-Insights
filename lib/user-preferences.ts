@@ -24,6 +24,19 @@ export interface DashboardFilters {
 export interface UserPreferences {
   theme: ThemePreference;
   filters: DashboardFilters;
+
+  /**
+   * O instante em que esta pessoa limpou as notificações, em ISO.
+   *
+   * É o estado inteiro de "já vi": as notificações não são linhas guardadas, e
+   * sim as demandas atribuídas a ela — limpar não apaga nada, marca até onde ela
+   * já leu. Um carimbo só, e não uma marca por notificação, porque a aba tem um
+   * botão só: "limpar tudo". Guardar por item seria descrever um controle que a
+   * interface não oferece.
+   *
+   * Nulo é quem nunca limpou: vê tudo o que está atribuído a ela.
+   */
+  notificationsReadAt: string | null;
 }
 
 export const DEFAULT_FILTERS: DashboardFilters = {
@@ -38,6 +51,7 @@ export const DEFAULT_FILTERS: DashboardFilters = {
 export const DEFAULT_PREFERENCES: UserPreferences = {
   theme: "dark",
   filters: DEFAULT_FILTERS,
+  notificationsReadAt: null,
 };
 
 const DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
@@ -61,6 +75,19 @@ const asNullableToken = (value: unknown): string | null =>
 
 const asBoolean = (value: unknown, fallback: boolean): boolean =>
   typeof value === "boolean" ? value : fallback;
+
+/**
+ * Um instante em ISO, validado de verdade.
+ *
+ * `new Date("qualquer coisa")` devolve `Invalid Date` em silêncio, e um carimbo
+ * inválido gravado aqui faria toda comparação de "já vi" ser falsa — a aba
+ * voltaria a mostrar tudo, para sempre, sem erro nenhum aparecendo.
+ */
+const asInstant = (value: unknown): string | null => {
+  if (typeof value !== "string") return null;
+  const parsed = new Date(value);
+  return Number.isNaN(parsed.getTime()) ? null : parsed.toISOString();
+};
 
 function parseFilters(raw: unknown): DashboardFilters {
   if (!raw || typeof raw !== "object") return { ...DEFAULT_FILTERS };
@@ -95,6 +122,7 @@ export function parsePreferences(stored: string | null | undefined): UserPrefere
   return {
     theme: asTheme(source.theme) || DEFAULT_PREFERENCES.theme,
     filters: parseFilters(source.filters),
+    notificationsReadAt: asInstant(source.notificationsReadAt),
   };
 }
 
@@ -120,7 +148,12 @@ export function mergePreferences(
       ? parseFilters({ ...current.filters, ...(source.filters as Record<string, unknown>) })
       : current.filters;
 
-  return { theme, filters };
+  const notificationsReadAt =
+    "notificationsReadAt" in source
+      ? asInstant(source.notificationsReadAt)
+      : current.notificationsReadAt;
+
+  return { theme, filters, notificationsReadAt };
 }
 
 export function serializePreferences(preferences: UserPreferences): string {

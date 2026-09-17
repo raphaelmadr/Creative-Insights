@@ -1,7 +1,7 @@
 import React from "react";
 import TopBar from "@/components/TopBar";
 import ConfigSidebar from "./ConfigSidebar";
-import AccessDenied from "./AccessDenied";
+import AccessDenied from "@/components/AccessDenied";
 import { getCurrentAdmin } from "@/lib/auth";
 import { Settings } from "lucide-react";
 
@@ -51,7 +51,11 @@ export default async function ConfiguracoesLayout({ children }: { children: Reac
             </div>
           </div>
         ) : (
-          <AccessDenied />
+          <AccessDenied title="Área restrita a administradores">
+            As configurações globais guardam metas, credenciais das integrações e as chaves
+            dos provedores de IA. Peça a um administrador que libere seu acesso em{" "}
+            <strong>Configurações › Usuários</strong>.
+          </AccessDenied>
         )}
 
       </div>

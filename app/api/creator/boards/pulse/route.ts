@@ -13,14 +13,15 @@
  */
 
 import { NextResponse } from "next/server";
-import { getCurrentUser } from "@/lib/auth";
+import { getCurrentCreator } from "@/lib/auth";
+import { CREATOR_ONLY_ERROR } from "@/lib/roles";
 import { boardPulse } from "@/lib/kanban-store";
 
 export const dynamic = "force-dynamic";
 
 export async function GET(request: Request) {
-  const user = await getCurrentUser();
-  if (!user) return NextResponse.json({ error: "Não autenticado." }, { status: 401 });
+  const user = await getCurrentCreator();
+  if (!user) return NextResponse.json({ error: CREATOR_ONLY_ERROR }, { status: 403 });
 
   const boardId = new URL(request.url).searchParams.get("boardId");
   if (!boardId) return NextResponse.json({ error: "boardId é obrigatório." }, { status: 400 });

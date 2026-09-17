@@ -67,16 +67,40 @@ model CreatorMonthlyReport {
   @@unique([creatorId, month, year])
 }
 
+/// Uma entrega de peças, creditada a uma pessoa.
+///
+/// A fonte era o Slack: alguém anunciava "entreguei 8 peças" num canal e a
+/// sincronização lia a mensagem. Passou a ser o Kanban — a entrega é o card
+/// chegando à coluna de conclusão, e a volumetria é o que a demanda pediu.
+/// Medir pelo quadro mede o trabalho onde ele já é organizado, em vez de depender
+/// de alguém lembrar de avisar.
 model Delivery {
-  id        String   @id @default(cuid())
-  slackTs   String   @unique // ID único da mensagem no Slack (timestamp)
+  id String @id @default(cuid())
+
+  /// A chave de origem, que impede a mesma entrega de entrar duas vezes.
+  ///
+  /// Chamava-se `slackTs` e guardava o timestamp da mensagem. Com o quadro como
+  /// fonte, guarda `kanban:<id do card>` — um card entregue uma vez conta uma
+  /// vez, mesmo que volte à coluna anterior e avance de novo.
+  sourceKey String @unique
+
+  /// O card que originou a entrega, quando ela veio do quadro.
+  ///
+  /// Redundante com `sourceKey`, e de propósito: a chave é para o banco impedir
+  /// duplicata, esta é para quem lê o dado saber de qual demanda ele veio sem
+  /// ter que fatiar uma string.
+  cardId String?
+
   creatorId String
   pieces    Int
   date      DateTime
-  text      String?  @db.Text // A mensagem original do Slack
+  /// O texto que originou o registro — a mensagem do Slack, ou o título do card.
+  text      String?  @db.Text
   createdAt DateTime @default(now())
 
   creator Creator @relation(fields: [creatorId], references: [id], onDelete: Cascade)
+
+  @@index([cardId])
 }
 
 model AlgorithmUpdate {
@@ -296,10 +320,15 @@ model User {
   emailVerified DateTime?
   image         String?
 
-  /// "ADMIN" dá acesso ao painel de configurações — metas, credenciais das
-  /// APIs, prompts de IA e logs. "MEMBER" é todo o resto do produto.
+  /// Uma escada de três degraus, cada um alcançando tudo o que está abaixo:
+  /// "ADMIN" abre o painel de configurações — metas, credenciais das APIs,
+  /// prompts de IA e logs; "CREATOR" abre o board criativo e o gerador de copy;
+  /// "MEMBER" vê o painel de performance e abre demanda, que é a porta que
+  /// continua aberta para a empresa inteira. Ver `lib/roles.ts`, onde a regra
+  /// vive — aqui é só onde ela é guardada.
   /// Guardado como texto e não como enum porque o vocabulário do papel é lido
-  /// por middleware e por rotas que não carregam o client do Prisma.
+  /// por middleware e por rotas que não carregam o client do Prisma — e porque
+  /// um degrau novo não pede migração num banco compartilhado com produção.
   role String @default("MEMBER")
 
   /// Último sinal de vida da pessoa, atualizado pelo heartbeat de presença.
@@ -344,6 +373,17 @@ model VerificationToken {
 model Board {
   id          String  @id @default(cuid())
   name        String
+
+  /// O código do link público de abertura de demandas, ou nulo quando não há.
+  ///
+  /// Aleatório, e não o `id` do quadro: o id aparece em toda requisição da tela
+  /// e num log de acesso, então usá-lo como senha entregaria a porta a quem
+  /// nunca deveria tê-la. Sendo um campo à parte, gerar outro revoga o anterior
+  /// na hora — sem tocar no quadro nem nas demandas já abertas.
+  ///
+  /// Nulo é o estado de todo quadro até alguém pedir o link: a porta não existe
+  /// até ser aberta de propósito.
+  publicToken String? @unique
   description String? @db.Text
   position    Int     @default(0)
   archived    Boolean @default(false)
@@ -362,14 +402,13 @@ model Board {
   /// escolha, e significa nenhum. Ver `parseCardBadges` em `lib/kanban.ts`.
   cardBadges String? @db.Text
 
-  /// As etiquetas do quadro: nome, cor e o que faz cada uma aparecer.
+  /// SEM USO desde a remoção das etiquetas do quadro.
   ///
-  /// A etiqueta não é digitada card a card — ela é uma REGRA sobre o que a
-  /// demanda já respondeu. "Vídeo" aparece porque o formato escolhido é de
-  /// vídeo, e não porque alguém lembrou de marcar; assim ela não pode
-  /// discordar do briefing, que é o defeito de toda etiqueta manual.
-  ///
-  /// Ver `parseCardLabels` em `lib/kanban.ts` para o formato.
+  /// A etiqueta acendia sozinha pelo que a demanda respondia — "Vídeo" porque o
+  /// formato era de vídeo. A ideia era boa e o uso não existiu: o quadro passou
+  /// meses com as três etiquetas padrão, que ninguém configurou nem consultou,
+  /// ocupando uma linha em cada card e um botão na barra. A coluna fica porque
+  /// dropar coluna é irreversível e ela não custa nada; pode ser derrubada.
   cardLabels String? @db.Text
 
   createdAt DateTime @default(now())
@@ -544,6 +583,23 @@ model BoardGroup {
 
 model BoardCard {
   id          String  @id @default(cuid())
+
+  /// O número da demanda, que a equipe usa para falar dela: "MKT-42".
+  ///
+  /// Separado do `id` porque os dois servem a leitores diferentes. O `cuid` é
+  /// para o sistema — opaco, longo e impossível de ditar no telefone. Este é
+  /// para gente: curto, crescente, e o mesmo que vai na notificação de
+  /// atribuição e em qualquer conversa sobre a demanda.
+  ///
+  /// Sequência única no sistema inteiro, e não por quadro: com um número só,
+  /// "MKT-42" identifica uma demanda sem que seja preciso dizer de que quadro.
+  /// Se um dia cada time tiver o seu prefixo, a sequência passa a ser por
+  /// quadro — ver `CARD_CODE_PREFIX` em `lib/kanban.ts`.
+  ///
+  /// Anulável só por causa das demandas que já existiam quando a coluna nasceu;
+  /// `criarCardComCodigo` garante o número em toda criação daqui para a frente.
+  code Int? @unique
+
   boardId     String
   columnId    String
   title       String

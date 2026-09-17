@@ -12,7 +12,8 @@
 
 import { NextResponse } from "next/server";
 import prisma from "@/lib/prisma";
-import { getCurrentUser } from "@/lib/auth";
+import { getCurrentCreator } from "@/lib/auth";
+import { CREATOR_ONLY_ERROR } from "@/lib/roles";
 import {
   isGroupColor,
   DEFAULT_GROUP_COLOR,
@@ -22,8 +23,8 @@ import {
 } from "@/lib/kanban";
 
 export async function POST(request: Request) {
-  const user = await getCurrentUser();
-  if (!user) return NextResponse.json({ error: "Não autenticado." }, { status: 401 });
+  const user = await getCurrentCreator();
+  if (!user) return NextResponse.json({ error: CREATOR_ONLY_ERROR }, { status: 403 });
 
   try {
     const { boardId, name, color } = await request.json();
@@ -55,8 +56,8 @@ export async function POST(request: Request) {
 }
 
 export async function PUT(request: Request) {
-  const user = await getCurrentUser();
-  if (!user) return NextResponse.json({ error: "Não autenticado." }, { status: 401 });
+  const user = await getCurrentCreator();
+  if (!user) return NextResponse.json({ error: CREATOR_ONLY_ERROR }, { status: 403 });
 
   try {
     const { id, name, color, assignees, defaultAssignee } = await request.json();
@@ -115,8 +116,8 @@ export async function PUT(request: Request) {
 }
 
 export async function DELETE(request: Request) {
-  const user = await getCurrentUser();
-  if (!user) return NextResponse.json({ error: "Não autenticado." }, { status: 401 });
+  const user = await getCurrentCreator();
+  if (!user) return NextResponse.json({ error: CREATOR_ONLY_ERROR }, { status: 403 });
 
   try {
     const { id } = await request.json();
