@@ -7,9 +7,6 @@
     "/api/cron/sync-all": {
       "maxDuration": 300
     },
-    "/api/cron/sync-media": {
-      "maxDuration": 300
-    },
     "/api/hypothesis": {
       "maxDuration": 120
     },

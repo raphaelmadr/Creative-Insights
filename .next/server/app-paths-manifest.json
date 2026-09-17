@@ -18,7 +18,6 @@
   "/api/creator/people/route": "app/api/creator/people/route.js",
   "/api/creators/route": "app/api/creators/route.js",
   "/api/cron/sync-all/route": "app/api/cron/sync-all/route.js",
-  "/api/cron/sync-media/route": "app/api/cron/sync-media/route.js",
   "/api/db-ads/route": "app/api/db-ads/route.js",
   "/api/deliveries/route": "app/api/deliveries/route.js",
   "/api/goals/route": "app/api/goals/route.js",

@@ -328,14 +328,20 @@ export async function runMetaSync(
    */
   if (isCurrentMonth && rotatedTail.length > 0) {
     const nextTailDay = rotatedTail[tailProcessed % rotatedTail.length];
-    await withDbRetry(() => prisma.systemSettings.update({
-      where: { id: 1 },
-      data: { lastBackfillDayYmd: nextTailDay },
-    })).catch((err: any) => {
-      // Perder o cursor custa repetir uma fatia, não a corretude: na pior das
-      // hipóteses a próxima passada recomeça a cauda pelo dia mais recente.
-      console.warn("[Meta Sync] Não foi possível gravar o cursor da cauda:", err?.message);
-    });
+
+    /*
+     * Uma tentativa só, de propósito — sem `withDbRetry`.
+     *
+     * Perder o cursor custa repetir uma fatia na passada seguinte, não a
+     * corretude. Retentar cinco vezes gastaria até 20s da reserva que existe
+     * para a mídia e as escritas, isto é, trocaria algo descartável por algo
+     * que não é.
+     */
+    await prisma.systemSettings
+      .update({ where: { id: 1 }, data: { lastBackfillDayYmd: nextTailDay } })
+      .catch((err: any) => {
+        console.warn("[Meta Sync] Cursor da cauda não gravado; a próxima passada recomeça pelo dia mais recente:", err?.message);
+      });
   }
 
   if (skippedDays > 0) {

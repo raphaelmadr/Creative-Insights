@@ -18,7 +18,6 @@
   "/api/creator/people/route": "/api/creator/people",
   "/api/creators/route": "/api/creators",
   "/api/cron/sync-all/route": "/api/cron/sync-all",
-  "/api/cron/sync-media/route": "/api/cron/sync-media",
   "/api/db-ads/route": "/api/db-ads",
   "/api/deliveries/route": "/api/deliveries",
   "/api/goals/route": "/api/goals",

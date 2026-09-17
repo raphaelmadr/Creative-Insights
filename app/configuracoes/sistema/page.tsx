@@ -79,6 +79,7 @@ export default function SistemaPage() {
   const [status, setStatus] = useState<{
     lastSyncAt?: string | null;
     lastCronSyncAt?: string | null;
+    lastCronPingAt?: string | null;
     sources: { label: string; configured: boolean }[];
   }>({ sources: [] });
 
@@ -123,6 +124,7 @@ export default function SistemaPage() {
         setStatus({
           lastSyncAt: data.lastSyncAt,
           lastCronSyncAt: data.lastCronSyncAt,
+          lastCronPingAt: data.lastCronPingAt,
           // Espelha o registro de fontes do backend (`lib/channels.ts`).
           sources: [
             { label: "Meta", configured: !!(data.metaAdAccountId && data.metaAccessToken) },
@@ -206,6 +208,21 @@ export default function SistemaPage() {
   const nextEligibleLabel = nextEligible && new Date(nextEligible).getTime() <= Date.now()
     ? "a qualquer momento"
     : formatDateTime(nextEligible);
+
+  /*
+   * Saúde do disparador, que é outra pergunta que "última sincronização".
+   *
+   * A sincronização pode estar em silêncio por dois motivos opostos: o cron do
+   * cPanel não está chegando (URL velha, segredo trocado, cadastro apagado), ou
+   * está chegando e apenas ainda não venceu o intervalo. Sem este carimbo as
+   * duas situações davam a mesma tela, e foi o que escondeu 15h de cron morto.
+   *
+   * O cron é cadastrado a cada 15 min; uma hora de silêncio são quatro batidas
+   * perdidas, o que não é atraso de relógio.
+   */
+  const TRIGGER_SILENCE_TOLERANCE_MS = 60 * 60 * 1000;
+  const lastPingMs = status.lastCronPingAt ? new Date(status.lastCronPingAt).getTime() : null;
+  const triggerSilent = lastPingMs === null || Date.now() - lastPingMs > TRIGGER_SILENCE_TOLERANCE_MS;
 
   const noSourceConfigured = status.sources.every(s => !s.configured);
 
@@ -455,7 +472,19 @@ export default function SistemaPage() {
             <div style={{ display: "flex", flexWrap: "wrap", gap: "1.5rem", fontSize: "var(--text-control)", color: "var(--muted)" }}>
               <span><strong style={{ color: "var(--foreground)" }}>Última sincronização:</strong> {formatDateTime(status.lastSyncAt)}</span>
               <span><strong style={{ color: "var(--foreground)" }}>Próxima automática:</strong> {nextEligibleLabel}</span>
+              <span><strong style={{ color: "var(--foreground)" }}>Última batida do disparador:</strong> {status.lastCronPingAt ? formatDateTime(status.lastCronPingAt) : "nunca"}</span>
             </div>
+
+            {triggerSilent && (
+              <div style={noticeStyle("warn")}>
+                <AlertTriangle size={16} style={{ flexShrink: 0, marginTop: "0.1rem" }} />
+                <span>
+                  {status.lastCronPingAt
+                    ? "O disparador externo não bate nesta porta há mais de uma hora. O intervalo acima só é respeitado enquanto o cron chega — confira o Cron Jobs do cPanel."
+                    : "O disparador externo nunca bateu nesta porta. Cadastre o comando abaixo no Cron Jobs do cPanel; sem ele nada é sincronizado automaticamente."}
+                </span>
+              </div>
+            )}
 
             <div style={{ display: "flex", flexWrap: "wrap", gap: "0.5rem", alignItems: "center", fontSize: "var(--text-control)" }}>
               <span style={{ color: "var(--muted)" }}>Fontes sincronizadas:</span>

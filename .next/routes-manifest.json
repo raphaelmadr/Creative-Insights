@@ -147,12 +147,6 @@
       "namedRegex": "^/api/cron/sync\\-all(?:/)?$"
     },
     {
-      "page": "/api/cron/sync-media",
-      "regex": "^/api/cron/sync\\-media(?:/)?$",
-      "routeKeys": {},
-      "namedRegex": "^/api/cron/sync\\-media(?:/)?$"
-    },
-    {
       "page": "/api/db-ads",
       "regex": "^/api/db\\-ads(?:/)?$",
       "routeKeys": {},
