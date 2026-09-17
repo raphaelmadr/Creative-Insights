@@ -57,3 +57,19 @@ export function useRascunho<T>(open: boolean, doServidor: T) {
 
   return { draft, setDraft, sujo, adotar };
 }
+
+/**
+ * O que uma SEÇÃO de configuração entrega ao diálogo que a contém.
+ *
+ * "Etapas" e "O que o card mostra" eram dois diálogos, cada um com o seu Salvar.
+ * São a mesma pergunta — como este quadro se comporta — e viraram duas seções de
+ * uma janela só. Cada uma continua dona do próprio rascunho e da própria
+ * gravação (são destinos diferentes no servidor); o diálogo só precisa saber se
+ * há algo pendente e como mandar gravar.
+ */
+export interface SecaoHandle {
+  /** Há alteração pendente nesta seção? */
+  sujo: boolean;
+  /** Grava. `false` quando algo impediu — a seção já mostrou o motivo. */
+  salvar: () => Promise<boolean>;
+}

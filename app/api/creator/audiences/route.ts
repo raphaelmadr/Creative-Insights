@@ -8,12 +8,14 @@
  */
 
 import { NextResponse } from "next/server";
-import { getCurrentUser } from "@/lib/auth";
+import { friendlyFailureMessage } from "@/lib/external-log";
+import { getCurrentCreator } from "@/lib/auth";
+import { CREATOR_ONLY_ERROR } from "@/lib/roles";
 import { fetchMetaAudiences, audienceSubtypeLabel } from "@/lib/meta-audiences";
 
 export async function GET(request: Request) {
-  const user = await getCurrentUser();
-  if (!user) return NextResponse.json({ error: "Não autenticado." }, { status: 401 });
+  const user = await getCurrentCreator();
+  if (!user) return NextResponse.json({ error: CREATOR_ONLY_ERROR }, { status: 403 });
 
   try {
     const force = new URL(request.url).searchParams.get("refresh") === "1";
@@ -36,7 +38,7 @@ export async function GET(request: Request) {
     });
   } catch (error: any) {
     return NextResponse.json(
-      { error: error.message || "Não foi possível consultar os públicos do Meta." },
+      { error: friendlyFailureMessage([{ service: "Meta Ads", error }]) },
       { status: 502 }
     );
   }

@@ -1,7 +1,14 @@
 "use client";
 
 import React from "react";
-import { optionsFor, type FieldType } from "@/lib/kanban";
+import {
+  optionsFor,
+  unidadeDoCampo,
+  OPCAO_OUTROS,
+  RANGE_MAX,
+  RANGE_MIN,
+  type FieldType,
+} from "@/lib/kanban";
 import DatePicker from "@/components/DatePicker";
 
 /**
@@ -100,15 +107,34 @@ export default function FieldInput({
         </div>
       );
 
-    case "SELECT":
+    case "SELECT": {
+      /*
+       * "Outros" não é uma resposta — é a porta para digitar uma.
+       *
+       * O que fica gravado é o TEXTO, e não a palavra "Outros": assim o card
+       * mostra "Evento presencial" e ninguém precisa abrir a demanda para
+       * descobrir qual era o outro. Como o valor gravado não está na lista, é
+       * ele mesmo que denuncia o modo — um valor preenchido e fora das opções
+       * só pode ter vindo daqui.
+       */
+      const texto = typeof value === "string" ? value : "";
+      const aceitaTexto = options.includes(OPCAO_OUTROS);
+      const emOutros = aceitaTexto && !!texto && !options.includes(texto);
+      const escolhido = emOutros ? OPCAO_OUTROS : texto;
+
       return (
         <div className="field">
           {label}
           <select
             id={id}
             className="field-input"
-            value={typeof value === "string" ? value : ""}
-            onChange={(e) => onChange(e.target.value)}
+            value={escolhido}
+            onChange={(e) => {
+              // Ao entrar em "Outros" o valor vai para a palavra, que é inválida
+              // de propósito: é ela que mantém o campo de texto aberto e vazio
+              // até alguém responder, em vez de deixar passar em branco.
+              onChange(e.target.value);
+            }}
           >
             <option value="">Selecione…</option>
             {options.map((o) => (
@@ -117,9 +143,24 @@ export default function FieldInput({
               </option>
             ))}
           </select>
+
+          {(emOutros || escolhido === OPCAO_OUTROS) && (
+            <input
+              type="text"
+              className="field-input"
+              style={{ marginTop: "0.4rem" }}
+              autoFocus
+              placeholder="Qual? Ex.: evento presencial, mídia impressa…"
+              aria-label={`Especificar ${field.label}`}
+              value={emOutros ? texto : ""}
+              onChange={(e) => onChange(e.target.value || OPCAO_OUTROS)}
+            />
+          )}
+
           {hint}
         </div>
       );
+    }
 
     case "MULTISELECT": {
       const chosen = Array.isArray(value) ? (value as string[]) : [];
@@ -197,6 +238,64 @@ export default function FieldInput({
         </div>
       );
 
+    case "RANGE": {
+      /*
+        Deslizante, e não caixa de número — o mesmo controle do gerador de copy.
+
+        A quantidade de peças é escolhida, não digitada: quem abre a demanda sabe
+        que são três ou doze, e uma caixa aberta aceita "0", "-2" e "1000000".
+        Com o número grande ao lado do rótulo, o valor continua legível sem
+        obrigar a mirar no cursor.
+      */
+      const atual = Math.min(
+        RANGE_MAX,
+        Math.max(RANGE_MIN, Math.round(Number(value)) || RANGE_MIN)
+      );
+
+      return (
+        <div className="field">
+          {/*
+            O rótulo é o COMPARTILHADO, e o número vem ao lado dele — não dentro.
+
+            Eu havia remontado o rótulo aqui para encaixar o número na mesma
+            linha, e com isso perdi a marca de obrigatório do padrão (asterisco
+            vermelho colado ao texto) e ganhei um bug: `space-between` com três
+            filhos joga o do meio para o centro, e o asterisco aparecia solto
+            entre o nome do campo e o número.
+
+            Com a linha por fora são dois filhos — rótulo à esquerda, número à
+            direita — e o rótulo continua sendo o de todos os outros campos.
+          */}
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "space-between",
+              gap: "0.5rem",
+            }}
+          >
+            {label}
+            <strong style={{ color: "var(--primary)", fontSize: "var(--text-cardtitle)" }}>
+              {atual}{" "}
+              <span style={{ fontSize: "var(--text-control)", fontWeight: 600 }}>
+                {unidadeDoCampo(field.label, atual)}
+              </span>
+            </strong>
+          </div>
+          <input
+            id={id}
+            type="range"
+            min={RANGE_MIN}
+            max={RANGE_MAX}
+            value={atual}
+            onChange={(e) => onChange(Number(e.target.value))}
+            style={{ accentColor: "var(--primary)", width: "100%" }}
+          />
+          {hint}
+        </div>
+      );
+    }
+
     case "DATE":
       return (
         <div className="field">
@@ -262,6 +361,7 @@ export function formatFieldValue(field: FieldDefinition, value: unknown): string
       return Number.isNaN(d.getTime()) ? String(value) : d.toLocaleDateString("pt-BR");
     }
     case "NUMBER":
+    case "RANGE":
       return Number(value).toLocaleString("pt-BR");
     default:
       return String(value);

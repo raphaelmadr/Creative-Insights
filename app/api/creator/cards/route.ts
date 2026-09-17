@@ -1,7 +1,11 @@
 /**
- * As demandas.
+ * As demandas que já estão no quadro: ler, mover, editar, arquivar, apagar.
  *
- * Toda entrada passa por `validateValues` antes de virar linha: os campos são
+ * Abrir uma é a única coisa que NÃO mora aqui — é `/api/demanda`, aberta a
+ * qualquer pessoa autenticada. Esta rota é do modo Creator, e mexer num card
+ * que já existe é trabalho de quem produz.
+ *
+ * Toda alteração passa por `validateValues` antes de virar linha: os campos são
  * definidos pelo próprio time na tela do Kanban, então o que chega aqui é um
  * JSON cuja forma o servidor não conhece de antemão — e conferir contra os
  * campos do quadro é a única garantia de que a resposta corresponde à pergunta.
@@ -9,21 +13,22 @@
 
 import { NextResponse } from "next/server";
 import prisma from "@/lib/prisma";
-import { getCurrentUser, getCurrentUserEmail } from "@/lib/auth";
+import { getCurrentCreator, getCurrentUserEmail } from "@/lib/auth";
+import { CREATOR_ONLY_ERROR } from "@/lib/roles";
 import {
   isPriority,
   parseValues,
   validateValues,
   parseDueDate,
   startOfCurrentMonth,
-  normalizePerson,
   parseAssignees,
   serializeAssignees,
   resolveMoveAssignees,
   PRIORITY_LABEL,
   type Priority,
 } from "@/lib/kanban";
-import { groupIntake, intakeColumnId, topPosition, logActivity } from "@/lib/kanban-store";
+import { intakeColumnId, topPosition, logActivity } from "@/lib/kanban-store";
+import { registrarEntregaDoCard } from "@/lib/kanban-deliveries";
 import { normalizeCardLink } from "@/lib/card-link";
 
 /**
@@ -35,8 +40,8 @@ import { normalizeCardLink } from "@/lib/card-link";
  * quadro — arquivado à mão ou pela regra de fim de mês.
  */
 export async function GET(request: Request) {
-  const user = await getCurrentUser();
-  if (!user) return NextResponse.json({ error: "Não autenticado." }, { status: 401 });
+  const user = await getCurrentCreator();
+  if (!user) return NextResponse.json({ error: CREATOR_ONLY_ERROR }, { status: 403 });
 
   try {
     const params = new URL(request.url).searchParams;
@@ -75,80 +80,18 @@ export async function GET(request: Request) {
   }
 }
 
-export async function POST(request: Request) {
-  const user = await getCurrentUser();
-  if (!user) return NextResponse.json({ error: "Não autenticado." }, { status: 401 });
-
-  try {
-    const body = await request.json();
-    const { boardId, title, description, priority, dueDate, assigneeEmail } = body;
-
-    if (!boardId || !title?.trim()) {
-      return NextResponse.json({ error: "Quadro e título são obrigatórios." }, { status: 400 });
-    }
-
-    const fields = await prisma.boardField.findMany({
-      where: { boardId },
-      orderBy: { position: "asc" },
-    });
-
-    const checked = validateValues(fields, body.values ?? {});
-    if (!checked.ok) return NextResponse.json({ error: checked.error }, { status: 400 });
-
-    /*
-     * Onde a demanda entra e quem a assume — a regra única de `groupIntake`,
-     * compartilhada com o gerador de copy, que é a outra porta para o quadro.
-     */
-    const destino = await groupIntake(boardId, { groupId: body.groupId, columnId: body.columnId });
-    if (!destino) {
-      return NextResponse.json({ error: "Este quadro ainda não tem colunas." }, { status: 400 });
-    }
-
-    const { columnId } = destino;
-
-    /*
-     * Uma escolha explícita de responsável, quando vem, vale sozinha — quem
-     * nomeou sabia. Sem ela, o time inteiro do grupo assume.
-     */
-    const escolhido = normalizePerson(assigneeEmail);
-    const donosDaEntrada = escolhido ? [escolhido] : destino.assignees;
-
-    const card = await prisma.boardCard.create({
-      data: {
-        boardId,
-        columnId,
-        title: title.trim(),
-        description: description?.trim() || null,
-        priority: isPriority(priority) ? priority : "MEDIA",
-        dueDate: parseDueDate(dueDate),
-        assignees: serializeAssignees(donosDaEntrada),
-        // Espelho do primeiro, enquanto a versão publicada ainda lê este campo.
-        assigneeEmail: donosDaEntrada[0] ?? null,
-        // Um link inválido entra como nulo em vez de derrubar a abertura da
-        // demanda: perder o briefing inteiro por causa de uma URL mal colada
-        // seria desproporcional. A tela recusa antes, com a mensagem certa.
-        linkUrl: normalizeCardLink(body.linkUrl),
-        // Quem abriu vem da sessão, nunca do corpo da requisição: um campo de
-        // "solicitante" enviado pelo cliente é um campo que dá para forjar.
-        requesterEmail: user.email,
-        requesterName: user.name,
-        values: Object.keys(checked.values).length ? JSON.stringify(checked.values) : null,
-        origin: "FORM",
-        position: await topPosition(columnId),
-      },
-    });
-
-    await logActivity(card.id, "CREATED", "abriu a demanda", user);
-
-    return NextResponse.json({ success: true, card });
-  } catch (error: any) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
-  }
-}
+/*
+ * Não há POST aqui.
+ *
+ * Abrir demanda deixou de ser um ato do board: qualquer pessoa autenticada pode
+ * pedir uma peça, e quem produz é que é um grupo restrito. A porta única é
+ * `/api/demanda` — inclusive para o "Nova demanda" do próprio quadro, que
+ * chama a mesma rota que a barra do topo. Ver `lib/demanda-intake.ts`.
+ */
 
 export async function PUT(request: Request) {
-  const user = await getCurrentUser();
-  if (!user) return NextResponse.json({ error: "Não autenticado." }, { status: 401 });
+  const user = await getCurrentCreator();
+  if (!user) return NextResponse.json({ error: CREATOR_ONLY_ERROR }, { status: 403 });
 
   try {
     const body = await request.json();
@@ -171,11 +114,15 @@ export async function PUT(request: Request) {
         where: { id: cardId },
         select: {
           columnId: true,
+          boardId: true,
           title: true,
           assignees: true,
+          values: true,
           // A fase de ORIGEM: é a comparação com a de destino que diz se o card
-          // mudou de time ou só andou dentro do mesmo.
-          column: { select: { groupId: true } },
+          // mudou de time ou só andou dentro do mesmo. `isDone` entra para que
+          // a entrega seja contada na CHEGADA à conclusão, e não a cada arrasto
+          // dentro dela — ver `registrarEntregaDoCard`.
+          column: { select: { groupId: true, isDone: true } },
         },
       });
       if (!card) return NextResponse.json({ error: "Demanda não encontrada." }, { status: 404 });
@@ -262,6 +209,25 @@ export async function PUT(request: Request) {
       if (card.columnId !== columnId) {
         await logActivity(cardId, "MOVED", `moveu para "${target.name}"`, user);
       }
+
+      /*
+       * A entrega é contada aqui, e só aqui.
+       *
+       * Depois da transação, de propósito: uma falha ao creditar a volumetria
+       * não pode desfazer o movimento do card. O arrasto é o que a pessoa
+       * pediu; a contagem é consequência, e uma consequência que falha vira
+       * aviso no painel de logs, não um card que volta sozinho para a coluna
+       * anterior na tela de quem acabou de movê-lo.
+       */
+      await registrarEntregaDoCard({
+        cardId,
+        boardId: card.boardId,
+        title: card.title,
+        values: card.values,
+        destinoConclui: target.isDone,
+        origemConcluia: card.column?.isDone ?? false,
+        movidoPor: quemMoveu,
+      });
 
       /*
        * O dono volta na resposta porque o servidor pode tê-lo DECIDIDO.
@@ -481,8 +447,8 @@ export async function PUT(request: Request) {
 }
 
 export async function DELETE(request: Request) {
-  const user = await getCurrentUser();
-  if (!user) return NextResponse.json({ error: "Não autenticado." }, { status: 401 });
+  const user = await getCurrentCreator();
+  if (!user) return NextResponse.json({ error: CREATOR_ONLY_ERROR }, { status: 403 });
 
   try {
     const { id } = await request.json();

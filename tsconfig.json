@@ -30,5 +30,7 @@
     ".next/dev/types/**/*.ts",
     "**/*.mts"
   ],
-  "exclude": ["node_modules"]
+  // `deploy` e `.next` são SAÍDA de build, não fonte: type-checar uma cópia
+  // velha do próprio projeto produz erros sobre código que ninguém edita.
+  "exclude": ["node_modules", "deploy", ".next"]
 }

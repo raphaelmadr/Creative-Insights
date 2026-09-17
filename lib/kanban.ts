@@ -8,12 +8,15 @@
  * passarem a recusá-lo — ou, pior, aceitarem sem validar.
  */
 
+import { COPY_CHANNELS, MAX_VARIATIONS, formatsForChannel } from "./copy-options";
+
 export const FIELD_TYPES = [
   "TEXT",
   "TEXTAREA",
   "SELECT",
   "MULTISELECT",
   "NUMBER",
+  "RANGE",
   "DATE",
   "URL",
   "CHECKBOX",
@@ -27,10 +30,73 @@ export const FIELD_TYPE_LABEL: Record<FieldType, string> = {
   SELECT: "Escolha única",
   MULTISELECT: "Escolha múltipla",
   NUMBER: "Número",
+  RANGE: "Quantidade (deslizante)",
   DATE: "Data",
   URL: "Link",
   CHECKBOX: "Sim / Não",
 };
+
+/**
+ * Os limites do campo deslizante.
+ *
+ * O teto é o mesmo do gerador de copy (`MAX_VARIATIONS`), e de propósito: uma
+ * demanda nascida do gerador chega ao quadro com o número de variações que foi
+ * pedido lá, e um teto menor aqui recusaria um card que o próprio sistema criou.
+ */
+export const RANGE_MIN = 1;
+export const RANGE_MAX = MAX_VARIATIONS;
+
+/**
+ * A unidade de um campo de quantidade, tirada do próprio rótulo.
+ *
+ * Um número sozinho no card não diz nada: "12" pode ser peças, dias ou reais.
+ * Prefixar com o rótulo inteiro resolveria — "Número de peças: 12" —, mas gasta
+ * metade da largura do card repetindo a palavra "número", que é justamente a
+ * parte que o algarismo já diz.
+ *
+ * Então o rótulo perde o prefixo de contagem e vira unidade: "Número de peças"
+ * → "12 peças". Um rótulo que já seja a unidade ("Peças", "Slides") passa
+ * inteiro, o que dá o mesmo resultado.
+ */
+export function unidadeDoCampo(label: string, quantidade?: number): string {
+  const plural = label
+    .replace(/^\s*(n[úu]mero|quantidade|qtde?\.?|qtd\.?)\s*(de\s+)?/i, "")
+    .trim()
+    .toLowerCase();
+
+  if (quantidade !== 1) return plural;
+
+  /*
+   * Uma peça é "1 peça", não "1 peças".
+   *
+   * Heurística, e assumidamente parcial: cobre as terminações que aparecem em
+   * rótulo de campo — que é sempre um substantivo curto e concreto. Não é um
+   * flexionador de português, e não precisa ser; se um rótulo novo cair fora
+   * das regras, o pior resultado é a concordância errada em UM caso, não um
+   * texto quebrado.
+   */
+  if (/(õ|ã)es$/.test(plural)) return plural.replace(/(õ|ã)es$/, "ão"); // variações → variação
+  if (/ns$/.test(plural)) return plural.replace(/ns$/, "m"); // imagens → imagem
+  if (/ais$/.test(plural)) return plural.replace(/ais$/, "al"); // materiais → material
+  if (/[eé]is$/.test(plural)) return plural.replace(/[eé]is$/, "el"); // papéis → papel
+  if (/[oó]is$/.test(plural)) return plural.replace(/[oó]is$/, "ol"); // faróis → farol
+  if (/is$/.test(plural)) return plural.replace(/is$/, "il"); // perfis → perfil
+  if (/s$/.test(plural)) return plural.slice(0, -1); // peças → peça
+  return plural;
+}
+
+/**
+ * A opção que libera digitar uma resposta fora da lista.
+ *
+ * Uma escolha única com "Outros" entre as opções passa a aceitar texto livre: a
+ * pessoa escolhe "Outros", digita, e o que fica gravado é o TEXTO — não a
+ * palavra "Outros". Assim o card mostra "Evento presencial" em vez de "Outros",
+ * e quem lê não precisa abrir a demanda para descobrir qual era o outro.
+ *
+ * É por isso que gravar a palavra sozinha é recusado: escolher "Outros" sem
+ * especificar não responde a pergunta.
+ */
+export const OPCAO_OUTROS = "Outros";
 
 /** Os tipos em que a lista de opções é obrigatória — e nos outros, proibida. */
 export const FIELD_TYPES_WITH_OPTIONS: FieldType[] = ["SELECT", "MULTISELECT"];
@@ -66,7 +132,15 @@ export function isPriority(value: unknown): value is Priority {
   return typeof value === "string" && (PRIORITIES as readonly string[]).includes(value);
 }
 
-export const CARD_ORIGINS = ["FORM", "COPY"] as const;
+/**
+ * De onde a demanda veio.
+ *
+ * "PUBLIC" é o link aberto: o solicitante digitou o próprio e-mail e ninguém
+ * provou que é dele. A origem existe para que essa diferença fique à vista —
+ * um card de fora não deve ser lido com a mesma confiança de um aberto por
+ * quem estava logado.
+ */
+export const CARD_ORIGINS = ["FORM", "COPY", "PUBLIC"] as const;
 export type CardOrigin = (typeof CARD_ORIGINS)[number];
 
 /**
@@ -123,6 +197,34 @@ export function parseOptions(raw: string | null | undefined): string[] {
 }
 
 /**
+ * As opções de um campo DEPENDENTE: um mapa do valor do pai para as escolhas.
+ *
+ * `{"Meta Ads": ["Estático", "Carrossel"], "TikTok Ads": ["Vídeo 9:16"]}`.
+ *
+ * Existe separada de `parseOptions` porque o mesmo campo `options` guarda duas
+ * formas diferentes, e confundi-las é exatamente o defeito que este módulo
+ * passou meses tendo: um campo marcado como dependente com uma LISTA gravada
+ * dentro devolvia zero opções para sempre, sem erro nenhum — o seletor
+ * simplesmente nunca abria.
+ */
+export function parseOptionsMap(raw: string | null | undefined): Record<string, string[]> {
+  if (!raw) return {};
+  try {
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return {};
+    const mapa: Record<string, string[]> = {};
+    for (const [chave, valor] of Object.entries(parsed as Record<string, unknown>)) {
+      if (Array.isArray(valor)) {
+        mapa[chave] = valor.filter((o): o is string => typeof o === "string");
+      }
+    }
+    return mapa;
+  } catch {
+    return {};
+  }
+}
+
+/**
  * As escolhas de um campo, considerando o campo de que ele depende.
  *
  * Campo independente devolve a lista de sempre. Campo dependente lê o valor do
@@ -143,14 +245,7 @@ export function optionsFor(
   const pai = values[field.dependsOn];
   if (typeof pai !== "string" || !pai) return [];
 
-  try {
-    const mapa = JSON.parse(field.options || "{}");
-    if (Array.isArray(mapa) || typeof mapa !== "object" || !mapa) return [];
-    const lista = (mapa as Record<string, unknown>)[pai];
-    return Array.isArray(lista) ? lista.filter((o): o is string => typeof o === "string") : [];
-  } catch {
-    return [];
-  }
+  return parseOptionsMap(field.options)[pai] ?? [];
 }
 
 export function parseValues(raw: string | null | undefined): Record<string, unknown> {
@@ -237,11 +332,34 @@ export function validateValues(
 
       case "SELECT": {
         const options = optionsFor(field, incoming);
-        const chosen = String(raw);
-        if (!options.includes(chosen)) {
+        const chosen = String(raw).trim();
+        const aceitaTexto = options.includes(OPCAO_OUTROS);
+
+        if (aceitaTexto && chosen === OPCAO_OUTROS) {
+          return {
+            ok: false,
+            error: `Diga qual é o outro em "${field.label}".`,
+            values: {},
+          };
+        }
+
+        if (!options.includes(chosen) && !aceitaTexto) {
           return { ok: false, error: `"${chosen}" não é uma opção de "${field.label}".`, values: {} };
         }
+
         values[field.key] = chosen;
+        break;
+      }
+
+      case "RANGE": {
+        const n = Math.round(Number(raw));
+        if (!Number.isFinite(n)) {
+          return { ok: false, error: `"${field.label}" precisa ser um número.`, values: {} };
+        }
+        // Preso à faixa em vez de recusado: o deslizante não produz valor fora
+        // dela, então um número fora veio de requisição adulterada ou de um card
+        // antigo — e nenhum dos dois merece derrubar a abertura da demanda.
+        values[field.key] = Math.min(RANGE_MAX, Math.max(RANGE_MIN, n));
         break;
       }
 
@@ -272,6 +390,24 @@ export function validateValues(
  * montado, a primeira ação possível é abrir uma demanda — e as colunas e campos
  * são todos editáveis dali mesmo.
  */
+/*
+ * Os canais do formulário de demanda são OS MESMOS do gerador de copy.
+ *
+ * Derivados de `COPY_CHANNELS`, e não digitados de novo aqui: eram duas listas
+ * — uma no vocabulário do gerador, outra no molde do quadro — e elas já tinham
+ * divergido ("Google Ads" de um lado, "Google" do outro; "Banner Site" que não
+ * existia no outro). Quem preenchia via a lista do quadro; quem gerava copy via
+ * a outra; e o formato que uma oferecia a outra recusava.
+ *
+ * O formulário guarda o RÓTULO, não o id, porque é o rótulo que a pessoa leu ao
+ * responder e é ele que o card exibe depois.
+ */
+const CANAIS = COPY_CHANNELS.map((c) => c.label);
+
+const FORMATOS_POR_CANAL = Object.fromEntries(
+  COPY_CHANNELS.map((c) => [c.label, formatsForChannel(c.id).map((f) => f.label)])
+);
+
 export const DEFAULT_BOARD = {
   name: "Demandas Criativas",
   description: "Pedidos de peça para a equipe criativa — do briefing à entrega.",
@@ -290,18 +426,45 @@ export const DEFAULT_BOARD = {
       placeholder: "O que esta peça precisa fazer? Para quem?",
       showOnCard: false,
     },
-    {
-      label: "Formato",
-      type: "MULTISELECT" as FieldType,
-      required: true,
-      options: ["Estático 1:1", "Estático 9:16", "Vídeo 9:16", "Vídeo 1:1", "Carrossel", "GIF"],
-      showOnCard: true,
-    },
+    /*
+     * O canal vem ANTES do formato, e o formato depende dele.
+     *
+     * A ordem não é estética: "Carrossel" quer dizer coisas diferentes no Meta e
+     * no TikTok, e perguntar o formato antes do canal obriga quem preenche a
+     * escolher dentro de uma lista que ainda não sabe a qual lugar se aplica.
+     *
+     * Um campo dependente guarda um MAPA do valor do pai para as escolhas
+     * daquele valor, e não uma lista — ver `optionsFor`. Um quadro nascido com
+     * `dependsOn` e uma lista solta produz um seletor permanentemente vazio,
+     * que foi exatamente o defeito que o quadro em produção teve.
+     *
+     * O pai é apontado pelo RÓTULO, e não pela chave: a chave é gerada a partir
+     * do rótulo na hora de criar o quadro, e escrevê-la aqui seria repetir uma
+     * conta que outro módulo faz.
+     */
     {
       label: "Canal",
       type: "SELECT" as FieldType,
+      required: true,
+      options: CANAIS,
+      showOnCard: true,
+    },
+    {
+      label: "Formato",
+      type: "SELECT" as FieldType,
+      required: true,
+      dependsOnLabel: "Canal",
+      options: FORMATOS_POR_CANAL,
+      showOnCard: true,
+    },
+    /*
+     * A volumetria: é este número que vira "peças entregues" quando o card
+     * chega à coluna de conclusão. Ver `lib/kanban-deliveries.ts`.
+     */
+    {
+      label: "Número de peças",
+      type: "RANGE" as FieldType,
       required: false,
-      options: ["Meta Ads", "TikTok Ads", "Google Ads", "Orgânico", "CRM"],
       showOnCard: true,
     },
     {
@@ -382,6 +545,19 @@ export function isOverdue(dueDate: Date | string | null | undefined): boolean {
  */
 export const CARD_BADGES = [
   {
+    key: "code",
+    label: "Número da demanda",
+    hint: "O \"MKT-42\" acima do título — é por ele que a demanda é citada no Slack, na notificação e na conversa.",
+    default: true,
+    /*
+     * Sem `legacy`, e por isso ligado por padrão mesmo em quadro antigo.
+     *
+     * `parseCardBadges` trata chave ausente como "isto é novo": quadros
+     * configurados antes deste selo existir não o listam, e listá-los como
+     * desligados esconderia o número de quem nunca teve a chance de escolher.
+     */
+  },
+  {
     key: "priority",
     label: "Urgência",
     hint: "A prioridade da demanda, na cor dela.",
@@ -408,12 +584,6 @@ export const CARD_BADGES = [
     hint: "A coluna em que o card está. Útil fora do quadro, na busca e no filtro.",
     default: false,
     legacy: true,
-  },
-  {
-    key: "labels",
-    label: "Etiquetas",
-    hint: "Vídeo, Feed, Stories — as etiquetas que acendem pelo que a demanda respondeu.",
-    default: true,
   },
   {
     key: "briefing",
@@ -929,148 +1099,6 @@ export function resolveMoveAssignees(
   return atuais;
 }
 
-/* ------------------------------------------------------------------ *
- * Etiquetas
- * ------------------------------------------------------------------ */
-
-/**
- * Uma etiqueta do quadro.
- *
- * Não é um texto digitado card a card: é uma REGRA sobre o que a demanda já
- * respondeu. "Vídeo" acende porque o formato escolhido é de vídeo, e não
- * porque alguém lembrou de marcar — assim a etiqueta não pode discordar do
- * briefing, que é o defeito de toda etiqueta manual: ela envelhece na primeira
- * vez que o formato muda e ninguém volta para corrigir.
- */
-export interface CardLabel {
-  id: string;
-  name: string;
-  /** Token do design system — ver `LABEL_COLORS`. */
-  color: string;
-  /** A chave do campo do formulário que a etiqueta observa. */
-  fieldKey: string;
-  /**
-   * Os termos que a acendem. Basta o valor do campo CONTER um deles, sem
-   * distinguir maiúsculas nem acentos.
-   *
-   * Contém, e não é igual, porque a lista de formatos cresce: "Vídeo 1:1" e
-   * "Vídeo 9:16" já existem, "Vídeo 4:5" vai existir, e uma regra de igualdade
-   * exata precisaria ser reeditada a cada formato novo — quer dizer, ela ficaria
-   * desatualizada em silêncio, que é o pior jeito de ficar.
-   */
-  match: string[];
-}
-
-/** As cores de uma etiqueta — os mesmos tokens das fases, pelo mesmo motivo. */
-export const LABEL_COLORS = GROUP_COLORS;
-
-export const DEFAULT_LABEL_COLOR = "var(--info)";
-
-/**
- * As etiquetas que valem enquanto ninguém configurou nada.
- *
- * Respondem à pergunta que o quadro faz o tempo todo — "isto é vídeo ou é
- * estático?" —, que é a primeira coisa que muda quem pega a demanda: peça
- * estática vai para o design, vídeo vai para edição.
- *
- * Feed e Stories aparecem separadas, e não como uma etiqueta "Feed/Stories":
- * o campo de formato aceita mais de uma escolha, então uma peça pedida para os
- * dois lugares mostra as duas etiquetas e diz mais do que uma etiqueta
- * composta diria.
- */
-export const DEFAULT_CARD_LABELS: CardLabel[] = [
-  { id: "video", name: "Vídeo", color: "var(--info)", fieldKey: "formato", match: ["video", "youtube", "spark ad"] },
-  { id: "feed", name: "Feed", color: "var(--primary)", fieldKey: "formato", match: ["feed"] },
-  { id: "stories", name: "Stories", color: "var(--warning)", fieldKey: "formato", match: ["story", "stories"] },
-];
-
-/** Sem acento e sem caixa: "Vídeo" e "video" são a mesma palavra para quem lê. */
-function foldTerm(value: string): string {
-  return value
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .toLowerCase()
-    .trim();
-}
-
-/**
- * A configuração gravada, de volta como lista.
- *
- * Nulo e lista vazia são coisas diferentes, como nos badges: nulo é "nunca foi
- * configurado", e valem as etiquetas padrão; `[]` é a escolha de quem não quer
- * etiqueta nenhuma. Tratar os dois como iguais faria as padrões voltarem
- * sozinhas no primeiro recarregamento.
- */
-export function parseCardLabels(raw: string | null | undefined): CardLabel[] {
-  if (raw === null || raw === undefined) return DEFAULT_CARD_LABELS.map((l) => ({ ...l }));
-
-  try {
-    const parsed = JSON.parse(raw);
-    if (!Array.isArray(parsed)) return DEFAULT_CARD_LABELS.map((l) => ({ ...l }));
-    return sanitizeLabels(parsed);
-  } catch {
-    return DEFAULT_CARD_LABELS.map((l) => ({ ...l }));
-  }
-}
-
-/** Fica só o que é utilizável: etiqueta sem nome, sem campo ou sem termo não acende nunca. */
-function sanitizeLabels(list: unknown[]): CardLabel[] {
-  const vistos = new Set<string>();
-  const limpas: CardLabel[] = [];
-
-  for (const bruto of list) {
-    if (!bruto || typeof bruto !== "object") continue;
-    const item = bruto as Record<string, unknown>;
-
-    const id = String(item.id ?? "").trim();
-    const name = String(item.name ?? "").trim().slice(0, 40);
-    const fieldKey = String(item.fieldKey ?? "").trim();
-    const match = Array.isArray(item.match)
-      ? Array.from(new Set(item.match.map((t) => String(t).trim()).filter(Boolean))).slice(0, 20)
-      : [];
-
-    if (!id || !name || !fieldKey || !match.length) continue;
-    if (vistos.has(id)) continue;
-    vistos.add(id);
-
-    const color = LABEL_COLORS.some((c) => c.token === item.color)
-      ? String(item.color)
-      : DEFAULT_LABEL_COLOR;
-
-    limpas.push({ id, name, color, fieldKey, match });
-  }
-
-  return limpas;
-}
-
-/** A lista vinda da tela, pronta para gravar. Sempre texto: `[]` precisa caber. */
-export function serializeCardLabels(value: unknown): string {
-  return JSON.stringify(Array.isArray(value) ? sanitizeLabels(value) : []);
-}
-
-/**
- * As etiquetas que acendem para um card, na ordem em que foram configuradas.
- *
- * Lê as respostas do formulário, e nada mais: não há estado de etiqueta gravado
- * no card para sair de sincronia com o briefing.
- */
-export function labelsForCard(
-  values: Record<string, unknown>,
-  labels: CardLabel[]
-): CardLabel[] {
-  return labels.filter((label) => {
-    const bruto = values[label.fieldKey];
-    if (bruto === undefined || bruto === null || bruto === "") return false;
-
-    const respostas = (Array.isArray(bruto) ? bruto : [bruto]).map((v) => foldTerm(String(v)));
-
-    return label.match.some((termo) => {
-      const alvo = foldTerm(termo);
-      return !!alvo && respostas.some((r) => r.includes(alvo));
-    });
-  });
-}
-
 /**
  * O briefing reduzido a uma linha de texto simples.
  *
@@ -1093,6 +1121,15 @@ export function plainSummary(markdown: string | null | undefined): string {
     .filter(Boolean)
     .join(" · ")
     .replace(/[ \t]+/g, " ")
+    .trim();
+}
+
+/** Sem acento e sem caixa: "Vídeo" e "video" são a mesma palavra para quem lê. */
+function foldTerm(value: string): string {
+  return value
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
     .trim();
 }
 
@@ -1151,4 +1188,72 @@ export function clampText(text: string, limit = CARD_TEXT_LIMIT): string {
   const base = ultimoEspaco > limit * 0.6 ? corte.slice(0, ultimoEspaco) : corte;
 
   return `${base.trimEnd()}…`;
+}
+
+/**
+ * O prefixo do número da demanda. "MKT-42".
+ *
+ * Constante, e não coluna do quadro, porque hoje há um time. Quando houver
+ * dois, o prefixo passa a ser do `Board` e a sequência passa a ser por quadro —
+ * as duas mudanças andam juntas, porque prefixo por time com sequência global
+ * produziria "MKT-1" e "DEV-2", que parece falta de número e não organização.
+ */
+export const CARD_CODE_PREFIX = "MKT";
+
+/** O número como a equipe o escreve. Nulo só nas demandas anteriores à coluna. */
+export function formatCardCode(code: number | null | undefined): string | null {
+  return typeof code === "number" ? `${CARD_CODE_PREFIX}-${code}` : null;
+}
+
+/**
+ * Cria um card já com o próximo número da sequência.
+ *
+ * O número sai de `MAX(code) + 1`, e duas aberturas simultâneas podem ler o
+ * mesmo máximo. Em vez de serializar toda criação de demanda com um bloqueio —
+ * caro e permanente por um caso que acontece quando duas pessoas clicam no
+ * mesmo segundo —, deixamos a restrição `@unique` do banco ser o árbitro e
+ * tentamos de novo: quem perder a corrida relê o máximo, que agora já inclui o
+ * vencedor. É a mesma escolha do portão do cron, pelo mesmo motivo.
+ *
+ * Três tentativas cobrem folgadamente a concorrência real de um quadro; falhar
+ * depois disso é sintoma de outra coisa, e vale subir em vez de mascarar.
+ */
+export async function criarCardComCodigo<T>(
+  /*
+   * O cliente entra por parâmetro, e descrito pelo que se usa dele.
+   *
+   * Este módulo é importado por componentes de cliente — puxar o Prisma aqui
+   * arrastaria o motor de consulta para dentro do pacote do navegador. O tipo
+   * estrutural diz exatamente a chamada que esta função faz, e nada além.
+   */
+  prisma: {
+    boardCard: {
+      aggregate: (args: { _max: { code: true } }) => Promise<{ _max: { code: number | null } }>;
+    };
+  },
+  criar: (code: number) => Promise<T>
+): Promise<T> {
+  let ultimoErro: unknown;
+
+  for (let tentativa = 0; tentativa < 3; tentativa++) {
+    const maior = await prisma.boardCard.aggregate({ _max: { code: true } });
+    const code = (maior?._max?.code ?? 0) + 1;
+
+    try {
+      return await criar(code);
+    } catch (error: unknown) {
+      // P2002 = violação de unicidade. Só o campo `code` é retentável aqui:
+      // qualquer outro conflito é um problema de verdade e sobe na hora.
+      const falha = error as { code?: string; meta?: { target?: unknown } };
+      const alvo = falha?.meta?.target;
+      const conflitoDeCodigo =
+        falha?.code === "P2002" &&
+        (alvo === "BoardCard_code_key" || (Array.isArray(alvo) && alvo.includes("code")));
+
+      if (!conflitoDeCodigo) throw error;
+      ultimoErro = error;
+    }
+  }
+
+  throw ultimoErro;
 }

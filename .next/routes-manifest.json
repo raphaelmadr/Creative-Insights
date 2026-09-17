@@ -29,6 +29,22 @@
         "nxtPnextauth": "nxtPnextauth"
       },
       "namedRegex": "^/api/auth/(?<nxtPnextauth>.+?)(?:/)?$"
+    },
+    {
+      "page": "/api/public/demanda/[token]",
+      "regex": "^/api/public/demanda/([^/]+?)(?:/)?$",
+      "routeKeys": {
+        "nxtPtoken": "nxtPtoken"
+      },
+      "namedRegex": "^/api/public/demanda/(?<nxtPtoken>[^/]+?)(?:/)?$"
+    },
+    {
+      "page": "/demanda/[token]",
+      "regex": "^/demanda/([^/]+?)(?:/)?$",
+      "routeKeys": {
+        "nxtPtoken": "nxtPtoken"
+      },
+      "namedRegex": "^/demanda/(?<nxtPtoken>[^/]+?)(?:/)?$"
     }
   ],
   "staticRoutes": [
@@ -129,6 +145,12 @@
       "namedRegex": "^/api/creator/groups(?:/)?$"
     },
     {
+      "page": "/api/creator/notifications",
+      "regex": "^/api/creator/notifications(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/api/creator/notifications(?:/)?$"
+    },
+    {
       "page": "/api/creator/people",
       "regex": "^/api/creator/people(?:/)?$",
       "routeKeys": {},
@@ -157,6 +179,12 @@
       "regex": "^/api/deliveries(?:/)?$",
       "routeKeys": {},
       "namedRegex": "^/api/deliveries(?:/)?$"
+    },
+    {
+      "page": "/api/demanda",
+      "regex": "^/api/demanda(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/api/demanda(?:/)?$"
     },
     {
       "page": "/api/goals",
@@ -243,6 +271,12 @@
       "namedRegex": "^/api/settings/cron\\-secret(?:/)?$"
     },
     {
+      "page": "/api/settings/summary",
+      "regex": "^/api/settings/summary(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/api/settings/summary(?:/)?$"
+    },
+    {
       "page": "/api/sync-all",
       "regex": "^/api/sync\\-all(?:/)?$",
       "routeKeys": {},
@@ -253,12 +287,6 @@
       "regex": "^/api/sync\\-media(?:/)?$",
       "routeKeys": {},
       "namedRegex": "^/api/sync\\-media(?:/)?$"
-    },
-    {
-      "page": "/api/sync-slack",
-      "regex": "^/api/sync\\-slack(?:/)?$",
-      "routeKeys": {},
-      "namedRegex": "^/api/sync\\-slack(?:/)?$"
     },
     {
       "page": "/api/users",

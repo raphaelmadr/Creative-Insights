@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useMemo, useRef } from "react";
 import { Calendar as CalendarIcon, ChevronLeft, ChevronRight } from "lucide-react";
 // A grade e as conversões de data moram em `lib/calendar.ts` — o seletor de
 // data única do gerador de copy desenha o mesmo mês a partir delas.
@@ -11,6 +11,7 @@ import {
   generateCalendarGrid,
   parseDateInput,
   toDateInputValue,
+  todayUtcDay,
 } from "@/lib/calendar";
 
 interface DateRangePickerProps {
@@ -36,6 +37,23 @@ export default function DateRangePicker({ dateFrom, dateTo, onChange }: DateRang
   const [viewMonth, setViewMonth] = useState(initialStart.getUTCMonth());
   
   const [hoverDate, setHoverDate] = useState<Date | null>(null);
+
+  /*
+   * Hoje, no fuso do negócio — não no do navegador.
+   *
+   * Vem de `todayUtcDay()` porque a resposta precisa ser a MESMA para todo
+   * mundo: com `new Date()` local, quem abrisse a tela de outro fuso veria
+   * outro dia marcado, e depois das 21h em São Paulo o próprio horário de
+   * Brasília já viraria o dia seguinte em UTC. Este componente carregava uma
+   * segunda cópia dessa conversão dentro de `applyPreset`, e `app/page.tsx`
+   * uma terceira; três lugares para a mesma pergunta é três lugares para ela
+   * divergir.
+   *
+   * Calculado uma vez: a grade não precisa reagir à virada da meia-noite, e
+   * recalcular a cada render só trocaria o dia debaixo do cursor de quem está
+   * com o seletor aberto nesse instante.
+   */
+  const hoje = useMemo(() => todayUtcDay(), []);
 
   useEffect(() => {
     setStart(dateFrom ? parseDateInput(dateFrom) : new Date());
@@ -120,9 +138,7 @@ export default function DateRangePicker({ dateFrom, dateTo, onChange }: DateRang
   };
 
   const applyPreset = (preset: string) => {
-    const now = new Date();
-    const today = new Date(now.toLocaleString("en-US", { timeZone: "America/Sao_Paulo" }));
-    const tUTC = new Date(Date.UTC(today.getFullYear(), today.getMonth(), today.getDate()));
+    const tUTC = hoje;
     let newStart = tUTC;
     let newEnd = tUTC;
 
@@ -215,7 +231,27 @@ export default function DateRangePicker({ dateFrom, dateTo, onChange }: DateRang
                     {/* The highlight bar for ranges */}
                     {(isSel || isHovRange) && <div style={{ position: "absolute", top: "4px", bottom: "4px", left: 0, right: 0, ...bgStyle, borderRadius: borderRad, zIndex: 1 }} />}
                     
-                    <button onClick={() => handleDateClick(date)} onMouseEnter={() => setHoverDate(date)} aria-pressed={!!isBound} className="btn btn-day" style={{ position: "relative", zIndex: 2 }} >
+                    {/*
+                      Hoje ganha o contorno, e não o preenchimento: o cheio é da
+                      seleção, e dois cheios na mesma grade fariam parecer que
+                      há duas escolhas. Mesmo idioma do seletor de data única
+                      em `components/DatePicker.tsx`.
+
+                      Some quando o dia já é limite do período: aí ele já está
+                      destacado, e somar contorno a preenchimento só suja.
+                    */}
+                    <button
+                      onClick={() => handleDateClick(date)}
+                      onMouseEnter={() => setHoverDate(date)}
+                      aria-pressed={!!isBound}
+                      aria-current={date.getTime() === hoje.getTime() ? "date" : undefined}
+                      className="btn btn-day"
+                      style={
+                        date.getTime() === hoje.getTime() && !isBound
+                          ? { position: "relative", zIndex: 2, borderColor: "var(--primary)", color: "var(--primary)", fontWeight: 600 }
+                          : { position: "relative", zIndex: 2 }
+                      }
+                    >
                       {date.getUTCDate()}
                     </button>
                   </div>

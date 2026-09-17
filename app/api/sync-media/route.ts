@@ -1,5 +1,6 @@
 import { describeMediaReport, runMetaMediaSync } from "@/lib/meta-media-sync";
 import { logInfo, logWarning, logError } from "@/lib/logger";
+import { friendlyFailureMessage } from "@/lib/external-log";
 
 export const maxDuration = 300;
 export const dynamic = "force-dynamic";
@@ -68,7 +69,9 @@ export async function POST(req: Request) {
         await logError("SYNC", error, "/api/sync-media");
         send({
           type: "error",
-          error: error instanceof Error ? error.message : "Erro desconhecido",
+          // A fase de mídia fala só com a Meta: o que falha aqui é dela, e vai
+          // para a tela traduzido. O cru já foi para o log, na linha acima.
+          error: friendlyFailureMessage([{ service: "Meta Ads", error }]),
           percentage: 100,
         });
       } finally {

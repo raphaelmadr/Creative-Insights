@@ -9,15 +9,23 @@
  */
 
 import React, { useCallback, useEffect, useState } from "react";
-import { Loader2, ShieldCheck, User as UserIcon } from "lucide-react";
+import { Loader2, PenTool, ShieldCheck, User as UserIcon } from "lucide-react";
 import { Avatar } from "@/components/Avatar";
+import { ROLE_DESCRIPTION, ROLE_LABEL, USER_ROLES, type UserRole } from "@/lib/roles";
+
+/** O ícone de cada degrau — o mesmo do módulo que ele abre. */
+const ROLE_ICON = {
+  ADMIN: ShieldCheck,
+  CREATOR: PenTool,
+  MEMBER: UserIcon,
+} as const;
 
 interface ManagedUser {
   id: string;
   name: string | null;
   email: string;
   image: string | null;
-  role: "ADMIN" | "MEMBER";
+  role: UserRole;
   lastSeenAt: string | null;
   isOnline: boolean;
   isSelf: boolean;
@@ -56,7 +64,7 @@ export default function UsuariosPage() {
     load();
   }, [load]);
 
-  const changeRole = async (user: ManagedUser, role: "ADMIN" | "MEMBER") => {
+  const changeRole = async (user: ManagedUser, role: UserRole) => {
     setSavingId(user.id);
     setError(null);
 
@@ -86,15 +94,55 @@ export default function UsuariosPage() {
   };
 
   const admins = users.filter((u) => u.role === "ADMIN").length;
+  const criadores = users.filter((u) => u.role === "CREATOR").length;
 
   return (
     <div>
       <div style={{ marginBottom: "1.5rem" }}>
         <h2 style={{ fontSize: "var(--text-metric-lg)", fontWeight: 700, marginBottom: "0.35rem" }}>Usuários e acesso</h2>
         <p style={{ color: "var(--muted)", fontSize: "var(--text-cardtitle)", lineHeight: 1.6, maxWidth: "620px" }}>
-          Administradores abrem este painel — metas, credenciais das integrações, prompts de IA e
-          logs. Membros usam o resto da plataforma normalmente, sem ver nenhuma credencial.
+          O acesso é uma escada de três degraus, e cada um alcança tudo o que está abaixo.
         </p>
+
+        {/*
+          A lista explica os degraus uma vez, aqui, em vez de repetir a
+          explicação em cada linha da tabela: quem decide o papel de alguém lê
+          isto antes de clicar, e depois só escolhe.
+        */}
+        <ul
+          style={{
+            listStyle: "none",
+            padding: 0,
+            margin: "1rem 0 0",
+            display: "flex",
+            flexDirection: "column",
+            gap: "0.5rem",
+            maxWidth: "620px",
+          }}
+        >
+          {USER_ROLES.map((role) => {
+            const Icon = ROLE_ICON[role];
+            return (
+              <li
+                key={role}
+                style={{
+                  display: "flex",
+                  alignItems: "flex-start",
+                  gap: "0.6rem",
+                  fontSize: "var(--text-caption)",
+                  color: "var(--muted)",
+                  lineHeight: 1.5,
+                }}
+              >
+                <Icon size={15} color="var(--primary)" style={{ flexShrink: 0, marginTop: "0.1rem" }} />
+                <span>
+                  <strong style={{ color: "var(--foreground)" }}>{ROLE_LABEL[role]}</strong> ·{" "}
+                  {ROLE_DESCRIPTION[role]}
+                </span>
+              </li>
+            );
+          })}
+        </ul>
       </div>
 
       {error && (
@@ -122,7 +170,8 @@ export default function UsuariosPage() {
         <>
           <div style={{ fontSize: "var(--text-caption)", color: "var(--muted)", marginBottom: "0.75rem" }}>
             {users.length} {users.length === 1 ? "conta" : "contas"} · {admins}{" "}
-            {admins === 1 ? "administrador" : "administradores"}
+            {admins === 1 ? "administrador" : "administradores"} · {criadores}{" "}
+            {criadores === 1 ? "creator" : "creators"}
           </div>
 
           <div
@@ -165,14 +214,14 @@ export default function UsuariosPage() {
                   </div>
 
                   <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
-                    {(["ADMIN", "MEMBER"] as const).map((role) => {
+                    {USER_ROLES.map((role) => {
                       const selected = user.role === role;
-                      const Icon = role === "ADMIN" ? ShieldCheck : UserIcon;
+                      const Icon = ROLE_ICON[role];
 
                       return (
-                        <button key={role} onClick={() => !selected && changeRole(user, role)} disabled={selected || savingId === user.id} aria-pressed={selected} className="btn btn-toggle" >
+                        <button key={role} onClick={() => !selected && changeRole(user, role)} disabled={selected || savingId === user.id} aria-pressed={selected} className="btn btn-toggle" title={ROLE_DESCRIPTION[role]} >
                           <Icon size={14} />
-                          {role === "ADMIN" ? "Administrador" : "Membro"}
+                          {ROLE_LABEL[role]}
                         </button>
                       );
                     })}

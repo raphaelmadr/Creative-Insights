@@ -15,9 +15,6 @@
     },
     "/api/sync-media": {
       "maxDuration": 300
-    },
-    "/api/sync-slack": {
-      "maxDuration": 300
     }
   }
 }

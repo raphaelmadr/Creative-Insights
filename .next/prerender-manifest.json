@@ -74,78 +74,6 @@
         "x-next-revalidate-tag-token"
       ]
     },
-    "/creator": {
-      "experimentalBypassFor": [
-        {
-          "type": "header",
-          "key": "next-action"
-        },
-        {
-          "type": "header",
-          "key": "content-type",
-          "value": "multipart/form-data;.*"
-        }
-      ],
-      "initialRevalidateSeconds": false,
-      "srcRoute": "/creator",
-      "dataRoute": "/creator.rsc",
-      "allowHeader": [
-        "host",
-        "x-matched-path",
-        "x-prerender-revalidate",
-        "x-prerender-revalidate-if-generated",
-        "x-next-revalidated-tags",
-        "x-next-revalidate-tag-token"
-      ]
-    },
-    "/creator/copy": {
-      "experimentalBypassFor": [
-        {
-          "type": "header",
-          "key": "next-action"
-        },
-        {
-          "type": "header",
-          "key": "content-type",
-          "value": "multipart/form-data;.*"
-        }
-      ],
-      "initialRevalidateSeconds": false,
-      "srcRoute": "/creator/copy",
-      "dataRoute": "/creator/copy.rsc",
-      "allowHeader": [
-        "host",
-        "x-matched-path",
-        "x-prerender-revalidate",
-        "x-prerender-revalidate-if-generated",
-        "x-next-revalidated-tags",
-        "x-next-revalidate-tag-token"
-      ]
-    },
-    "/creator/kanban": {
-      "experimentalBypassFor": [
-        {
-          "type": "header",
-          "key": "next-action"
-        },
-        {
-          "type": "header",
-          "key": "content-type",
-          "value": "multipart/form-data;.*"
-        }
-      ],
-      "initialRevalidateSeconds": false,
-      "srcRoute": "/creator/kanban",
-      "dataRoute": "/creator/kanban.rsc",
-      "allowHeader": [
-        "host",
-        "x-matched-path",
-        "x-prerender-revalidate",
-        "x-prerender-revalidate-if-generated",
-        "x-next-revalidated-tags",
-        "x-next-revalidate-tag-token"
-      ]
-    },
     "/equipe": {
       "experimentalBypassFor": [
         {
@@ -251,8 +179,8 @@
   "dynamicRoutes": {},
   "notFoundRoutes": [],
   "preview": {
-    "previewModeId": "26f574c070181ff203bf606f273a4039",
-    "previewModeSigningKey": "b61006383ae3f9ae1222cd1934f6e88bd77e4c2c34fee65a5465c063641e45bb",
-    "previewModeEncryptionKey": "09677b038b3cecb761305fbbfb2666f07108e28cb3bbf4401c90ee0aba55dcca"
+    "previewModeId": "4d317b2449022544b19967a7bcecfced",
+    "previewModeSigningKey": "fa51340748d1ca4c4eed9574e927f9eb7ae19880d927cefe39b7a04843612776",
+    "previewModeEncryptionKey": "51baeafb099ab93ff743adc607acc07a5668e18cdecfce04a068b4eb09fc71f8"
   }
 }

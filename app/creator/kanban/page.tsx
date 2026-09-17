@@ -1,13 +1,13 @@
 "use client";
 
 import React, { useCallback, useEffect, useRef, useState } from "react";
-import { Plus, SlidersHorizontal, Columns3, LayoutGrid, Tags, Tag, Layers, Archive } from "lucide-react";
+import { Plus, SlidersHorizontal, Columns3, LayoutGrid, Layers, Archive, Link2 } from "lucide-react";
 import KanbanBoard from "@/components/creator/KanbanBoard";
 import DemandDialog, { type PersonOption } from "@/components/creator/DemandDialog";
 import FieldsDialog from "@/components/creator/FieldsDialog";
-import ColumnsDialog, { type ColumnDefinition } from "@/components/creator/ColumnsDialog";
-import BadgesDialog from "@/components/creator/BadgesDialog";
-import LabelsDialog from "@/components/creator/LabelsDialog";
+import { type ColumnDefinition } from "@/components/creator/ColumnsSection";
+import BoardSetupDialog from "@/components/creator/BoardSetupDialog";
+import PublicLinkDialog from "@/components/creator/PublicLinkDialog";
 import GroupsDialog from "@/components/creator/GroupsDialog";
 import ArchiveDialog from "@/components/creator/ArchiveDialog";
 import CardDialog, { type CardData } from "@/components/creator/CardDialog";
@@ -15,7 +15,6 @@ import { type FieldDefinition } from "@/components/creator/FieldInput";
 import { Skeleton } from "@/components/Skeleton";
 import {
   parseCardBadges,
-  parseCardLabels,
   type GroupDefinition,
   type ColumnPlacement,
 } from "@/lib/kanban";
@@ -33,8 +32,8 @@ interface BoardDetail extends BoardSummary {
   groups: GroupDefinition[];
   /** JSON dos mini-badges — cru, como está no banco. Ver `parseCardBadges`. */
   cardBadges: string | null;
-  /** JSON das etiquetas — cru, como está no banco. Ver `parseCardLabels`. */
-  cardLabels: string | null;
+  /** O código do link público, ou nulo quando o quadro não tem um. */
+  publicToken: string | null;
 }
 
 /**
@@ -56,9 +55,9 @@ export default function KanbanPage() {
 
   const [newDemand, setNewDemand] = useState(false);
   const [editFields, setEditFields] = useState(false);
-  const [editColumns, setEditColumns] = useState(false);
-  const [editBadges, setEditBadges] = useState(false);
-  const [editLabels, setEditLabels] = useState(false);
+  /** Etapas e cara do card: uma pergunta só, uma janela só. */
+  const [editBoard, setEditBoard] = useState(false);
+  const [editLink, setEditLink] = useState(false);
   const [editGroups, setEditGroups] = useState(false);
   const [showArchive, setShowArchive] = useState(false);
 
@@ -163,9 +162,8 @@ export default function KanbanPage() {
     !!openCard ||
     newDemand ||
     editFields ||
-    editColumns ||
-    editBadges ||
-    editLabels ||
+    editBoard ||
+    editLink ||
     editGroups ||
     showArchive;
 
@@ -365,9 +363,28 @@ export default function KanbanPage() {
           </div>
 
           <div style={{ display: "flex", alignItems: "center", flexWrap: "wrap", gap: "0.75rem" }}>
+            {/*
+              As duas portas de entrada ficam juntas, e nesta ordem.
+
+              Abrir demanda e dar a alguém o endereço para abrir uma são a mesma
+              pergunta — "como isto entra no quadro?" —, e o link estava na barra
+              de configuração, entre Campos e Grupos, que é onde se ajusta o
+              quadro, não onde se usa. O secundário ao lado do primário diz qual
+              é o caminho de todo dia e qual é o de quando se precisa dele.
+            */}
             <button className="btn btn-primary" onClick={() => setNewDemand(true)} disabled={!board}>
               <Plus size={15} />
               Nova demanda
+            </button>
+
+            <button
+              className="btn btn-secondary"
+              onClick={() => setEditLink(true)}
+              disabled={!board}
+              title="Endereço para qualquer pessoa da empresa abrir demanda sem ter conta"
+            >
+              <Link2 size={14} />
+              Link público
             </button>
 
             {boards.length > 1 && (
@@ -403,32 +420,12 @@ export default function KanbanPage() {
               <button
                 className="btn btn-secondary"
                 style={headerButton}
-                onClick={() => setEditColumns(true)}
+                onClick={() => setEditBoard(true)}
                 disabled={!board}
-                title="Renomear, colorir e reordenar as etapas"
+                title="As etapas do fluxo e o que o card mostra em cada uma"
               >
                 <Columns3 size={14} />
-                Etapas
-              </button>
-              <button
-                className="btn btn-secondary"
-                style={headerButton}
-                onClick={() => setEditBadges(true)}
-                disabled={!board}
-                title="Escolher o que o card mostra sem ser aberto"
-              >
-                <Tags size={14} />
-                Card
-              </button>
-              <button
-                className="btn btn-secondary"
-                style={headerButton}
-                onClick={() => setEditLabels(true)}
-                disabled={!board}
-                title="Definir as etiquetas que aparecem sozinhas nos cards"
-              >
-                <Tag size={14} />
-                Etiquetas
+                Etapas e cards
               </button>
               <button
                 className="btn btn-secondary"
@@ -507,7 +504,6 @@ export default function KanbanPage() {
             people={people}
             groups={board.groups}
             badges={parseCardBadges(board.cardBadges)}
-            labels={parseCardLabels(board.cardLabels)}
             onOpenCard={setOpenCard}
             onMove={move}
             onReorderColumns={reordenarEtapas}
@@ -552,12 +548,23 @@ export default function KanbanPage() {
             onChanged={() => load(activeId)}
           />
 
-          <ColumnsDialog
-            open={editColumns}
-            onClose={() => setEditColumns(false)}
+          <BoardSetupDialog
+            open={editBoard}
+            onClose={() => setEditBoard(false)}
             boardId={board.id}
             columns={board.columns}
             groups={board.groups}
+            badges={parseCardBadges(board.cardBadges)}
+            fields={board.fields}
+            people={people}
+            onChanged={() => load(activeId)}
+          />
+
+          <PublicLinkDialog
+            open={editLink}
+            onClose={() => setEditLink(false)}
+            boardId={board.id}
+            token={board.publicToken}
             onChanged={() => load(activeId)}
           />
 
@@ -567,24 +574,6 @@ export default function KanbanPage() {
             boardId={board.id}
             groups={board.groups}
             people={people}
-            onChanged={() => load(activeId)}
-          />
-
-          <LabelsDialog
-            open={editLabels}
-            onClose={() => setEditLabels(false)}
-            boardId={board.id}
-            labels={parseCardLabels(board.cardLabels)}
-            fields={board.fields}
-            onChanged={() => load(activeId)}
-          />
-
-          <BadgesDialog
-            open={editBadges}
-            onClose={() => setEditBadges(false)}
-            boardId={board.id}
-            badges={parseCardBadges(board.cardBadges)}
-            fields={board.fields}
             onChanged={() => load(activeId)}
           />
 
@@ -610,7 +599,6 @@ export default function KanbanPage() {
             fields={board.fields}
             columns={board.columns}
             groups={board.groups}
-            labels={parseCardLabels(board.cardLabels)}
             people={people}
             onClose={() => setOpenCard(null)}
             onChanged={() => load(activeId)}

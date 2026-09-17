@@ -30,6 +30,8 @@ export async function ensureDefaultBoard() {
   if (existing > 0) return;
 
   const keys = new Set<string>();
+  /** Rótulo → chave gerada, para resolver as dependências do molde. */
+  const porRotulo = new Map<string, string>();
 
   await prisma.board.create({
     data: {
@@ -50,6 +52,12 @@ export async function ensureDefaultBoard() {
         create: DEFAULT_BOARD.fields.map((f, i) => {
           const key = uniqueFieldKey(f.label, keys);
           keys.add(key);
+          // A chave é GERADA a partir do rótulo, então a dependência não pode
+          // ser escrita à mão no molde: bastaria o gerador mudar de regra para
+          // o campo nascer apontando para um pai inexistente — e um dependente
+          // sem pai fica com o seletor vazio para sempre, sem erro nenhum.
+          porRotulo.set(f.label, key);
+          const rotuloDoPai = "dependsOnLabel" in f ? (f.dependsOnLabel as string) : null;
           return {
             key,
             label: f.label,
@@ -57,6 +65,7 @@ export async function ensureDefaultBoard() {
             required: f.required,
             placeholder: "placeholder" in f ? f.placeholder : null,
             options: "options" in f && f.options ? JSON.stringify(f.options) : null,
+            dependsOn: rotuloDoPai ? porRotulo.get(rotuloDoPai) ?? null : null,
             showOnCard: f.showOnCard,
             position: i,
           };

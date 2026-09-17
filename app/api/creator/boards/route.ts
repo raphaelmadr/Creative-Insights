@@ -7,14 +7,16 @@
  */
 
 import { NextResponse } from "next/server";
+import { randomBytes } from "crypto";
 import prisma from "@/lib/prisma";
-import { getCurrentUser } from "@/lib/auth";
+import { getCurrentCreator } from "@/lib/auth";
+import { CREATOR_ONLY_ERROR } from "@/lib/roles";
 import { ensureDefaultBoard, archiveDeliveredBeforeThisMonth, boardPulse, BOARD_INCLUDE } from "@/lib/kanban-store";
-import { serializeCardBadges, serializeCardLabels } from "@/lib/kanban";
+import { serializeCardBadges } from "@/lib/kanban";
 
 export async function GET(request: Request) {
-  const user = await getCurrentUser();
-  if (!user) return NextResponse.json({ error: "Não autenticado." }, { status: 401 });
+  const user = await getCurrentCreator();
+  if (!user) return NextResponse.json({ error: CREATOR_ONLY_ERROR }, { status: 403 });
 
   try {
     await ensureDefaultBoard();
@@ -76,8 +78,8 @@ export async function GET(request: Request) {
 }
 
 export async function POST(request: Request) {
-  const user = await getCurrentUser();
-  if (!user) return NextResponse.json({ error: "Não autenticado." }, { status: 401 });
+  const user = await getCurrentCreator();
+  if (!user) return NextResponse.json({ error: CREATOR_ONLY_ERROR }, { status: 403 });
 
   try {
     const { name, description } = await request.json();
@@ -116,11 +118,11 @@ export async function POST(request: Request) {
 }
 
 export async function PUT(request: Request) {
-  const user = await getCurrentUser();
-  if (!user) return NextResponse.json({ error: "Não autenticado." }, { status: 401 });
+  const user = await getCurrentCreator();
+  if (!user) return NextResponse.json({ error: CREATOR_ONLY_ERROR }, { status: 403 });
 
   try {
-    const { id, name, description, receivesCopy, cardBadges, cardLabels } = await request.json();
+    const { id, name, description, receivesCopy, cardBadges, publicLink } = await request.json();
     if (!id) return NextResponse.json({ error: "ID do quadro é obrigatório." }, { status: 400 });
 
     /*
@@ -151,11 +153,16 @@ export async function PUT(request: Request) {
          */
         ...(cardBadges !== undefined ? { cardBadges: serializeCardBadges(cardBadges) } : {}),
         /*
-         * Mesma regra das etiquetas: `serializeCardLabels` sempre devolve texto,
-         * e `[]` é uma escolha legítima — quem não quer etiqueta nenhuma não
-         * pode receber as padrão de volta na próxima leitura.
+         * O link público, ligado ou desligado — e o código vem do servidor,
+         * nunca do corpo da requisição.
+         *
+         * Se a tela pudesse escolher o valor, quem manda a requisição escolhe
+         * o dele: bastaria pedir `publicLink: "aaa"` para ter uma porta com
+         * senha conhecida. "rotate" também é o desfazer de um vazamento —
+         * gerar outro invalida o anterior na mesma escrita.
          */
-        ...(cardLabels !== undefined ? { cardLabels: serializeCardLabels(cardLabels) } : {}),
+        ...(publicLink === "rotate" ? { publicToken: randomBytes(16).toString("hex") } : {}),
+        ...(publicLink === "revoke" ? { publicToken: null } : {}),
       },
       include: BOARD_INCLUDE,
     });
@@ -167,8 +174,8 @@ export async function PUT(request: Request) {
 }
 
 export async function DELETE(request: Request) {
-  const user = await getCurrentUser();
-  if (!user) return NextResponse.json({ error: "Não autenticado." }, { status: 401 });
+  const user = await getCurrentCreator();
+  if (!user) return NextResponse.json({ error: CREATOR_ONLY_ERROR }, { status: 403 });
 
   try {
     const { id } = await request.json();

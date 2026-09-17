@@ -24,23 +24,29 @@
  */
 export const COPY_CHANNELS = [
   {
-    id: "meta",
-    label: "Meta",
+    id: "parcerias",
+    label: "Parcerias",
     /** O que o leilão e a superfície impõem à escrita, dito ao modelo. */
     guidance:
-      "Meta Ads (Instagram e Facebook). O texto principal fica acima do criativo e é cortado por \"ver mais\" perto dos 125 caracteres — a primeira linha precisa segurar sozinha.",
+      "Peça para ação com parceiro — marca, criador ou veículo. Quem lê encontra a allu pela voz de outra pessoa, então o texto não pode soar como anúncio nosso colado no conteúdo dela.",
+  },
+  {
+    id: "meta",
+    label: "Meta (Facebook, Instagram, WhatsApp)",
+    guidance:
+      "Meta Ads (Instagram, Facebook e WhatsApp). O texto principal fica acima do criativo e é cortado por \"ver mais\" perto dos 125 caracteres — a primeira linha precisa segurar sozinha.",
   },
   {
     id: "tiktok",
-    label: "TikTok",
+    label: "TikTok Ads",
     guidance:
       "TikTok Ads. A legenda é curta e aparece sobre o vídeo, disputando espaço com a interface. Linguagem de quem está na plataforma, não de quem está anunciando nela.",
   },
   {
     id: "google",
-    label: "Google",
+    label: "Google (PMax)",
     guidance:
-      "Google Ads. Quem vê ou já procurou pelo produto, ou está em contexto de leitura — em nenhum dos dois casos há tolerância para rodeio.",
+      "Google Performance Max. O mesmo texto é remontado pela máquina em pesquisa, display, YouTube e Shopping — cada linha precisa se sustentar fora de ordem e sem as vizinhas.",
   },
   {
     id: "site",
@@ -55,10 +61,10 @@ export const COPY_CHANNELS = [
       "Disparo para a base própria — gente que já se cadastrou ou já alugou. Trate como conversa com quem conhece a marca, não como anúncio de primeira impressão.",
   },
   {
-    id: "organico",
-    label: "Orgânico",
+    id: "outros",
+    label: "Outros",
     guidance:
-      "Post sem mídia paga. Não há leilão a vencer, há atenção a merecer: o texto precisa valer a leitura mesmo de quem não estava procurando nada.",
+      "Canal fora da lista, descrito por quem abriu a demanda. Sem superfície conhecida, escreva de forma neutra e evite referências a leilão, feed ou assunto de e-mail.",
   },
 ] as const;
 
@@ -81,159 +87,217 @@ export function findChannel(id: string | undefined | null) {
  * fariam a lista devolver o primeiro que aparecesse.
  */
 export const COPY_FORMATS = [
+  /*
+   * Meta, TikTok, Google e Parcerias entram com UMA opção: "Todos os formatos e
+   * tamanhos".
+   *
+   * É como a equipe pede hoje — a demanda cobre o pacote inteiro do canal, e não
+   * uma peça de uma proporção. Detalhar story, feed e carrossel aqui obrigaria a
+   * abrir uma demanda por proporção da mesma campanha, que é justamente o que se
+   * quer evitar. Site e CRM continuam listados porque ali o formato MUDA o
+   * trabalho: um ícone e um slide de home não são a mesma peça.
+   */
   {
-    id: "meta-feed-stories",
-    channelId: "meta",
-    label: "Estático Feed e Stories",
+    id: "parcerias-todos",
+    channelId: "parcerias",
+    label: "Todos os formatos e tamanhos",
     /** Como o formato se anuncia no título do card do Kanban — ver `buildCopyCardTitle`. */
-    cardLabel: "Criativos Feed e Stories",
+    cardLabel: "Peças de parceria",
     /** O que o formato impõe à escrita, dito ao modelo. */
     guidance:
-      "Peça estática que roda em feed e em stories ao mesmo tempo. O texto precisa funcionar nas duas proporções: headline curta o bastante para o vertical e corpo que ainda faça sentido no feed.",
+      "O pacote inteiro da ação com o parceiro. Escreva um texto que sobreviva a qualquer proporção: headline curta e corpo que não dependa de espaço largo.",
   },
   {
-    id: "meta-feed",
+    id: "meta-feed-1x1",
     channelId: "meta",
-    label: "Estático Feed",
-    cardLabel: "Criativos Feed",
+    label: "Feed 1:1 (1080x1080)",
+    cardLabel: "Criativos Feed 1:1",
     guidance:
-      "Peça estática de feed (1:1 ou 4:5), lida com o polegar parado. Comporta corpo de texto mais longo, e a headline precisa sobreviver ao corte de \"ver mais\".",
+      "Estático quadrado de feed. O texto principal fica acima da peça e é cortado por \"ver mais\" perto dos 125 caracteres — a primeira linha precisa segurar sozinha.",
+  },
+  {
+    id: "meta-feed-1x3",
+    channelId: "meta",
+    label: "Feed 1:3 (1080x1350)",
+    cardLabel: "Criativos Feed 1:3",
+    guidance:
+      "Estático vertical de feed. Ocupa mais altura na rolagem que o quadrado, então comporta uma headline maior — mas o corte do \"ver mais\" continua valendo para o texto de cima.",
   },
   {
     id: "meta-stories",
     channelId: "meta",
-    label: "Estático Stories",
+    label: "Stories 9:16 (1920x1080)",
     cardLabel: "Criativos Stories",
     guidance:
-      "Peça estática de stories (9:16, tela cheia), lida em menos de 3 segundos e com o dedo pronto para pular. Uma ideia só, CTA que combina com deslizar para cima.",
+      "Peça de tela cheia, vista com o polegar já a caminho do próximo story. Uma ideia só, legível em dois segundos, e a chamada para ação perto do dedo.",
   },
   {
-    id: "meta-carrossel",
+    id: "meta-carrossel-1x1",
     channelId: "meta",
-    label: "Carrossel",
-    cardLabel: "Carrosséis",
+    label: "Carrossel 1:1 (1080x1080)",
+    cardLabel: "Carrossel 1:1",
     guidance:
-      "Carrossel do Meta. Cada cartão precisa entregar uma ideia inteira e deixar uma razão para deslizar até o próximo; o último é o que fecha. Escreva o texto principal pensando que ele vale para a sequência toda.",
+      "Carrossel quadrado. Cada cartão precisa dar vontade de arrastar para o seguinte, e o primeiro carrega sozinho quem não arrastar nenhum.",
   },
   {
-    id: "tiktok-video",
+    id: "meta-carrossel-1x3",
+    channelId: "meta",
+    label: "Carrossel 1:3 (1080x1350)",
+    cardLabel: "Carrossel 1:3",
+    guidance:
+      "Carrossel vertical. Mesma lógica do quadrado, com mais altura por cartão: cabe uma linha de apoio abaixo da headline sem apertar.",
+  },
+  {
+    id: "meta-feed-stories",
+    channelId: "meta",
+    label: "Feed e Stories",
+    cardLabel: "Criativos Feed e Stories",
+    guidance:
+      "A mesma peça roda nas duas superfícies. O texto precisa funcionar nas duas proporções: headline curta o bastante para o vertical e corpo que ainda faça sentido no feed.",
+  },
+  {
+    id: "meta-video",
+    channelId: "meta",
+    label: "Vídeo",
+    cardLabel: "Vídeos Meta",
+    guidance:
+      "Peça em vídeo. O texto aqui é roteiro e legenda: os três primeiros segundos decidem se o resto é visto, e a legenda precisa funcionar com o som desligado.",
+  },
+  {
+    id: "tiktok-video-9x16",
     channelId: "tiktok",
-    label: "Vídeo In-Feed",
-    cardLabel: "Vídeos In-Feed",
+    label: "Vídeo 9:16 (1920x1080)",
+    cardLabel: "Vídeos 9:16",
     guidance:
-      "Vídeo in-feed do TikTok (9:16). O gancho vive nos dois primeiros segundos e costuma ser falado, não escrito — a copy aqui é a legenda curta e a fala de abertura.",
+      "Vídeo de tela cheia no feed do TikTok. Linguagem de quem está na plataforma, não de quem anuncia nela — e a legenda divide a tela com a interface.",
   },
   {
-    id: "tiktok-spark",
+    id: "tiktok-video-1x1",
     channelId: "tiktok",
-    label: "Spark Ads",
-    cardLabel: "Spark Ads",
+    label: "Vídeo 1:1 (1080x1080)",
+    cardLabel: "Vídeos 1:1",
     guidance:
-      "Post orgânico impulsionado. Precisa continuar parecendo post: legenda de criador, sem estrutura de anúncio e sem CTA de vitrine.",
+      "Vídeo quadrado. Sobra tarja acima e abaixo, então nada essencial pode estar nas bordas do quadro.",
   },
   {
-    id: "tiktok-carrossel",
+    id: "tiktok-estatico-9x16",
     channelId: "tiktok",
-    label: "Carrossel",
-    cardLabel: "Carrosséis TikTok",
+    label: "Estático 9:16 (1920x1080)",
+    cardLabel: "Estáticos 9:16",
     guidance:
-      "Carrossel de imagens no TikTok. Texto curto sobre cada imagem, no ritmo de quem desliza rápido — mais próximo de um meme comentado do que de um catálogo.",
+      "Peça parada em tela cheia, num feed de vídeo. Ela precisa justificar a parada logo: uma frase, grande, e nada de leitura demorada.",
   },
   {
-    id: "google-pesquisa",
+    id: "tiktok-estatico-1x1",
+    channelId: "tiktok",
+    label: "Estático 1:1 (1080x1080)",
+    cardLabel: "Estáticos 1:1",
+    guidance:
+      "Peça parada quadrada. Mesma pressa do 9:16, com menos área: uma ideia e a chamada, sem apoio.",
+  },
+  {
+    id: "google-quadrado",
     channelId: "google",
-    label: "Pesquisa (texto)",
-    cardLabel: "Anúncios de pesquisa",
+    label: "Quadrado 1:1 (1200x1200)",
+    cardLabel: "Quadrados PMax",
     guidance:
-      "Anúncio de pesquisa: títulos de até 30 caracteres e descrições de até 90. Escreva cada linha para fazer sentido sozinha — o Google as combina em ordens que você não escolhe. Use a palavra que a pessoa procurou.",
+      "Peça quadrada do Performance Max. A máquina remonta títulos e descrições em ordens imprevisíveis: cada linha precisa fazer sentido sozinha.",
   },
   {
-    id: "google-display",
+    id: "google-horizontal",
     channelId: "google",
-    label: "Display responsivo",
-    cardLabel: "Peças de display",
+    label: "Horizontal 21:9 (1200x628)",
+    cardLabel: "Horizontais PMax",
     guidance:
-      "Display responsivo: a peça aparece no meio do conteúdo alheio, em tamanhos que você não controla. Uma promessa por vez, headline que não depende do corpo para ser entendida.",
+      "Peça deitada, a que aparece em display e em parceiros de leitura. Largura sobrando e altura curta: headline de uma linha, sem corpo longo.",
   },
   {
-    id: "google-youtube",
+    id: "google-vertical",
     channelId: "google",
-    label: "Vídeo YouTube",
-    cardLabel: "Vídeos YouTube",
+    label: "Vertical 4:5 (1200x1500)",
+    cardLabel: "Verticais PMax",
     guidance:
-      "Vídeo no YouTube, com o botão de pular à espreita. Os cinco primeiros segundos precisam dar uma razão para ficar, e o nome do produto precisa ser dito, não só escrito na tela.",
+      "Peça vertical do Performance Max. Cabe mais altura de texto, mas a máquina pode cortar o rodapé — o essencial vai no alto.",
   },
   {
-    id: "site-banner",
+    id: "google-outros",
+    channelId: "google",
+    label: "Outros formatos e tamanhos que existirem",
+    cardLabel: "Outras peças PMax",
+    guidance:
+      "Tamanho fora dos três acima. Sem proporção conhecida, escreva de forma que sirva tanto deitado quanto em pé: linhas curtas e independentes.",
+  },
+  {
+    id: "site-slide",
     channelId: "site",
-    label: "Banner site",
-    cardLabel: "Banners site",
+    label: "Slide",
+    cardLabel: "Slides do site",
     guidance:
-      "Banner do site, horizontal, no topo da página. Quem lê já está na loja — não há necessidade de apresentar a marca. Headline curta, uma promessa, CTA de ação imediata.",
+      "Slide da vitrine da home. É a primeira coisa que se vê na loja: headline grande, uma promessa só, e o clique já dentro da categoria certa.",
   },
   {
     id: "site-mini-banner",
     channelId: "site",
-    label: "Mini banner site",
-    cardLabel: "Mini banners site",
+    label: "Mini Banners",
+    cardLabel: "Mini banners",
     guidance:
-      "Mini banner do site, área pequena. Espaço para pouquíssimo texto: uma linha de headline e um CTA de duas ou três palavras. NÃO escreva corpo de texto — não há onde exibi-lo.",
+      "Mini banner de apoio, pequeno e ao lado do conteúdo. Cabe uma frase e um verbo — qualquer coisa além disso não é lida.",
   },
   {
     id: "site-banner-categoria",
     channelId: "site",
-    label: "Banner de categoria",
+    label: "Banners de Categorias",
     cardLabel: "Banners de categoria",
     guidance:
-      "Banner de uma categoria do site. Quem vê já demonstrou interesse naquela categoria — a copy fala do recorte, não do catálogo inteiro, e destaca o diferencial dentro daquela linha de produtos.",
+      "Banner do topo de uma categoria. Quem chega já escolheu o assunto: o texto qualifica a seleção, não apresenta a marca.",
+  },
+  {
+    id: "site-foto-produto",
+    channelId: "site",
+    label: "Fotos de Produtos",
+    cardLabel: "Fotos de produto",
+    guidance:
+      "Foto de produto para a vitrine. O texto aqui é legenda e apoio de ficha: objetivo, sem adjetivo de campanha.",
+  },
+  {
+    id: "site-icone",
+    channelId: "site",
+    label: "Ícones",
+    cardLabel: "Ícones",
+    guidance:
+      "Ícone de navegação ou de selo. O texto é um rótulo de uma ou duas palavras — não há espaço para frase.",
   },
   {
     id: "crm-email",
     channelId: "crm",
-    label: "E-mail",
+    label: "Disparo Email",
     cardLabel: "E-mails",
     guidance:
-      "E-mail para a base. O assunto é a peça inteira até alguém abrir: escreva-o como headline, com até 50 caracteres. O corpo pode desenvolver o argumento — é o único formato aqui em que há tempo para isso.",
+      "E-mail para a base. O assunto decide se o resto existe: ele não pode prometer o que o corpo não cumpre, e o corpo fala com quem já conhece a allu.",
   },
   {
     id: "crm-push",
     channelId: "crm",
-    label: "Push",
-    cardLabel: "Pushes",
+    label: "Pushs",
+    cardLabel: "Pushs",
     guidance:
-      "Notificação push: um título curtíssimo e uma linha, lidos na tela bloqueada, fora de contexto. Sem urgência inventada — push que engana desinstala aplicativo.",
+      "Notificação push. Duas linhas, lidas fora de contexto e na tela de bloqueio: diga o que é e por que agora, sem rodeio.",
   },
   {
     id: "crm-whatsapp",
     channelId: "crm",
     label: "WhatsApp",
-    cardLabel: "Disparos WhatsApp",
+    cardLabel: "Mensagens de WhatsApp",
     guidance:
-      "Mensagem de WhatsApp. Chega junto das conversas pessoais de alguém: tom de mensagem, não de comunicado, e curta o bastante para ser lida sem abrir a conversa.",
+      "Mensagem de WhatsApp para a base. É conversa, não peça: primeira pessoa, frases curtas e nenhuma formatação de anúncio.",
   },
   {
-    id: "organico-feed",
-    channelId: "organico",
-    label: "Post de feed",
-    cardLabel: "Posts de feed",
+    id: "outros-todos",
+    channelId: "outros",
+    label: "Todos os formatos e tamanhos",
+    cardLabel: "Peças",
     guidance:
-      "Post orgânico de feed. Sem verba empurrando, a primeira linha é o que decide se alguém continua. Pode ter ponto de vista, o que um anúncio raramente comporta.",
-  },
-  {
-    id: "organico-stories",
-    channelId: "organico",
-    label: "Stories",
-    cardLabel: "Stories",
-    guidance:
-      "Stories orgânico, em sequência com os outros do dia. Uma ideia por tela, linguagem falada, e espaço para convite direto (enquete, caixinha, arrasta).",
-  },
-  {
-    id: "organico-reels",
-    channelId: "organico",
-    label: "Reels",
-    cardLabel: "Reels",
-    guidance:
-      "Reels. O texto é roteiro: gancho falado nos dois primeiros segundos, desenvolvimento curto e um fecho que justifique ter ficado até o fim. A legenda é secundária.",
+      "Canal fora da lista: não há superfície conhecida a respeitar. Escreva de forma neutra, que sirva tanto impressa quanto em tela.",
   },
 ] as const;
 

@@ -26,6 +26,11 @@ export default withAuth(
 
 export const config = {
   matcher: [
-    "/((?!api/auth|api/cron|_next/static|_next/image|favicon.ico|logo.png|login).*)",
+    /*
+     * `api/public` e `demanda` ficam de fora da exigência de sessão — é o link
+     * aberto de abertura de demandas. Quem protege ali é o token do quadro, na
+     * própria rota; ver `app/api/public/demanda/[token]/route.ts`.
+     */
+    "/((?!api/auth|api/cron|api/public|demanda|_next/static|_next/image|favicon.ico|logo.png|login).*)",
   ],
 };
