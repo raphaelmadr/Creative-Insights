@@ -1,25 +1,34 @@
 /**
  * Resolução da URL pública do endpoint de cron.
  *
- * O painel não pode montar essa URL no browser: quem a copia normalmente está
- * numa aba de desenvolvimento, e `window.location.origin` devolveria
- * `http://localhost:3000` — endereço que o servidor externo do cPanel jamais
- * alcança. A resolução tem que acontecer no servidor, a partir do domínio de
- * produção que a Vercel injeta.
+ * O painel não pode montar essa URL no browser: quem a copia pode estar numa
+ * aba de desenvolvimento, e `window.location.origin` devolveria
+ * `http://localhost:3000` — endereço que o servidor do cPanel jamais alcança.
+ * A resolução acontece no servidor.
  *
- * `VERCEL_PROJECT_PRODUCTION_URL` é o domínio estável do projeto (é o mesmo que
- * o Next usa para resolver `metadataBase`), diferente de `VERCEL_URL`, que muda
- * a cada deploy e portanto não serve para um cron configurado uma vez.
+ * Nenhum candidato aqui pode depender de variável injetada por plataforma de
+ * hospedagem: é assim que esta resolução já falhou uma vez. A variável sumiu na
+ * troca de servidor, o campo do painel nunca tinha sido preenchido e sobrou só
+ * `NEXTAUTH_URL` — que no cPanel é cadastro manual e pode faltar. O painel então
+ * declarava "não foi possível determinar o domínio público" e entregava um
+ * comando vazio: cron cadastrado, cron que não funciona.
+ *
+ * O último candidato é a PRÓPRIA REQUISIÇÃO. Quem abre esta tela no domínio de
+ * produção já provou qual é o domínio de produção — o Passenger entrega isso em
+ * `Host`, e o proxy da hospedagem em `X-Forwarded-Host`. Não depende de
+ * configuração anterior nenhuma e não tem como ficar desatualizado.
  */
 
 import prisma from "./prisma";
 
 export const CRON_PATH = "/api/cron/sync-all";
 
+export type CronUrlSource = "PAINEL" | "NEXTAUTH_URL" | "REQUISICAO";
+
 export interface CronUrlResolution {
   /** Base sem barra final, já com protocolo. `null` quando nada é conhecido. */
   baseUrl: string | null;
-  source: "PAINEL" | "VERCEL_PROJECT_PRODUCTION_URL" | "NEXTAUTH_URL" | null;
+  source: CronUrlSource | null;
   /** Falso quando só foi possível chegar a um endereço local. */
   reachableExternally: boolean;
 }
@@ -34,21 +43,52 @@ const normalize = (value?: string | null): string | null => {
 const isLocal = (url: string) =>
   /^https?:\/\/(localhost|127\.0\.0\.1|0\.0\.0\.0|\[::1\])(:|\/|$)/i.test(url);
 
-export async function resolveCronBaseUrl(): Promise<CronUrlResolution> {
+/**
+ * O endereço pelo qual esta requisição chegou.
+ *
+ * Atrás do Passenger a conexão interna é HTTP mesmo quando o visitante está em
+ * HTTPS, então o protocolo vem de `X-Forwarded-Proto` quando existe. Sem ele,
+ * assume-se HTTPS para qualquer host que não seja local: um domínio público
+ * servindo em texto claro é a exceção, e chutar HTTP ali produziria um comando
+ * que o servidor redirecionaria.
+ */
+function originFromRequest(req?: Request): string | null {
+  if (!req) return null;
+
+  let host: string | null = null;
+  let proto: string | null = null;
+
+  try {
+    host = req.headers.get("x-forwarded-host") || req.headers.get("host");
+    proto = req.headers.get("x-forwarded-proto");
+  } catch {
+    return null;
+  }
+
+  if (!host) return null;
+
+  // Cadeias de proxy empilham valores separados por vírgula; o primeiro é o
+  // que o cliente original enxergou.
+  const primeiroHost = host.split(",")[0].trim();
+  const primeiroProto = proto?.split(",")[0].trim();
+  if (!primeiroHost) return null;
+
+  const esquema = primeiroProto || (isLocal(`http://${primeiroHost}`) ? "http" : "https");
+  return normalize(`${esquema}://${primeiroHost}`);
+}
+
+export async function resolveCronBaseUrl(req?: Request): Promise<CronUrlResolution> {
   const settings = await prisma.systemSettings
     .findUnique({ where: { id: 1 }, select: { nextAuthUrl: true } })
     .catch(() => null);
 
-  const candidates: { value: string | null; source: CronUrlResolution["source"] }[] = [
+  const candidates: { value: string | null; source: CronUrlSource }[] = [
     // Painel primeiro: é a fonte de verdade da configuração.
     { value: normalize(settings?.nextAuthUrl), source: "PAINEL" },
-    // Injetado pela plataforma, não é configuração de usuário.
-    {
-      value: normalize(process.env.VERCEL_PROJECT_PRODUCTION_URL),
-      source: "VERCEL_PROJECT_PRODUCTION_URL",
-    },
-    // Transitório, até a URL pública estar cadastrada no painel.
+    // A variável canônica do NextAuth, que no cPanel é configuração manual.
     { value: normalize(process.env.NEXTAUTH_URL), source: "NEXTAUTH_URL" },
+    // O endereço por onde esta própria página foi aberta.
+    { value: originFromRequest(req), source: "REQUISICAO" },
   ];
 
   const external = candidates.find((c) => c.value && !isLocal(c.value));
@@ -81,7 +121,7 @@ export function buildTriggerUrl(baseUrl: string, secret: string | null): string 
  *
  * Cada flag existe por um motivo:
  * - `-H Authorization` mantém o segredo fora da URL e, portanto, fora dos logs
- *   de acesso da Vercel.
+ *   de acesso do servidor.
  * - `-o /dev/null` descarta o corpo da resposta em caso de sucesso. Sem isso, o
  *   cPanel enviaria um e-mail com o JSON a cada batida — 96 por dia.
  * - `-f` faz o curl retornar erro em HTTP >= 400 e `-S` imprime a mensagem, de

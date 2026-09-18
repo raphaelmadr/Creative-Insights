@@ -20,10 +20,13 @@ export const dynamic = "force-dynamic";
  * servidor até o usuário clicar em salvar — exatamente o tipo de estado
  * intermediário que gera "colei e deu 401".
  */
-async function buildState() {
+async function buildState(req?: Request) {
   const [settings, resolution] = await Promise.all([
     prisma.systemSettings.findUnique({ where: { id: 1 }, select: { cronSecret: true } }),
-    resolveCronBaseUrl(),
+    // A requisição entra na resolução: quem abre esta tela no domínio de
+    // produção já provou qual é o domínio de produção, e é o único candidato
+    // que não depende de configuração nenhuma ter sido feita antes.
+    resolveCronBaseUrl(req),
   ]);
 
   // Só o painel: o endpoint de cron não aceita mais segredo de ambiente, então
@@ -49,14 +52,14 @@ async function buildState() {
   };
 }
 
-export async function GET() {
+export async function GET(req: Request) {
   // Ação do painel de configurações: restrita a administradores.
   if (!(await getCurrentAdmin())) {
     return NextResponse.json({ error: "Acesso restrito." }, { status: 403 });
   }
 
   try {
-    return NextResponse.json({ success: true, ...(await buildState()) });
+    return NextResponse.json({ success: true, ...(await buildState(req)) });
   } catch (error: any) {
     console.error("Error reading cron secret state:", error);
     return NextResponse.json(
@@ -67,7 +70,7 @@ export async function GET() {
 }
 
 /** Gera um novo segredo, grava e devolve a URL já pronta para o disparador. */
-export async function POST() {
+export async function POST(req: Request) {
   // Ação do painel de configurações: restrita a administradores.
   if (!(await getCurrentAdmin())) {
     return NextResponse.json({ error: "Acesso restrito." }, { status: 403 });
@@ -82,7 +85,7 @@ export async function POST() {
       create: { id: 1, cronSecret: secret },
     });
 
-    return NextResponse.json({ success: true, ...(await buildState()) });
+    return NextResponse.json({ success: true, ...(await buildState(req)) });
   } catch (error: any) {
     console.error("Error rotating cron secret:", error);
     return NextResponse.json(

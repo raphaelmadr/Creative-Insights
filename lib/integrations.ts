@@ -28,7 +28,6 @@ type SettingsRow = Awaited<ReturnType<typeof prisma.systemSettings.findUnique>>;
 export type IntegrationId =
   | "META"
   | "TIKTOK"
-  | "SLACK"
   | "AI"
   | "TAVILY"
   | "MEDIA_STORAGE"
@@ -87,14 +86,6 @@ export function buildIntegrationStatuses(settings: SettingsRow): IntegrationStat
       label: "TikTok Ads",
       configured: filled(settings?.tiktokAdvertiserId) && filled(settings?.tiktokAccessToken),
       enables: "sincronização de criativos e métricas do TikTok",
-      where: "Configurações › API",
-      fromEnv: false,
-    },
-    {
-      id: "SLACK",
-      label: "Slack",
-      configured: filled(settings?.slackBotToken) && filled(settings?.slackChannelId),
-      enables: "sincronização das entregas dos designers",
       where: "Configurações › API",
       fromEnv: false,
     },

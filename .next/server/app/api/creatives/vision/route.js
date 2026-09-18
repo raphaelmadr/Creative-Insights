@@ -1,6 +1,6 @@
 var R=require("../../../../chunks/[turbopack]_runtime.js")("server/app/api/creatives/vision/route.js")
-R.c("server/chunks/lib_0b3-g2v._.js")
-R.c("server/chunks/[root-of-the-server]__1wbs670._.js")
+R.c("server/chunks/lib_0652xag._.js")
+R.c("server/chunks/[root-of-the-server]__1_n3qnc._.js")
 R.c("server/chunks/node_modules_next_1zdbrne._.js")
 R.c("server/chunks/node_modules_formdata-node_lib_esm_File_1ny6w8u.js")
 R.c("server/chunks/node_modules_next_dist_13kw1hb._.js")

@@ -217,12 +217,6 @@
       "namedRegex": "^/api/insights/news(?:/)?$"
     },
     {
-      "page": "/api/insights/news/cron",
-      "regex": "^/api/insights/news/cron(?:/)?$",
-      "routeKeys": {},
-      "namedRegex": "^/api/insights/news/cron(?:/)?$"
-    },
-    {
       "page": "/api/insights/saved",
       "regex": "^/api/insights/saved(?:/)?$",
       "routeKeys": {},

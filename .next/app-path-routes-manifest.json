@@ -26,7 +26,6 @@
   "/api/hypothesis/route": "/api/hypothesis",
   "/api/hypothesis/saved/route": "/api/hypothesis/saved",
   "/api/insights/multimodal/route": "/api/insights/multimodal",
-  "/api/insights/news/cron/route": "/api/insights/news/cron",
   "/api/insights/news/route": "/api/insights/news",
   "/api/insights/saved/route": "/api/insights/saved",
   "/api/logs/route": "/api/logs",

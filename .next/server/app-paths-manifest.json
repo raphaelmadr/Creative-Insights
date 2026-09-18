@@ -26,7 +26,6 @@
   "/api/hypothesis/route": "app/api/hypothesis/route.js",
   "/api/hypothesis/saved/route": "app/api/hypothesis/saved/route.js",
   "/api/insights/multimodal/route": "app/api/insights/multimodal/route.js",
-  "/api/insights/news/cron/route": "app/api/insights/news/cron/route.js",
   "/api/insights/news/route": "app/api/insights/news/route.js",
   "/api/insights/saved/route": "app/api/insights/saved/route.js",
   "/api/logs/route": "app/api/logs/route.js",

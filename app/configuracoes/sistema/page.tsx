@@ -3,14 +3,11 @@
 import React, { useState, useEffect } from "react";
 import { Save, Loader2, Copy, Check, AlertTriangle, RefreshCw, Eye, EyeOff, ShieldCheck, ShieldAlert } from "lucide-react";
 import { FieldGrid, SettingsField, SettingsModal, SettingsSaveProvider, SettingsSection } from "@/components/SettingsUI";
+import { SyncStatusView } from "@/components/SyncStatusView";
+import { useNotifications } from "@/components/NotificationProvider";
 
 /** Cadência do disparador externo: bate sempre, o painel filtra. */
 const RECOMMENDED_CRON_EXPRESSION = "*/15 * * * *";
-
-const formatDateTime = (value?: string | null) => {
-  if (!value) return "—";
-  return new Date(value).toLocaleString("pt-BR", { dateStyle: "short", timeStyle: "short" });
-};
 
 interface CronTriggerState {
   hasSecret: boolean;
@@ -75,11 +72,19 @@ export default function SistemaPage() {
     slackChannelId: "",
   });
 
-  // Informação só de leitura: estado da automação e fontes com credenciais.
+  /*
+   * O estado da automação NÃO é montado aqui.
+   *
+   * Esta tela tinha a própria conta de "próxima automática", que discordava da
+   * do cabeçalho e das duas do endpoint do cron. Agora vem pronto do servidor,
+   * pelo mesmo provedor que alimenta o cabeçalho — e com ele vem a atualização
+   * periódica, que era o que faltava para o rótulo deixar de ser uma fotografia
+   * do instante em que a página abriu.
+   */
+  const { syncStatus, refreshSyncStatus, isSyncingAll } = useNotifications();
+
+  // O que continua sendo desta tela: quais fontes têm credencial.
   const [status, setStatus] = useState<{
-    lastSyncAt?: string | null;
-    lastCronSyncAt?: string | null;
-    lastCronPingAt?: string | null;
     sources: { label: string; configured: boolean }[];
   }>({ sources: [] });
 
@@ -122,14 +127,16 @@ export default function SistemaPage() {
           slackChannelId: data.slackChannelId ?? "",
         });
         setStatus({
-          lastSyncAt: data.lastSyncAt,
-          lastCronSyncAt: data.lastCronSyncAt,
-          lastCronPingAt: data.lastCronPingAt,
-          // Espelha o registro de fontes do backend (`lib/channels.ts`).
+          /*
+           * Espelha o registro de fontes do backend (`lib/channels.ts`), que
+           * são as redes e só elas. "Entregas" saiu desta lista: as entregas
+           * deixaram de ser lidas de mensagens do Slack quando passaram a ser
+           * medidas no Kanban, mas continuavam listadas aqui como se a
+           * sincronização ainda fosse atrás delas.
+           */
           sources: [
             { label: "Meta", configured: !!(data.metaAdAccountId && data.metaAccessToken) },
             { label: "TikTok", configured: !!(data.tiktokAdvertiserId && data.tiktokAccessToken) },
-            { label: "Entregas", configured: !!(data.slackBotToken && data.slackChannelId) },
           ],
         });
       }
@@ -154,7 +161,7 @@ export default function SistemaPage() {
       alert(res.ok ? "Configurações salvas com sucesso!" : "Erro ao salvar as configurações.");
       // Recarrega para o "Status das Integrações" refletir a credencial que
       // acabou de ser salva — antes era preciso trocar de página para isso.
-      if (res.ok) await loadAll();
+      if (res.ok) await Promise.all([loadAll(), refreshSyncStatus()]);
     } catch (err) {
       alert("Erro ao salvar configurações do sistema.");
     }
@@ -201,28 +208,6 @@ export default function SistemaPage() {
       </div>
     );
   }
-
-  const nextEligible = status.lastCronSyncAt
-    ? new Date(new Date(status.lastCronSyncAt).getTime() + settings.cronSyncInterval * 60 * 1000).toISOString()
-    : null;
-  const nextEligibleLabel = nextEligible && new Date(nextEligible).getTime() <= Date.now()
-    ? "a qualquer momento"
-    : formatDateTime(nextEligible);
-
-  /*
-   * Saúde do disparador, que é outra pergunta que "última sincronização".
-   *
-   * A sincronização pode estar em silêncio por dois motivos opostos: o cron do
-   * cPanel não está chegando (URL velha, segredo trocado, cadastro apagado), ou
-   * está chegando e apenas ainda não venceu o intervalo. Sem este carimbo as
-   * duas situações davam a mesma tela, e foi o que escondeu 15h de cron morto.
-   *
-   * O cron é cadastrado a cada 15 min; uma hora de silêncio são quatro batidas
-   * perdidas, o que não é atraso de relógio.
-   */
-  const TRIGGER_SILENCE_TOLERANCE_MS = 60 * 60 * 1000;
-  const lastPingMs = status.lastCronPingAt ? new Date(status.lastCronPingAt).getTime() : null;
-  const triggerSilent = lastPingMs === null || Date.now() - lastPingMs > TRIGGER_SILENCE_TOLERANCE_MS;
 
   const noSourceConfigured = status.sources.every(s => !s.configured);
 
@@ -396,8 +381,8 @@ export default function SistemaPage() {
 
         <SettingsSection
           brand="slack"
-          title="Slack — entregas do time"
-          description="Lê o canal de entregas para contar as peças produzidas por cada criador. Sem isso, o dashboard da equipe fica sem o volume entregue."
+          title="Slack — sem uso hoje"
+          description="As entregas já não são lidas de mensagens do Slack: passaram a ser contadas no Kanban, quando o card chega à coluna de conclusão. Nenhuma rotina lê estas credenciais — elas ficam guardadas para um uso futuro."
           status={!!(settings.slackBotToken && settings.slackChannelId)}
         >
           <FieldGrid>
@@ -469,22 +454,10 @@ export default function SistemaPage() {
               </select>
             </label>
 
-            <div style={{ display: "flex", flexWrap: "wrap", gap: "1.5rem", fontSize: "var(--text-control)", color: "var(--muted)" }}>
-              <span><strong style={{ color: "var(--foreground)" }}>Última sincronização:</strong> {formatDateTime(status.lastSyncAt)}</span>
-              <span><strong style={{ color: "var(--foreground)" }}>Próxima automática:</strong> {nextEligibleLabel}</span>
-              <span><strong style={{ color: "var(--foreground)" }}>Última batida do disparador:</strong> {status.lastCronPingAt ? formatDateTime(status.lastCronPingAt) : "nunca"}</span>
-            </div>
-
-            {triggerSilent && (
-              <div style={noticeStyle("warn")}>
-                <AlertTriangle size={16} style={{ flexShrink: 0, marginTop: "0.1rem" }} />
-                <span>
-                  {status.lastCronPingAt
-                    ? "O disparador externo não bate nesta porta há mais de uma hora. O intervalo acima só é respeitado enquanto o cron chega — confira o Cron Jobs do cPanel."
-                    : "O disparador externo nunca bateu nesta porta. Cadastre o comando abaixo no Cron Jobs do cPanel; sem ele nada é sincronizado automaticamente."}
-                </span>
-              </div>
-            )}
+            {/* O mesmo componente que o cabeçalho desenha, na versão completa.
+                Um cálculo, um vocabulário: se esta tela e a barra do topo
+                discordarem de novo, é porque alguém abriu uma segunda conta. */}
+            <SyncStatusView status={syncStatus} variant="full" running={isSyncingAll} />
 
             <div style={{ display: "flex", flexWrap: "wrap", gap: "0.5rem", alignItems: "center", fontSize: "var(--text-control)" }}>
               <span style={{ color: "var(--muted)" }}>Fontes sincronizadas:</span>
@@ -605,9 +578,10 @@ export default function SistemaPage() {
               <AlertTriangle size={16} style={{ flexShrink: 0, marginTop: "0.1rem" }} />
               <span>
                 Não foi possível determinar o domínio público desta instalação
-                {trigger.baseUrl ? <> — só existe o endereço local <code>{trigger.baseUrl}</code>, que o servidor do cPanel não alcança</> : null}.
-                Abra esta página <strong>no domínio de produção</strong> para copiar o valor correto, ou defina
-                a variável de ambiente <code>CRON_PUBLIC_URL</code>.
+                {trigger.baseUrl ? <> — só existe o endereço local <code>{trigger.baseUrl}</code>, que o Cron Jobs do cPanel não alcança</> : null}.
+                Abra esta página <strong>no domínio de produção</strong> para copiar o valor correto: o
+                endereço por onde ela for aberta já serve de resposta. Se preferir fixá-lo, defina
+                <code>NEXTAUTH_URL</code> nas variáveis do app no cPanel.
               </span>
             </div>
           )}

@@ -8,6 +8,7 @@ import { useSession } from "next-auth/react";
 import { useTheme } from "./ThemeProvider";
 import { hasCreatorAccess } from "@/lib/roles";
 import { useNotifications } from "./NotificationProvider";
+import { SyncStatusView } from "./SyncStatusView";
 import OnlineUsers from "./OnlineUsers";
 import NovaDemandaButton from "./creator/NovaDemandaButton";
 import UserMenu from "./UserMenu";
@@ -126,18 +127,7 @@ export default function TopBar() {
    * na mesma. Quem protege é o layout, e cada rota de `/api/creator`.
    */
   const podeCriar = hasCreatorAccess(session?.user?.role);
-  const { isSyncingAll, lastSyncAt, nextAutoSyncAt, syncAll, isSyncingMeta, syncMessage, syncProgress, isSearching, loadingText, integrations, taskNotifications, taskUnreadCount, clearTaskNotifications } = useNotifications();
-
-  const formatSyncStamp = (value: string) =>
-    new Date(value).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' });
-
-  /**
-   * Uma janela já vencida não significa "atrasado": o disparador externo bate a
-   * cada 15 minutos e a próxima batida sincroniza. Dizer uma hora no passado
-   * pareceria defeito.
-   */
-  const formatNextSync = (value: string) =>
-    new Date(value).getTime() <= Date.now() ? 'a qualquer momento' : formatSyncStamp(value);
+  const { isSyncingAll, syncStatus, syncAll, isSyncingMeta, syncMessage, syncProgress, isSearching, loadingText, integrations, taskNotifications, taskUnreadCount, clearTaskNotifications } = useNotifications();
   const [isNotificationsOpen, setIsNotificationsOpen] = useState(false);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   /*
@@ -389,12 +379,9 @@ export default function TopBar() {
                   <RefreshCw size={16} className={isSyncingAll ? "spin" : ""} style={{ animation: isSyncingAll ? "spin 2s linear infinite" : "none" }} />
                   {isSyncingAll ? "Sincronizando..." : "Sincronizar Redes"}
                 </button>
-                {(lastSyncAt || nextAutoSyncAt) && (
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '0.1rem', fontSize: '0.65rem', color: 'var(--muted)', textAlign: 'center', opacity: 0.7 }}>
-                    {lastSyncAt && <span>Última att: {formatSyncStamp(lastSyncAt)}</span>}
-                    {nextAutoSyncAt && <span>Próxima automática: {formatNextSync(nextAutoSyncAt)}</span>}
-                  </div>
-                )}
+                <div style={{ display: 'flex', justifyContent: 'center' }}>
+                  <SyncStatusView status={syncStatus} running={isSyncingAll} />
+                </div>
               </div>
               </div>
             </div>
@@ -429,12 +416,11 @@ export default function TopBar() {
               <RefreshCw size={16} className={isSyncingAll ? "spin" : ""} style={{ animation: isSyncingAll ? "spin 2s linear infinite" : "none" }} />
               {isSyncingAll ? "Sincronizando..." : "Sincronizar Redes"}
             </button>
-            {(lastSyncAt || nextAutoSyncAt) && !isSyncingAll && (
-              <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, marginTop: '0.25rem', display: 'flex', flexDirection: 'column', gap: '0.05rem', fontSize: '0.6rem', color: 'var(--muted)', textAlign: 'center', opacity: 0.7, whiteSpace: 'nowrap' }}>
-                {lastSyncAt && <span>Última att: {formatSyncStamp(lastSyncAt)}</span>}
-                {nextAutoSyncAt && <span>Próxima automática: {formatNextSync(nextAutoSyncAt)}</span>}
-              </div>
-            )}
+            {/* O estado fica sob o botão, e é o MESMO componente da tela de
+                configurações — mesma conta, mesmas palavras, contagem viva. */}
+            <div style={{ position: 'absolute', top: '100%', left: 0, marginTop: '0.3rem', display: 'flex', justifyContent: 'center', width: '100%', overflow: 'hidden' }}>
+              <SyncStatusView status={syncStatus} running={isSyncingAll} />
+            </div>
           </div>
 
           <div style={{ position: "relative" }}>

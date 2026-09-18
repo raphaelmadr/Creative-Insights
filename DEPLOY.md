@@ -1,19 +1,19 @@
 # Publicar na hospedagem (cPanel)
 
-Procedimento para tirar o sistema da Vercel e rodá-lo no cPanel, na mesma
-máquina do MySQL.
+O sistema roda no cPanel, na mesma máquina do MySQL. Este é o procedimento de
+publicação e a configuração que ele exige.
 
 ## Por que cPanel, e não um VPS
 
 A motivação nunca foi custo: foi **latência**. Medido em 14/09/2026, e conferido
-em 16/09: cada ida-e-volta ao MySQL de `192.109.11.49` custa **~180 ms**. O sync
-grava 7.642 métricas com concorrência 5, o que dá ~272 s só de espera de rede,
-de um total de 288 s — **95% do tempo é rede**.
+em 16/09: cada ida-e-volta ao MySQL remoto custava **~180 ms**. O sync grava
+7.642 métricas com concorrência 5, o que dava ~272 s só de espera de rede, de um
+total de 288 s — **95% do tempo era rede**.
 
 Rodar o app na mesma máquina do banco derruba isso para ~1 ms por consulta. Um
-VPS novo só entrega esse ganho se o banco for junto; o cPanel entrega o mesmo
-resultado sem migrar dado nenhum e sem uma segunda conta, porque o banco **já
-está lá**.
+VPS novo só entregaria esse ganho se o banco fosse junto; o cPanel entrega o
+mesmo resultado sem migrar dado nenhum e sem uma segunda conta, porque o banco
+**já está lá**.
 
 O preço é o teto da conta compartilhada: 2 GB de RAM, 1 núcleo, 20 processos de
 entrada e **5 MB/s de E-S com 1.024 IOPS**. É esse teto que decide tudo o que
@@ -59,17 +59,18 @@ cat /etc/os-release && openssl version
 
 ## Variáveis de ambiente
 
-Todas as 17 do `.env`/`.env.local` precisam ser recriadas no painel do Node.
-Três **mudam** em relação à Vercel:
+Todas as 17 do `.env`/`.env.local` precisam existir no painel do Node. Três
+merecem atenção:
 
 | Variável | Valor na hospedagem | Por quê |
 |---|---|---|
-| `DATABASE_URL` | host `localhost` no lugar de `192.109.11.49` | É o ganho todo. Mesmo banco, mesma máquina — sem isso, a mudança não serve para nada. |
-| `NEXTAUTH_URL` | o domínio público, com `https://` | Hoje está vazia, e em produção o NextAuth caía em `VERCEL_PROJECT_PRODUCTION_URL`, que não existe fora da Vercel. Sem ela, o login para. |
+| `DATABASE_URL` | host `localhost` | É o ganho todo. Mesmo banco, mesma máquina — sem isso, a co-locação não serve para nada. |
+| `NEXTAUTH_URL` | o domínio público, com `https://` | Sem ela o NextAuth monta o `redirect_uri` a partir de um endereço adivinhado e o Google recusa o login com `redirect_uri_mismatch`. É também o que fixa a URL do disparador de cron quando o painel é aberto fora do domínio de produção. |
 | `NEXTAUTH_SECRET` | o valor real | Havia um fallback **escrito no `next.config.ts`**, versionado no Git. Foi removido. Se esta variável faltar, o NextAuth falha — e falhar alto é melhor que assinar sessão com segredo público. |
 
-O domínio **não muda**, então o `redirect_uri` autorizado no cliente OAuth do
-Google continua valendo. Nada a fazer no console do Google.
+O `redirect_uri` autorizado no cliente OAuth do Google precisa ser exatamente
+`<domínio>/api/auth/callback/google`. A tela `/api/auth/config-check` responde
+qual endereço o sistema está usando e o que falta.
 
 ## Configurar o app no cPanel
 
@@ -82,23 +83,40 @@ Em *Setup Node.js App*:
 
 O Passenger injeta `PORT`, e o `server.js` do Next o respeita.
 
-## Crons
+## Cron: um cadastro só
 
-Nada de novo a cadastrar para o sync: `/api/cron/sync-all` já está registrado e
-continua valendo — uma batida alterna entre métricas e mídia.
+A sincronização automática depende de **um** Cron Job no cPanel, batendo a cada
+15 minutos. Ele não decide nada: só acorda a aplicação. Quem decide se há
+sincronização e com que frequência é Configurações › Sistema, e por isso mudar o
+intervalo no painel vale na hora, sem tocar no servidor.
 
-Falta migrar **um**, o que hoje vive no `vercel.json`:
-`/api/insights/news/cron`, diário à meia-noite.
+Cada batida executa **uma** das duas passadas — métricas ou mídia —, a que
+esperou mais. As duas não cabem na mesma execução.
 
-`vercel.json` só deve ser apagado **depois** do corte, não antes.
+1. Abra **Configurações › Sistema** no domínio de produção
+2. No cartão "Disparador externo", clique em **Gerar** e copie o comando
+3. No cPanel, em *Cron Jobs*, cadastre-o com a frequência `*/15 * * * *`
 
-## O corte
+O comando já vem com a chave dentro, no cabeçalho `Authorization`. Gerar uma
+chave nova invalida a anterior: o cron cadastrado passa a receber 401 até o
+comando ser trocado.
 
-1. Publicar e testar pelo endereço temporário do cPanel, com o DNS ainda na Vercel
-2. Conferir o login (é o que mais depende de configuração nova)
-3. Rodar um sync e comparar o tempo — a prova de que a co-locação funcionou
-4. Só então apontar o DNS
-5. Depois de estável: apagar `vercel.json` e o cron da Vercel
+**Como saber se está de pé.** O mesmo cartão mostra *Última batida do
+disparador*. Esse carimbo é gravado assim que uma requisição autorizada chega —
+antes de qualquer decisão de intervalo —, então ele distingue as duas causas de
+silêncio que davam a mesma tela: cron que não chega (URL velha, chave trocada,
+cadastro apagado) e cron que chega mas ainda não venceu a janela. Mais de uma
+hora sem batida, com o cron a cada 15 min, são quatro batidas perdidas: o painel
+acusa.
+
+Para testar na hora, sem esperar a janela: acrescente `?force=1` à URL, ou
+`?job=media` para forçar a passada de artes.
+
+## Publicar uma versão nova
+
+1. `git push` na `main` — a esteira do GitHub builda e publica no branch `deploy`
+2. A hospedagem espelha o `deploy`
+3. Reinicie a aplicação no *Setup Node.js App* (ou toque `tmp/restart.txt`)
 
 ## Riscos ainda não medidos
 

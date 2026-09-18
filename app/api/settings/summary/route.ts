@@ -20,6 +20,7 @@ import { NextResponse } from "next/server";
 import prisma from "@/lib/prisma";
 import { getCurrentUser } from "@/lib/auth";
 import { buildIntegrationStatuses } from "@/lib/integrations";
+import { buildSyncStatus } from "@/lib/sync-status";
 
 export const dynamic = "force-dynamic";
 
@@ -40,21 +41,38 @@ export async function GET() {
      * rede.
      */
     const settings = await prisma.systemSettings.findUnique({ where: { id: 1 } });
+    const integrations = buildIntegrationStatuses(settings);
+
+    /*
+     * O estado da automação sai pronto daqui, e não montado na tela.
+     *
+     * Cada tela que tentava montá-lo sozinha chegava a uma resposta diferente —
+     * e a divergência foi o que escondeu um disparador morto por horas. Quem
+     * calcula é `lib/sync-status.ts`, um módulo só, e o navegador reusa este
+     * mesmo objeto a cada tique do relógio.
+     */
+    const sync = buildSyncStatus({
+      cronSyncEnabled: settings?.cronSyncEnabled,
+      cronSyncInterval: settings?.cronSyncInterval,
+      lastSyncAt: settings?.lastSyncAt ?? null,
+      lastCronSyncAt: settings?.lastCronSyncAt ?? null,
+      lastMediaSyncAt: settings?.lastMediaSyncAt ?? null,
+      lastCronPingAt: settings?.lastCronPingAt ?? null,
+      // As fontes que a sincronização percorre são Meta e TikTok; as demais
+      // integrações habilitam outros recursos e não têm o que sincronizar.
+      hasConfiguredSource: integrations.some(
+        (i) => (i.id === "META" || i.id === "TIKTOK") && i.configured
+      ),
+    });
 
     return NextResponse.json({
       success: true,
       // Só `id` e `configured`: o cabeçalho acende ícone, não configura nada.
-      integrations: buildIntegrationStatuses(settings).map((i) => ({
+      integrations: integrations.map((i) => ({
         id: i.id,
         configured: i.configured,
       })),
-      cron: {
-        enabled: settings?.cronSyncEnabled ?? false,
-        intervalMinutes: settings?.cronSyncInterval || 120,
-      },
-      lastSyncAt: settings?.lastSyncAt?.toISOString() ?? null,
-      lastCronSyncAt: settings?.lastCronSyncAt?.toISOString() ?? null,
-      lastCronPingAt: settings?.lastCronPingAt?.toISOString() ?? null,
+      sync,
     });
   } catch (error) {
     console.error("[Resumo de configurações] Falha:", error);

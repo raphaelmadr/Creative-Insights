@@ -4,6 +4,7 @@ import React, { createContext, useContext, useEffect, useState, ReactNode } from
 import { useSession } from "next-auth/react";
 import { X } from "lucide-react";
 import { ToastStack, ToastItem } from "./ToastStack";
+import type { SyncStatus } from "@/lib/sync-status";
 
 export interface UpdateItem {
   id: string;
@@ -57,10 +58,15 @@ interface NotificationContextType {
   isFetchingMore: boolean;
   loadMoreUpdates: () => Promise<void>;
   isSyncingMeta: boolean;
-  /** Fim da última sincronização — manual ou automática, completa ou parcial. */
-  lastSyncAt: string | null;
-  /** Quando o cron pode voltar a rodar. `null` se a automação está desligada. */
-  nextAutoSyncAt: string | null;
+  /**
+   * O estado da sincronização automática, inteiro e vindo pronto do servidor.
+   *
+   * Substituiu `lastSyncAt` + `nextAutoSyncAt`, dois campos soltos que cada
+   * tela recombinava do seu jeito. `null` enquanto o resumo não chegou.
+   */
+  syncStatus: SyncStatus | null;
+  /** Relê o resumo agora — usado depois de uma sincronização manual. */
+  refreshSyncStatus: () => Promise<void>;
   syncCounter: number;
   syncMessage: string;
   syncProgress: number;
@@ -86,8 +92,8 @@ const NotificationContext = createContext<NotificationContextType>({
   isFetchingMore: false,
   loadMoreUpdates: async () => {},
   isSyncingMeta: false,
-  lastSyncAt: null,
-  nextAutoSyncAt: null,
+  syncStatus: null,
+  refreshSyncStatus: async () => {},
   syncCounter: 0,
   syncMessage: "",
   syncProgress: 0,
@@ -114,12 +120,7 @@ export default function NotificationProvider({ children }: { children: ReactNode
   const [isSyncingMeta, setIsSyncingMeta] = useState(false);
   const [syncProgress, setSyncProgress] = useState(0);
   const [syncMessage, setSyncMessage] = useState("");
-  const [lastSyncAt, setLastSyncAt] = useState<string | null>(null);
-  const [lastCronSyncAt, setLastCronSyncAt] = useState<string | null>(null);
-  const [cronConfig, setCronConfig] = useState<{ enabled: boolean; intervalMinutes: number }>({
-    enabled: false,
-    intervalMinutes: 120,
-  });
+  const [syncStatus, setSyncStatus] = useState<SyncStatus | null>(null);
   const [syncCounter, setSyncCounter] = useState(0);
   const [isSyncingAll, setIsSyncingAll] = useState(false);
 
@@ -164,6 +165,39 @@ export default function NotificationProvider({ children }: { children: ReactNode
       if (json.success) setTaskNotifications(json.notifications || []);
     } catch (err) {
       console.error("Falha ao carregar notificações de demanda:", err);
+    }
+  }, []);
+
+  /*
+   * O RESUMO, e não a configuração inteira.
+   *
+   * `/api/settings` devolve os prompts de IA e, para quem administra, todas as
+   * chaves — quilobytes que o cabeçalho não usa, baixados em toda visita a
+   * qualquer tela. Aqui sai só o que o cabeçalho desenha: os booleanos de
+   * integração e o estado da sincronização, já calculado pelo servidor.
+   *
+   * Virou `useCallback` porque agora tem três chamadores: a montagem, o relógio
+   * que o mantém fresco e o fim de uma sincronização manual. Antes era uma
+   * função solta dentro do efeito, buscada UMA vez por carregamento de página —
+   * e era essa a razão de a tela anunciar "próxima automática: a qualquer
+   * momento" para sempre: o dado nunca mais era relido, então nada podia mudar
+   * de estado enquanto a aba ficasse aberta.
+   */
+  const refreshSyncStatus = React.useCallback(async () => {
+    try {
+      const response = await fetch("/api/settings/summary", { cache: "no-store" });
+      if (!response.ok) return;
+      const json = await response.json();
+      if (!json.success) return;
+
+      setSyncStatus(json.sync ?? null);
+
+      const conectado = (id: string) =>
+        !!(json.integrations || []).find((i: { id: string; configured: boolean }) => i.id === id)
+          ?.configured;
+      setIntegrations({ meta: conectado("META"), tiktok: conectado("TIKTOK"), google: false });
+    } catch (err) {
+      console.error("Falha ao carregar o resumo de configurações:", err);
     }
   }, []);
 
@@ -214,52 +248,45 @@ export default function NotificationProvider({ children }: { children: ReactNode
       }
     }
     
-    /*
-     * O RESUMO, e não a configuração inteira.
-     *
-     * `/api/settings` devolve os prompts de IA e, para quem administra, todas
-     * as chaves — quilobytes que o cabeçalho não usa, baixados em toda visita a
-     * qualquer tela. E o `TopBar` pedia a mesma rota em paralelo, para dois
-     * booleanos: duas viagens à mesma linha do banco por carregamento.
-     *
-     * Agora é uma viagem só, e o estado das integrações sai daqui para o
-     * cabeçalho pelo contexto, em vez de por uma segunda requisição.
-     */
-    async function fetchSettings() {
-      try {
-        const response = await fetch("/api/settings/summary", { cache: "no-store" });
-        const json = await response.json();
-        if (isMounted && json.success) {
-          if (json.lastSyncAt) setLastSyncAt(json.lastSyncAt);
-          if (json.lastCronSyncAt) setLastCronSyncAt(json.lastCronSyncAt);
-          setCronConfig({
-            enabled: json.cron?.enabled ?? false,
-            intervalMinutes: json.cron?.intervalMinutes || 120,
-          });
-          const conectado = (id: string) =>
-            !!(json.integrations || []).find((i: { id: string; configured: boolean }) => i.id === id)
-              ?.configured;
-          setIntegrations({ meta: conectado("META"), tiktok: conectado("TIKTOK"), google: false });
-        }
-      } catch (err) {
-        console.error("Failed to fetch settings:", err);
-      }
-    }
-
     // Embrulhada como as duas vizinhas: chamada solta no corpo do efeito, o
     // lint a lê como gravação de estado síncrona e avisa de cascata.
     async function carregarNotificacoes() {
       await refreshTaskNotifications();
     }
 
+    // Embrulhada como as vizinhas: chamada solta no corpo do efeito, o lint a
+    // lê como gravação de estado síncrona e avisa de cascata.
+    async function carregarResumo() {
+      await refreshSyncStatus();
+    }
+
     fetchSaved();
-    fetchSettings();
+    carregarResumo();
     carregarNotificacoes();
 
     return () => {
       isMounted = false;
     };
-  }, [status, refreshTaskNotifications]);
+  }, [status, refreshTaskNotifications, refreshSyncStatus]);
+
+  /*
+   * O relógio que mantém o estado da automação vivo.
+   *
+   * Sem ele o cabeçalho congela no que leu ao abrir a página: a janela vence, o
+   * disparador morre, a sincronização roda — e a tela continua dizendo o mesmo
+   * de meia hora atrás. Um minuto é folgado para um intervalo que se mede em
+   * dezenas de minutos, e é uma requisição barata: uma linha por chave
+   * primária.
+   *
+   * A contagem regressiva na tela não depende disto — ela anda sozinha, a cada
+   * tique do relógio local, a partir do `nextEligibleAt` que já está em mãos.
+   */
+  useEffect(() => {
+    if (status !== "authenticated") return;
+
+    const relogio = setInterval(() => { refreshSyncStatus(); }, 60 * 1000);
+    return () => clearInterval(relogio);
+  }, [status, refreshSyncStatus]);
 
   // Busca ativa (via IA + Tavily)
   const searchForUpdates = async () => {
@@ -462,7 +489,9 @@ export default function NotificationProvider({ children }: { children: ReactNode
         mediaOk = false;
       }
 
-      setLastSyncAt(new Date().toISOString());
+      // O carimbo vem do servidor, não do relógio do navegador: quem grava
+      // `lastSyncAt` é `lib/channels.ts`, ao fim da execução, e adivinhá-lo aqui
+      // criava uma segunda verdade que podia divergir por minutos.
       setSyncCounter(prev => prev + 1);
 
       /*
@@ -490,18 +519,12 @@ export default function NotificationProvider({ children }: { children: ReactNode
     } finally {
       setIsSyncingAll(false);
       setIsSyncingMeta(false);
+      // O carimbo da última sincronização acabou de mudar no banco: relê, senão
+      // o cabeçalho continua anunciando a anterior até o próximo minuto.
+      refreshSyncStatus();
       setTimeout(() => setToastMsg(null), 6000);
     }
   };
-
-  /**
-   * `lastCronSyncAt` marca o início da última execução automática; somado ao
-   * intervalo configurado, dá a próxima janela. `null` desliga a exibição em
-   * vez de anunciar uma previsão que não vai acontecer.
-   */
-  const nextAutoSyncAt = cronConfig.enabled && lastCronSyncAt
-    ? new Date(new Date(lastCronSyncAt).getTime() + cronConfig.intervalMinutes * 60 * 1000).toISOString()
-    : null;
 
   return (
     <NotificationContext.Provider value={{ 
@@ -525,7 +548,7 @@ export default function NotificationProvider({ children }: { children: ReactNode
       
       searchForUpdates, markAllAsRead, hasMore, isFetchingMore, 
       loadMoreUpdates,
-      isSyncingMeta, lastSyncAt, nextAutoSyncAt, syncCounter,
+      isSyncingMeta, syncStatus, refreshSyncStatus, syncCounter,
       syncMessage, syncProgress,
       isSyncingAll, syncAll, lastReadDate
     }}>
