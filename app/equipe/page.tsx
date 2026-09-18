@@ -14,7 +14,7 @@ import {
   type MetricTone,
 } from "@/components/CreativeCardPrimitives";
 import {
-  Users, Target, RefreshCw, Info, Layers, TrendingUp,
+  Users, Target, Info, Layers, TrendingUp,
   Activity, ChevronDown, CalendarDays,
 } from "lucide-react";
 
@@ -249,7 +249,7 @@ function MemberCard({ stat, rank }: { stat: any; rank: number }) {
             <GoalBlock
               icon={<Layers size={13} />}
               label="Peças entregues"
-              hint="Peças lidas do canal de entregas do Slack."
+              hint="Peças dos cards que chegaram à etapa de entrega do quadro."
               value={stat.totalPieces || 0}
               goal={volumeGoal}
               format={(n: number) => n.toLocaleString("pt-BR")}
@@ -264,7 +264,6 @@ function MemberCard({ stat, rank }: { stat: any; rank: number }) {
 export default function EquipePage() {
   const [stats, setStats] = useState<any[]>([]);
   const [teamCreativeGoal, setTeamCreativeGoal] = useState(625);
-  const [syncing, setSyncing] = useState(false);
   const [showGlossary, setShowGlossary] = useState(false);
 
   const now = new Date();
@@ -272,9 +271,14 @@ export default function EquipePage() {
   const [selectedMonth, setSelectedMonth] = useState(today.getMonth() + 1);
   const [selectedYear, setSelectedYear] = useState(today.getFullYear());
 
-  const { data: jsonReports, loading: loadingReports, mutate: mutateReports } =
+  /*
+   * Sem `mutate`: o botão que o usava era o de sincronizar entregas, e ele saiu
+   * junto com a fonte que o justificava. O período troca pela URL do próprio
+   * `useCacheFetch`, que refaz a busca sozinho.
+   */
+  const { data: jsonReports, loading: loadingReports } =
     useCacheFetch<any>(`/api/reports/creators?month=${selectedMonth}&year=${selectedYear}`);
-  const { data: jsonDeliveries, loading: loadingDeliveries, mutate: mutateDeliveries } =
+  const { data: jsonDeliveries, loading: loadingDeliveries } =
     useCacheFetch<any>(`/api/deliveries?month=${selectedMonth}&year=${selectedYear}`);
 
   const loading = loadingReports || loadingDeliveries;
@@ -307,29 +311,6 @@ export default function EquipePage() {
     setStats(unifiedStats);
     setTeamCreativeGoal(globalTeamGoal);
   }, [jsonReports, jsonDeliveries]);
-
-  const handleSyncSlack = async () => {
-    if (syncing) return;
-    setSyncing(true);
-    try {
-      const res = await fetch("/api/sync-slack", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ month: selectedMonth, year: selectedYear }),
-      });
-      const data = await res.json();
-      if (data.success) {
-        mutateReports();
-        mutateDeliveries();
-      } else {
-        alert("Erro na sincronização: " + (data.error || "Desconhecido"));
-      }
-    } catch {
-      alert("Erro ao chamar API de sincronização.");
-    } finally {
-      setSyncing(false);
-    }
-  };
 
   const currentMonthValue = today.getMonth() + 1;
   const currentYearValue = today.getFullYear();
@@ -402,16 +383,6 @@ export default function EquipePage() {
                 </select>
               </FilterChip>
 
-              <button
-                onClick={handleSyncSlack}
-                disabled={syncing}
-                className="btn btn-primary"
-                title={`Relê o canal do Slack e regrava as entregas de ${MONTHS[selectedMonth - 1]}`}
-              >
-                <RefreshCw size={14} className={syncing ? "spin" : ""} />
-                {syncing ? "Sincronizando..." : "Sincronizar entregas"}
-              </button>
-
               <button onClick={() => setShowGlossary(v => !v)} className="btn btn-ghost" aria-expanded={showGlossary}>
                 <Info size={14} />
                 {showGlossary ? "Ocultar glossário" : "O que cada número significa"}
@@ -431,7 +402,8 @@ export default function EquipePage() {
               <div className="allu-card">
                 <div className="allu-card-label">◇ Entregas realizadas</div>
                 <div className="allu-card-subtext">
-                  Peças extraídas <strong>automaticamente do Slack</strong> nas datas do mês selecionado.
+                  Peças dos cards que chegaram à <strong>etapa de entrega do quadro</strong> nas datas
+                  do mês selecionado. O crédito vai para quem moveu o card.
                 </div>
               </div>
               <div className="allu-card">
@@ -480,7 +452,11 @@ export default function EquipePage() {
               <div style={{ display: "flex", justifyContent: "space-between", flexWrap: "wrap", gap: "0.5rem", ...T.foot, opacity: 0.7 }}>
                 <span style={{ display: "flex", alignItems: "center", gap: "0.35rem" }}>
                   {totalPieces === 0
-                    ? <>Nenhuma entrega registrada neste mês — sincronize para trazer do Slack.</>
+                    /* Mandava sincronizar com o Slack, que não é mais a fonte — e o
+                       botão que fazia isso nem existia mais. Sem entrega no mês, o
+                       que há a dizer é onde ela nasce: um card chegando à etapa de
+                       entrega do quadro. */
+                    ? <>Nenhuma entrega registrada neste mês — elas nascem dos cards que chegam à etapa de entrega do quadro.</>
                     : paceText && <><Activity size={12} /> {paceText}</>}
                 </span>
                 {hasTeamGoal && (

@@ -34,7 +34,9 @@ const CHAVES_DE_VOLUMETRIA = ["numero_de_pecas", "pecas", "volumetria", "quantid
  */
 export async function volumetriaDoCard(
   boardId: string,
-  values: string | null
+  values: string | null,
+  /** Para a frase do aviso dizer de qual demanda se trata. */
+  titulo?: string
 ): Promise<number> {
   const respostas = parseValues(values);
 
@@ -49,6 +51,31 @@ export async function volumetriaDoCard(
   const chave =
     CHAVES_DE_VOLUMETRIA.find((c) => numericos.some((f) => f.key === c)) ??
     (numericos.length === 1 ? numericos[0].key : null);
+
+  /*
+   * Não saber qual campo é a volumetria não pode ser silencioso.
+   *
+   * Com dois ou mais campos numéricos e nenhum com nome conhecido, a função
+   * desiste e conta 1 por card — que é a decisão certa (adivinhar seria
+   * inventar uma regra que ninguém escreveu), mas era tomada sem deixar
+   * rastro: o ranking passava a somar cards em vez de peças, e ninguém tinha
+   * como descobrir por quê.
+   *
+   * Só avisa no caso AMBÍGUO. Um quadro sem campo numérico nenhum não pergunta
+   * quantidade, e contar 1 por card ali é o comportamento pretendido, não um
+   * defeito a reportar.
+   */
+  if (!chave && numericos.length > 1) {
+    await logWarning(
+      "ENTREGAS",
+      `O quadro tem ${numericos.length} campos numéricos (${numericos
+        .map((f) => f.key)
+        .join(", ")}) e nenhum com nome reconhecido como volumetria, então ` +
+        `${titulo ? `"${titulo}"` : "a entrega"} contou 1 peça. Renomeie o campo ` +
+        `de quantidade para uma destas chaves: ${CHAVES_DE_VOLUMETRIA.join(", ")}.`,
+      "lib/kanban-deliveries.ts"
+    );
+  }
 
   if (!chave) return 1;
 
@@ -74,6 +101,46 @@ export async function volumetriaDoCard(
  * - O card já foi entregue antes. `sourceKey` é único por card, então voltar à
  *   revisão e avançar de novo não conta duas vezes.
  */
+/**
+ * Acerta a volumetria de uma entrega JÁ registrada, quando a resposta muda.
+ *
+ * `Delivery.pieces` é uma fotografia: vale o que o card respondia no instante
+ * em que chegou à coluna de entrega. Isso bastava enquanto a resposta era
+ * imutável depois da abertura — e deixou de bastar quando quem produz a peça
+ * passou a poder corrigi-la no painel do card, que é justamente quando o número
+ * real aparece. Sem este acerto, o quadro mostrava 3 peças e o ranking contava
+ * 1, para sempre, sem nada na tela explicando a diferença.
+ *
+ * A DATA não se mexe, e é de propósito: a entrega aconteceu no dia em que
+ * aconteceu. O que se corrige é quanto foi entregue, não quando — mover a data
+ * para hoje tiraria a entrega do mês em que ela foi feita e furaria o
+ * fechamento de um mês já contado.
+ *
+ * Devolve o antes e o depois para quem chamou poder registrar a correção no
+ * histórico do card; nulo quando não há entrega ou quando o número não mudou.
+ */
+export async function atualizarVolumetriaEntregue(params: {
+  cardId: string;
+  boardId: string;
+  values: string | null;
+}): Promise<{ antes: number; depois: number } | null> {
+  const entrega = await prisma.delivery.findUnique({
+    where: { sourceKey: `kanban:${params.cardId}` },
+    select: { id: true, pieces: true },
+  });
+
+  // Card que ainda não foi entregue não tem o que corrigir: a fotografia será
+  // tirada na chegada à coluna de conclusão, já com a resposta de agora.
+  if (!entrega) return null;
+
+  const depois = await volumetriaDoCard(params.boardId, params.values);
+  if (depois === entrega.pieces) return null;
+
+  await prisma.delivery.update({ where: { id: entrega.id }, data: { pieces: depois } });
+
+  return { antes: entrega.pieces, depois };
+}
+
 export async function registrarEntregaDoCard(params: {
   cardId: string;
   boardId: string;
@@ -111,7 +178,7 @@ export async function registrarEntregaDoCard(params: {
     return;
   }
 
-  const pieces = await volumetriaDoCard(params.boardId, params.values);
+  const pieces = await volumetriaDoCard(params.boardId, params.values, params.title);
 
   try {
     await prisma.delivery.create({
