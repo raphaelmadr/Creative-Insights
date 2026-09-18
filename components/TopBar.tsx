@@ -128,6 +128,19 @@ export default function TopBar() {
    */
   const podeCriar = hasCreatorAccess(session?.user?.role);
   const { isSyncingAll, syncStatus, syncAll, isSyncingMeta, syncMessage, syncProgress, isSearching, loadingText, integrations, taskNotifications, taskUnreadCount, clearTaskNotifications } = useNotifications();
+
+  /*
+   * O botão é um só para toda a equipe.
+   *
+   * `isSyncingAll` conhece apenas o clique DESTA aba; `syncStatus.running` vem
+   * da trava no banco e conhece o de qualquer pessoa, em qualquer computador.
+   * Sem a segunda, onze pessoas com o painel aberto abriam onze varreduras
+   * simultâneas contra a mesma conta de anúncios.
+   */
+  const syncBloqueado = isSyncingAll || !!syncStatus?.running;
+  const syncTitle = syncStatus?.running
+    ? `${syncStatus.running.by} está sincronizando. Só uma execução roda por vez.`
+    : "Sincroniza Meta e TikTok no mês corrente";
   const [isNotificationsOpen, setIsNotificationsOpen] = useState(false);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   /*
@@ -375,9 +388,9 @@ export default function TopBar() {
               <div style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem', width: '100%' }}>
                 {/* Mesmo botão e mesmo comportamento do desktop: sincronização
                     profunda de todas as redes, sempre no mês corrente. */}
-                <button onClick={() => { syncAll(); setIsMobileMenuOpen(false); }} disabled={isSyncingAll} className="btn btn-secondary" style={{ color: isSyncingAll ? 'var(--muted)' : 'var(--foreground)', width: '100%' }} >
-                  <RefreshCw size={16} className={isSyncingAll ? "spin" : ""} style={{ animation: isSyncingAll ? "spin 2s linear infinite" : "none" }} />
-                  {isSyncingAll ? "Sincronizando..." : "Sincronizar Redes"}
+                <button onClick={() => { syncAll(); setIsMobileMenuOpen(false); }} disabled={syncBloqueado} title={syncTitle} className="btn btn-secondary" style={{ color: syncBloqueado ? 'var(--muted)' : 'var(--foreground)', width: '100%' }} >
+                  <RefreshCw size={16} className={syncBloqueado ? "spin" : ""} style={{ animation: syncBloqueado ? "spin 2s linear infinite" : "none" }} />
+                  {syncBloqueado ? "Sincronizando..." : "Sincronizar Redes"}
                 </button>
                 <div style={{ display: 'flex', justifyContent: 'center' }}>
                   <SyncStatusView status={syncStatus} running={isSyncingAll} />
@@ -412,13 +425,16 @@ export default function TopBar() {
           </div>
 
           <div className={styles.desktopSync} style={{ position: 'relative', marginRight: '1rem' }}>
-            <button onClick={() => syncAll()} disabled={isSyncingAll} className="btn btn-secondary" style={{ color: isSyncingAll ? 'var(--muted)' : 'var(--foreground)' }} >
-              <RefreshCw size={16} className={isSyncingAll ? "spin" : ""} style={{ animation: isSyncingAll ? "spin 2s linear infinite" : "none" }} />
-              {isSyncingAll ? "Sincronizando..." : "Sincronizar Redes"}
+            <button onClick={() => syncAll()} disabled={syncBloqueado} title={syncTitle} className="btn btn-secondary" style={{ color: syncBloqueado ? 'var(--muted)' : 'var(--foreground)' }} >
+              <RefreshCw size={16} className={syncBloqueado ? "spin" : ""} style={{ animation: syncBloqueado ? "spin 2s linear infinite" : "none" }} />
+              {syncBloqueado ? "Sincronizando..." : "Sincronizar Redes"}
             </button>
             {/* O estado fica sob o botão, e é o MESMO componente da tela de
                 configurações — mesma conta, mesmas palavras, contagem viva. */}
-            <div style={{ position: 'absolute', top: '100%', left: 0, marginTop: '0.3rem', display: 'flex', justifyContent: 'center', width: '100%', overflow: 'hidden' }}>
+            {/* Centrado no botão e livre para ser um pouco mais largo que ele:
+                como está fora do fluxo, passar da largura não empurra nada, e é
+                o que permite a linha inteira caber sem quebrar. */}
+            <div style={{ position: 'absolute', top: '100%', left: '50%', transform: 'translateX(-50%)', marginTop: '0.3rem', display: 'flex', justifyContent: 'center', width: 'max-content', maxWidth: '17rem' }}>
               <SyncStatusView status={syncStatus} running={isSyncingAll} />
             </div>
           </div>

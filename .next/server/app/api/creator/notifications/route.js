@@ -2,9 +2,9 @@ var R=require("../../../../chunks/[turbopack]_runtime.js")("server/app/api/creat
 R.c("server/chunks/lib_kanban_ts_1s0jppd._.js")
 R.c("server/chunks/node_modules_next_1zdbrne._.js")
 R.c("server/chunks/[root-of-the-server]__1ip_hgr._.js")
-R.c("server/chunks/node_modules_next_dist_13kw1hb._.js")
-R.c("server/chunks/_0nzvaf2._.js")
 R.c("server/chunks/[root-of-the-server]__15bjnu5._.js")
+R.c("server/chunks/_0nzvaf2._.js")
+R.c("server/chunks/node_modules_next_dist_13kw1hb._.js")
 R.c("server/chunks/_next-internal_server_app_api_creator_notifications_route_actions_1u7sq_i.js")
 R.m(76318)
 module.exports=R.m(76318).exports

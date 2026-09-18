@@ -1,11 +1,54 @@
 let globalPauseUntil = 0;
 let START_TIME = Date.now();
-const WALL_CLOCK_LIMIT = process.env.IS_LOCAL_CLI === "true" ? 36000000 : 180000; // 10 hours for local CLI, 180s for Serverless
+
+/**
+ * O teto de tempo de uma sincronização — hoje, nenhum.
+ *
+ * Eram 180s, e o comentário original dizia de onde vinham: "for Serverless". A
+ * aplicação rodava em função serverless com limite RÍGIDO de 300s, que cortava
+ * a execução no meio sem erro tratável; Meta e TikTok reservavam 180s cada e o
+ * teto interno existia para a sincronização PARAR SOZINHA e relatar "parcial"
+ * em vez de ser morta e desaparecer.
+ *
+ * Esse limite de plataforma não existe mais — a aplicação roda em processo
+ * próprio no cPanel, onde nada corta a execução por tempo. O teto continuava de
+ * pé sem nada por trás: era ele, e só ele, que fazia uma sincronização terminar
+ * com "9 de 18 dias do mês nesta passada — parcial, rode novamente" num mês que
+ * cabia inteiro numa execução.
+ *
+ * O mecanismo fica, o valor sai. Todas as fases que perguntam "sobrou tempo?"
+ * passam a ouvir "sim" e rodam até o fim; definindo `SYNC_TIME_LIMIT_MINUTES`
+ * no ambiente, o orçamento volta a existir e tudo volta a se comportar como
+ * antes — é a alavanca para o dia em que uma execução longa demais atrapalhar
+ * quem está navegando no painel, já que a conta tem um núcleo só.
+ */
+function resolveWallClockLimit(): number {
+  const bruto = (process.env.SYNC_TIME_LIMIT_MINUTES ?? "").trim();
+  if (bruto) {
+    const minutos = Number(bruto);
+    if (Number.isFinite(minutos) && minutos > 0) return minutos * 60_000;
+  }
+  return Number.POSITIVE_INFINITY;
+}
+
+const WALL_CLOCK_LIMIT = resolveWallClockLimit();
+
+/** Existe orçamento de tempo? Falso é o padrão: a sincronização roda até acabar. */
+export function hasWallClockLimit(): boolean {
+  return Number.isFinite(WALL_CLOCK_LIMIT);
+}
+
 export function resetWallClock() {
   START_TIME = Date.now();
 }
 
-/** Tempo restante antes do teto preventivo, em ms. Usado para orçar fases caras. */
+/**
+ * Tempo restante antes do teto, em ms. Usado para orçar fases caras.
+ *
+ * Sem teto configurado devolve `Infinity`, e é assim que os pisos das fases se
+ * desativam sozinhos: `Infinity < PISO` é falso em todos eles, sem que nenhuma
+ * dessas dezenas de comparações precise saber que o orçamento sumiu.
+ */
 export function wallClockRemainingMs(): number {
   return Math.max(0, WALL_CLOCK_LIMIT - (Date.now() - START_TIME));
 }
@@ -31,14 +74,28 @@ export class MetaApiError extends Error {
   }
 }
 
+/**
+ * Só é lançado quando `SYNC_TIME_LIMIT_MINUTES` está definido — sem orçamento
+ * configurado, nada aqui interrompe uma sincronização por tempo.
+ */
 export class WallClockLimitError extends Error {
   constructor() {
-    super("Wall clock limit reached. Aborting to avoid serverless timeout.");
+    super("Orçamento de tempo da sincronização esgotado (SYNC_TIME_LIMIT_MINUTES).");
     this.name = 'WallClockLimitError';
   }
 }
 
 const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
+
+/**
+ * Quantas janelas de limite de taxa uma requisição espera antes de desistir.
+ *
+ * A regra da casa passou a ser: o único limite que respeitamos é o das APIs —
+ * e respeitar não é desistir, é esperar a janela e continuar. Dez esperas
+ * cobrem de sobra o que a Meta costuma pedir (minutos); o número existe só para
+ * uma conta bloqueada por horas não deixar um processo preso para sempre.
+ */
+const MAX_RATE_LIMIT_WAITS = 10;
 
 function checkWallClock() {
   if (Date.now() - START_TIME >= WALL_CLOCK_LIMIT) {
@@ -68,7 +125,13 @@ function parseUsageHeader(headerValue: string | null): number {
   return 0;
 }
 
-export async function throttledFetch(url: string, options?: RequestInit, attempt = 1): Promise<any> {
+export async function throttledFetch(
+  url: string,
+  options?: RequestInit,
+  attempt = 1,
+  /** Quantas vezes esta requisição já esperou uma janela de limite de taxa. */
+  rateLimitWaits = 0
+): Promise<any> {
   checkWallClock();
 
   const now = Date.now();
@@ -129,15 +192,38 @@ export async function throttledFetch(url: string, options?: RequestInit, attempt
     const errObj = new MetaApiError(data.error.message, data.error.code, data.error.error_subcode);
     
     if (errObj.isRateLimit) {
-      // Pause for estimated time or default
+      /*
+       * Limite de taxa: ESPERAR a janela e continuar, não abortar.
+       *
+       * Antes isto lançava, e a sincronização inteira terminava parcial. Fazia
+       * sentido quando havia um teto de 180s: esperar os 60s que a Meta pede
+       * consumia um terço do orçamento e o que viesse depois morreria de
+       * qualquer forma. Sem teto, desistir é a pior das duas opções — a espera
+       * é exatamente o que a API está pedindo, e do outro lado dela o trabalho
+       * continua de onde parou.
+       *
+       * `globalPauseUntil` é marcado ANTES da espera para que as outras
+       * requisições em voo parem junto: o limite é da conta, não desta chamada.
+       */
       const estimatedTime = data.error.error_data?.estimated_time_to_regain_access;
       const pauseDuration = estimatedTime ? estimatedTime * 60000 : 60000;
-      
+      globalPauseUntil = Date.now() + pauseDuration;
+
+      // Com orçamento configurado, a regra antiga vale: não adianta esperar
+      // uma janela que termina depois do fim do tempo.
       if (Date.now() + pauseDuration - START_TIME >= WALL_CLOCK_LIMIT) {
         throw new WallClockLimitError();
       }
 
-      globalPauseUntil = Date.now() + pauseDuration;
+      if (rateLimitWaits < MAX_RATE_LIMIT_WAITS) {
+        console.warn(
+          `[Meta] Limite de taxa atingido. Aguardando ${Math.round(pauseDuration / 1000)}s ` +
+          `antes de continuar (espera ${rateLimitWaits + 1} de ${MAX_RATE_LIMIT_WAITS}).`
+        );
+        await delay(pauseDuration);
+        return throttledFetch(url, options, attempt, rateLimitWaits + 1);
+      }
+
       throw errObj;
     }
 

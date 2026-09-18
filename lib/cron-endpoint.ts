@@ -11,23 +11,22 @@
  * O que é sincronizado não é decidido aqui: é `runSync()`, o mesmo caminho do
  * botão manual.
  *
- * Um disparador só, duas passadas alternadas
- * ------------------------------------------
- * Métricas e mídia não cabem na mesma execução: uma requisição morre em 300s
- * (`maxDuration`) e só as fases de leitura da Meta consomem 180s. Antes da
- * separação, o resultado era 100 execuções iniciadas contra 2 concluídas, ambas
- * relatando "0 criativos" — a mídia rodava por último e nunca chegava a começar.
+ * Uma batida, o trabalho inteiro
+ * ------------------------------
+ * Por um tempo as passadas de métricas e de mídia foram ALTERNADAS — uma batida
+ * trazia os números, a seguinte as artes. A razão era a plataforma: uma
+ * requisição morria em 300s (`maxDuration`) e as duas somadas não cabiam.
+ * Fora dela nada corta a execução por tempo, e alternar passou a significar
+ * apenas que metade do trabalho esperava um intervalo inteiro sem motivo.
  *
- * Precisar de DUAS EXECUÇÕES é imposição da plataforma; precisar de dois
- * cadastros no cPanel, não. Cada batida reivindica UMA das duas passadas — a
- * que esperou mais — e assim um cron só, batendo com frequência alta, alimenta
- * as duas.
+ * Hoje cada batida elegível faz as duas, em sequência, sob a mesma trava. O
+ * portão é uma janela só (`lastCronSyncAt`); `lastMediaSyncAt` continua sendo
+ * carimbado, mas já não governa nada — é informação de tela.
  *
- * Consequência que vale ter à vista: como as duas dividem o mesmo disparador, o
- * piso de cada passada é o dobro do passo do cron. Com o cron a cada 15 min,
- * escolher "15 minutos" no painel entrega 30 — não é o portão errando, é o que
- * cabe. Para o intervalo do painel valer ao pé da letra, o passo do cron tem
- * que ser no máximo a metade dele.
+ * Uma execução por vez, em toda a instalação: a trava de `lib/sync-lock.ts` é a
+ * mesma que o botão manual usa, então uma batida nunca roda por cima de um
+ * clique — e, quando perde a trava, ela sai sem reivindicar a janela, para não
+ * queimar o ciclo.
  */
 
 import { NextResponse } from "next/server";
@@ -35,6 +34,7 @@ import prisma from "./prisma";
 import { runSync } from "./channels";
 import { describeMediaReport, runMetaMediaSync } from "./meta-media-sync";
 import { logInfo, logWarning, logError } from "./logger";
+import { AUTOMATIC_HOLDER, acquireSyncLock, releaseSyncLock, renewSyncLock } from "./sync-lock";
 
 const DEFAULT_INTERVAL_MINUTES = 120;
 
@@ -171,143 +171,156 @@ export async function handleCronRequest(req: Request) {
     };
 
     /*
-     * Qual passada roda nesta batida: a mais atrasada das duas.
+     * A TRAVA GLOBAL, antes da janela.
      *
-     * Dar precedência fixa às métricas parecia inofensivo porque a mídia pegava
-     * "a batida seguinte" — mas isso só vale enquanto a janela das métricas
-     * ainda está fechada nessa batida seguinte. Com a folga do portão, ou com o
-     * intervalo igual ao passo do cron, as duas janelas abrem na mesma batida e
-     * as métricas venciam sempre: a mídia nunca chegava a ser reivindicada.
+     * A reivindicação da janela, logo abaixo, protege as batidas umas das
+     * outras — mas não protege de um clique manual, que entra por outra rota.
+     * Sem esta trava, uma pessoa clicando "Sincronizar Redes" e uma batida do
+     * cron caindo no mesmo minuto rodavam duas varreduras simultâneas contra a
+     * mesma conta da Meta.
      *
-     * Comparar quem esperou mais faz a alternância cair sozinha, sem depender de
-     * o intervalo ser o dobro do passo do cron. Nulo é o mais atrasado que
-     * existe — passada que nunca rodou vai primeiro.
-     *
-     * `?job=` força uma das duas — é como se testa uma sozinha sem esperar a vez.
+     * A ordem importa: a trava vem PRIMEIRO porque a reivindicação da janela é
+     * destrutiva — ela carimba o horário e queima o ciclo. Reivindicar e só
+     * então descobrir que há um sync manual em curso custaria a passada inteira,
+     * que só voltaria a ser elegível um intervalo depois.
      */
-    const requested = (url.searchParams.get("job") || "").toLowerCase();
-    let job: "metrics" | "media" | null = null;
-
-    if (requested === "media" || requested === "metrics") {
-      // Pedido explícito ainda respeita a janela, a menos que venha com force.
-      job = force || (await claim(requested === "media" ? "lastMediaSyncAt" : "lastCronSyncAt"))
-        ? (requested as "metrics" | "media")
-        : null;
-      if (force) {
-        await prisma.systemSettings.update({
-          where: { id: 1 },
-          data: requested === "media"
-            ? { lastMediaSyncAt: startedAt }
-            : { lastCronSyncAt: startedAt },
-        });
-      }
-    } else if (force) {
-      job = "metrics";
-      await prisma.systemSettings.update({
-        where: { id: 1 },
-        data: { lastCronSyncAt: startedAt },
-      });
-    } else {
-      const candidates: { job: "metrics" | "media"; field: "lastCronSyncAt" | "lastMediaSyncAt"; ranAt: Date | null }[] = [
-        { job: "metrics", field: "lastCronSyncAt", ranAt: settings.lastCronSyncAt },
-        { job: "media", field: "lastMediaSyncAt", ranAt: settings.lastMediaSyncAt },
-      ];
-
-      // Empate (as duas nulas) fica com as métricas, que é o que alimenta os
-      // números do painel — a mídia entra na batida seguinte.
-      candidates.sort((a, b) => (a.ranAt?.getTime() ?? 0) - (b.ranAt?.getTime() ?? 0));
-
-      for (const candidate of candidates) {
-        if (await claim(candidate.field)) {
-          job = candidate.job;
-          break;
-        }
-      }
-    }
-
-    if (!job) {
-      // A próxima batida útil é a da passada que vence primeiro, não a das
-      // métricas: quando é a mídia que está de vez, era o horário errado que
-      // aparecia no painel.
-      const dueAt = [settings.lastCronSyncAt, settings.lastMediaSyncAt]
-        .filter((d): d is Date => d instanceof Date)
-        .map((d) => d.getTime() + intervalMinutes * 60 * 1000);
-      const nextEligible = dueAt.length > 0 ? new Date(Math.min(...dueAt)) : null;
+    const lock = await acquireSyncLock(AUTOMATIC_HOLDER);
+    if (!lock.ok) {
       return NextResponse.json({
         success: true,
-        status: "skipped",
-        message: "Fora da janela de intervalo para ambas as passadas.",
-        nextEligibleAt: nextEligible?.toISOString() ?? null,
+        status: "busy",
+        message: `Uma sincronização de ${lock.holder.by} já está em curso; esta batida não fez nada.`,
+        holder: lock.holder,
       });
     }
 
     /*
-     * A passada de mídia: criativos, artes em alta e renovação do link de vídeo.
-     * Sai por aqui porque não divide execução com as métricas — é justamente o
-     * ponto da alternância.
+     * Sinal de vida enquanto a passada roda: sem ele a trava expira em 90s e
+     * outra batida entraria por cima de uma execução que só começou.
      */
-    if (job === "media") {
-      await logInfo("CRON", "Iniciando sincronização de mídia.", "/api/cron/sync-all");
+    const batimento = setInterval(() => {
+      renewSyncLock(lock.token).catch(() => {
+        // O prazo de 90s cobre várias perdas seguidas.
+      });
+    }, 20_000);
 
+    try {
+    /*
+     * UMA batida, o trabalho INTEIRO: métricas e depois mídia.
+     *
+     * Elas eram alternadas — uma batida trazia os números, a seguinte as artes —
+     * e a razão estava escrita no topo deste arquivo: "uma requisição morre em
+     * 300s". Era o teto da função serverless, e as duas passadas somadas não
+     * cabiam nele. Fora daquela plataforma nada corta a execução por tempo, e
+     * alternar passou a significar apenas que metade do trabalho espera um
+     * intervalo inteiro sem motivo.
+     *
+     * `?job=` continua forçando uma das duas, para testar uma isolada.
+     */
+    const requested = (url.searchParams.get("job") || "").toLowerCase();
+    const soMetricas = requested === "metrics";
+    const soMidia = requested === "media";
+
+    /*
+     * Uma janela só, guardada em `lastCronSyncAt`.
+     *
+     * `lastMediaSyncAt` continua sendo carimbado ao fim da mídia: ele não
+     * governa mais nada, mas é o que a tela usa para dizer quando as artes
+     * foram atualizadas pela última vez.
+     */
+    if (!force && !(await claim("lastCronSyncAt"))) {
+      const dueAt = settings.lastCronSyncAt
+        ? new Date(settings.lastCronSyncAt.getTime() + intervalMinutes * 60 * 1000)
+        : null;
+      return NextResponse.json({
+        success: true,
+        status: "skipped",
+        message: "Fora da janela de intervalo.",
+        nextEligibleAt: dueAt?.toISOString() ?? null,
+      });
+    }
+
+    if (force) {
+      await prisma.systemSettings.update({
+        where: { id: 1 },
+        data: { lastCronSyncAt: startedAt },
+      });
+    }
+
+    // Log de início, não só de fim: uma execução interrompida no meio (queda,
+    // reinício do servidor) não escreve o log final, e um "Iniciando" sem
+    // "Concluída" correspondente em Configurações › Logs é a assinatura disso.
+    await logInfo("CRON", "Iniciando sincronização automática.", "/api/cron/sync-all");
+
+    const partes: string[] = [];
+    let tudoOk = true;
+    let parcial = false;
+    let metricsReport: Awaited<ReturnType<typeof runSync>> | null = null;
+
+    // --- Métricas e criativos ---
+    if (!soMidia) {
+      metricsReport = await runSync((message, percentage) => {
+        console.log(`[Cron ${percentage}%] ${message}`);
+      });
+
+      partes.push(metricsReport.summary);
+      parcial = parcial || metricsReport.partial;
+
+      // Falta de credencial não é erro de execução: vira aviso e responde 200,
+      // para o disparador do cPanel não enviar e-mail de falha a cada batida
+      // por causa de uma configuração incompleta.
+      if (!metricsReport.ok && !metricsReport.nothingConfigured) tudoOk = false;
+    }
+
+    // --- Artes, capas e renovação do link de vídeo ---
+    if (!soMetricas) {
       const media = await runMetaMediaSync((message, percentage) => {
         console.log(`[Cron mídia ${percentage}%] ${message}`);
       });
 
       const described = describeMediaReport(media);
-      const summary = described.text;
+      partes.push(described.text);
+      parcial = parcial || media.reachedLimit;
+      // Falha de gravação não invalida as métricas que já entraram — muda o
+      // nível do log, não o sucesso da batida.
+      if (!described.ok) tudoOk = false;
 
-      // Falha de gravação vira WARNING: um "Concluída" em nível INFO esconde
-      // centenas de imagens que não subiram.
-      if (described.ok) {
-        await logInfo("CRON", `Concluída mídia. ${summary}`, "/api/cron/sync-all");
-      } else {
-        await logWarning("CRON", `Concluída mídia com falhas. ${summary}`, "/api/cron/sync-all");
-      }
-
-      return NextResponse.json({
-        success: true,
-        status: "ran",
-        job: "media",
-        message: summary,
-        partial: media.reachedLimit,
-        report: media,
-        nextEligibleAt: new Date(startedAt.getTime() + intervalMinutes * 60 * 1000).toISOString(),
+      await prisma.systemSettings.update({
+        where: { id: 1 },
+        data: { lastMediaSyncAt: new Date() },
       });
     }
 
-    // Log de início, não só de fim: quando a plataforma mata a função no meio
-    // (timeout de execução), o log final nunca acontece e a execução fica
-    // invisível. Um "Iniciando" sem "concluído" correspondente em
-    // Configurações › Logs é a assinatura exata desse corte.
-    await logInfo("CRON", "Iniciando sincronização automática.", "/api/cron/sync-all");
+    const summary = partes.join(" · ");
+    const nadaConfigurado = !!metricsReport?.nothingConfigured;
 
-    const report = await runSync((message, percentage) => {
-      console.log(`[Cron ${percentage}%] ${message}`);
-    });
-
-    // Falta de credencial não é erro de execução: fica registrado como aviso e
-    // responde 200, para o disparador do cPanel não passar a enviar e-mail de
-    // falha a cada batida por causa de uma configuração incompleta.
-    if (report.nothingConfigured) {
-      await logWarning("CRON", report.summary, "/api/cron/sync-all");
-    } else if (report.ok) {
-      await logInfo("CRON", `Concluída. ${report.summary}`, "/api/cron/sync-all");
+    if (nadaConfigurado) {
+      await logWarning("CRON", summary, "/api/cron/sync-all");
+    } else if (tudoOk && !parcial) {
+      await logInfo("CRON", `Concluída. ${summary}`, "/api/cron/sync-all");
+    } else if (tudoOk) {
+      await logInfo("CRON", `Concluída parcial. ${summary}`, "/api/cron/sync-all");
     } else {
-      await logWarning("CRON", `Concluída com falhas. ${report.summary}`, "/api/cron/sync-all");
+      await logWarning("CRON", `Concluída com falhas. ${summary}`, "/api/cron/sync-all");
     }
 
     return NextResponse.json(
       {
-        success: report.ok,
-        status: report.nothingConfigured ? "nothing-configured" : "ran",
-        job: "metrics",
-        message: report.summary,
-        partial: report.partial,
-        outcomes: report.outcomes,
+        success: tudoOk,
+        status: nadaConfigurado ? "nothing-configured" : "ran",
+        message: summary,
+        partial: parcial,
+        outcomes: metricsReport?.outcomes ?? [],
         nextEligibleAt: new Date(startedAt.getTime() + intervalMinutes * 60 * 1000).toISOString(),
       },
-      { status: report.ok ? 200 : 500 }
+      { status: tudoOk ? 200 : 500 }
     );
+    } finally {
+      // Solta a trava aconteça o que acontecer — inclusive nos retornos de
+      // "fora da janela", que saem daqui por `return` sem ter rodado nada.
+      clearInterval(batimento);
+      await releaseSyncLock(lock.token);
+    }
   } catch (error: any) {
     console.error("[Cron] Erro ao executar a sincronização:", error);
     await logError("CRON", error, "/api/cron/sync-all");

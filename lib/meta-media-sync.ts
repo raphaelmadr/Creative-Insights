@@ -21,7 +21,7 @@
  */
 
 import prisma from "./prisma";
-import { throttledFetch, resetWallClock } from "./throttled-fetch";
+import { throttledFetch, resetWallClock, wallClockRemainingMs } from "./throttled-fetch";
 import {
   isPermanentMediaUrl,
   isStorageConfigured,
@@ -39,15 +39,20 @@ import {
   videoCoverFallback,
 } from "./meta-media-source";
 
-/** Teto próprio, abaixo do `maxDuration = 300` da rota. */
-const ROUTE_BUDGET_MS = 270_000;
-
 /**
  * Chão que as leituras devem deixar para o upload e as escritas.
  *
- * 100s não é folga: é o que faz as leituras pararem por volta dos 170s, antes
- * do teto de 180s que o próprio `throttledFetch` impõe e que faria a fase
- * seguinte morrer com exceção em vez de terminar o que já estava na mão.
+ * Sem orçamento de tempo configurado, este piso nunca é alcançado — o tempo
+ * restante é infinito e a comparação é sempre falsa. Ele volta a valer quando
+ * `SYNC_TIME_LIMIT_MINUTES` existe no ambiente, e aí serve ao mesmo propósito
+ * de sempre: fazer as leituras pararem antes do teto, para a fase seguinte
+ * terminar o que já estava na mão em vez de morrer com exceção.
+ *
+ * O teto próprio desta passada foi removido junto com o da rota: ela media 270s
+ * "abaixo do `maxDuration = 300`", um limite de plataforma que não existe mais.
+ * Agora ela consulta o MESMO relógio que o resto da sincronização, em vez de
+ * manter um segundo orçamento que ninguém conseguiria manter em sincronia com
+ * o primeiro.
  */
 const READ_FLOOR_MS = 100_000;
 const DB_WRITE_RESERVE_MS = 25_000;
@@ -57,14 +62,22 @@ const BATCH_SIZE = 50;
 const UPLOAD_CONCURRENCY = 6;
 
 /**
- * Quantas peças uma passada tenta resolver.
+ * Quantas peças uma passada tenta resolver — hoje, todas.
  *
- * O passivo é grande (milhares de peças pausadas e antigas) e não cabe num
- * ciclo. Com a fila ordenada por urgência, o teto por execução faz o passivo
- * cair a cada 30 minutos sem que uma execução tente abraçar tudo e não termine
- * nada.
+ * O limite de 1200 existia pelo mesmo motivo que o teto de tempo: uma execução
+ * não podia abraçar o passivo inteiro (milhares de peças pausadas e antigas)
+ * sem estourar os 300s da plataforma, então a fila ordenada por urgência caía
+ * aos pedaços, uma fatia por ciclo. Sem o teto de tempo, fatiar só faz a peça
+ * de número 1201 esperar meia hora sem razão.
+ *
+ * `MEDIA_MAX_TARGETS_PER_RUN` no ambiente traz o teto de volta, para o caso de
+ * uma passada muito longa atrapalhar quem está usando o painel.
  */
-const MAX_TARGETS_PER_RUN = 1200;
+const MAX_TARGETS_PER_RUN = (() => {
+  const bruto = (process.env.MEDIA_MAX_TARGETS_PER_RUN ?? "").trim();
+  const n = Number(bruto);
+  return bruto && Number.isFinite(n) && n > 0 ? n : Number.POSITIVE_INFINITY;
+})();
 
 /**
  * O criativo como a Graph API o devolve.
@@ -158,9 +171,9 @@ export async function runMetaMediaSync(
   onProgress?: (message: string, percentage: number) => void,
   options: MediaSyncOptions = {}
 ): Promise<MediaSyncReport> {
-  const startedAt = Date.now();
-  const remainingMs = () => Math.max(0, ROUTE_BUDGET_MS - (Date.now() - startedAt));
   resetWallClock();
+  // Um relógio só para a sincronização inteira — ver `lib/throttled-fetch.ts`.
+  const remainingMs = wallClockRemainingMs;
 
   const empty: MediaSyncReport = {
     candidates: 0, attempted: 0, coversUploaded: 0, videoLinksRenewed: 0,

@@ -37,7 +37,7 @@ interface Props {
   status: SyncStatus | null;
   /** `compact` cabe no cabeçalho; `full` é o bloco da tela de configurações. */
   variant?: "compact" | "full";
-  /** Uma sincronização está rodando agora — o estado é outro enquanto dura. */
+  /** Esta aba disparou a sincronização que está rodando. */
   running?: boolean;
 }
 
@@ -57,12 +57,16 @@ function proximaPassada(status: SyncStatus, now: Date): string {
 }
 
 /**
- * A mesma informação de `proximaPassada`, no menor número de caracteres que
- * ainda distingue os quatro estados — é o que cabe sob o botão do cabeçalho.
+ * A segunda metade da linha do cabeçalho: o que vem depois do "Atualizado há X".
+ *
+ * Só o que muda de estado entra aqui. A primeira metade SEMPRE nomeia o que
+ * está sendo medido — uma versão anterior começava direto no "há 3 min", e um
+ * tempo relativo sem sujeito não diz coisa alguma a quem está olhando de
+ * passagem.
  */
-function proximaCurta(status: SyncStatus, now: Date): string {
+function complementoCurto(status: SyncStatus, now: Date): string | null {
   if (!status.enabled) return "automação desligada";
-  if (status.triggerSilent) return "disparador parado";
+  if (status.triggerSilent) return "automação parada";
   if (!status.nextEligibleAt) return "próxima a qualquer momento";
   return `próxima ${formatRelative(status.nextEligibleAt, now)}`;
 }
@@ -72,9 +76,17 @@ export function SyncStatusView({ status, variant = "compact", running = false }:
 
   if (!status) return null;
 
+  /*
+   * "Rodando" é o que o SERVIDOR diz, não o que esta aba fez.
+   *
+   * `running` cobre só quem clicou nesta janela; `status.running` vem da trava
+   * global e cobre qualquer pessoa, em qualquer computador. É esta segunda que
+   * importa — a primeira é redundante enquanto a resposta do servidor não chega.
+   */
+  const emCurso = running || !!status.running;
   const tone = TONE[status.health];
-  const Icon = running ? RefreshCw : tone.Icon;
-  const color = running ? "var(--primary)" : tone.color;
+  const Icon = emCurso ? RefreshCw : tone.Icon;
+  const color = emCurso ? "var(--primary)" : tone.color;
 
   const ultima = formatRelative(status.lastSyncAt, now);
   const proxima = proximaPassada(status, now);
@@ -88,14 +100,26 @@ export function SyncStatusView({ status, variant = "compact", running = false }:
      * vista é o mínimo que responde "está atualizado?"; a frase completa, com o
      * que fazer, está no `title` e na tela de Configurações › Sistema.
      */
-    const resumo = running
-      ? "Sincronizando…"
-      : `${ultima ?? "nunca sincronizado"} · ${proximaCurta(status, now)}`;
+    const complemento = complementoCurto(status, now);
+    const resumo = emCurso
+      ? status.running && !running
+        // Não fui eu: dizer de quem se está esperando evita o "o botão travou".
+        ? `${status.running.by} está sincronizando…`
+        : "Sincronizando…"
+      : [ultima ? `Atualizado ${ultima}` : "Nunca sincronizado", complemento]
+          .filter(Boolean)
+          .join(" · ");
 
     return (
       <div
         role="status"
-        title={running ? "Sincronização em andamento" : HEALTH_DETAIL[status.health]}
+        title={
+          emCurso
+            ? status.running
+              ? `Sincronização iniciada por ${status.running.by} ${formatRelative(status.running.startedAt, now) ?? "agora"}. Só uma roda por vez em toda a instalação.`
+              : "Sincronização em andamento"
+            : HEALTH_DETAIL[status.health]
+        }
         style={{
           display: "flex",
           alignItems: "center",
@@ -112,7 +136,7 @@ export function SyncStatusView({ status, variant = "compact", running = false }:
         <Icon
           size={11}
           color={color}
-          style={{ flexShrink: 0, ...(running ? { animation: "spin 2s linear infinite" } : null) }}
+          style={{ flexShrink: 0, ...(emCurso ? { animation: "spin 2s linear infinite" } : null) }}
         />
         <span style={{ overflow: "hidden", textOverflow: "ellipsis" }}>{resumo}</span>
       </div>
@@ -135,15 +159,17 @@ export function SyncStatusView({ status, variant = "compact", running = false }:
         <Icon
           size={16}
           color={color}
-          style={{ flexShrink: 0, ...(running ? { animation: "spin 2s linear infinite" } : null) }}
+          style={{ flexShrink: 0, ...(emCurso ? { animation: "spin 2s linear infinite" } : null) }}
         />
         <strong style={{ fontSize: "var(--text-cardtitle)", color: "var(--foreground)" }}>
-          {running ? "Sincronizando agora" : HEALTH_LABEL[status.health]}
+          {emCurso ? "Sincronizando agora" : HEALTH_LABEL[status.health]}
         </strong>
       </div>
 
       <p style={{ margin: 0, fontSize: "var(--text-control)", color: "var(--muted)", lineHeight: 1.5 }}>
-        {HEALTH_DETAIL[status.health]}
+        {emCurso && status.running
+          ? `Iniciada por ${status.running.by} ${formatRelative(status.running.startedAt, now) ?? "agora"}. Enquanto ela roda, o botão fica indisponível para todo mundo — uma execução por vez, para não abrir várias varreduras contra a mesma conta de anúncios.`
+          : HEALTH_DETAIL[status.health]}
       </p>
 
       {/*

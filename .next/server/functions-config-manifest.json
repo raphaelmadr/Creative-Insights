@@ -4,17 +4,8 @@
     "/api/creatives/vision": {
       "maxDuration": 300
     },
-    "/api/cron/sync-all": {
-      "maxDuration": 300
-    },
     "/api/hypothesis": {
       "maxDuration": 120
-    },
-    "/api/sync-all": {
-      "maxDuration": 300
-    },
-    "/api/sync-media": {
-      "maxDuration": 300
     }
   }
 }

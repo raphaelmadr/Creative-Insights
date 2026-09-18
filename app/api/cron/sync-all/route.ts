@@ -1,6 +1,9 @@
 import { handleCronRequest } from "@/lib/cron-endpoint";
 
-export const maxDuration = 300;
+/*
+ * Sem `maxDuration`: ele era a declaração do teto da função serverless, e
+ * aqui nada corta a execução por tempo. A sincronização roda até terminar.
+ */
 export const dynamic = "force-dynamic";
 
 /**

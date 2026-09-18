@@ -1,8 +1,14 @@
 import { describeMediaReport, runMetaMediaSync } from "@/lib/meta-media-sync";
 import { logInfo, logWarning, logError } from "@/lib/logger";
 import { friendlyFailureMessage } from "@/lib/external-log";
+import { getCurrentUser } from "@/lib/auth";
+import { withSyncLock } from "@/lib/sync-lock";
+import { formatRelative } from "@/lib/sync-status";
 
-export const maxDuration = 300;
+/*
+ * Sem `maxDuration`: ele era a declaração do teto da função serverless, e
+ * aqui nada corta a execução por tempo. A sincronização roda até terminar.
+ */
 export const dynamic = "force-dynamic";
 
 /**
@@ -24,6 +30,8 @@ export const dynamic = "force-dynamic";
 export async function POST(req: Request) {
   const limit = Number(new URL(req.url).searchParams.get("limit")) || undefined;
   const encoder = new TextEncoder();
+  const user = await getCurrentUser();
+  const quem = user?.name?.trim() || user?.email || "Alguém";
 
   const stream = new ReadableStream({
     async start(controller) {
@@ -37,34 +45,51 @@ export async function POST(req: Request) {
 
       const batida = setInterval(() => send({ type: "ping" }), 15_000);
 
-      await logInfo("SYNC", "Iniciando sincronização de mídia (manual).", "/api/sync-media");
-
       try {
-        const report = await runMetaMediaSync(
-          (message, percentage) => send({ type: "progress", message, percentage }),
-          { limit }
+        await withSyncLock(
+          quem,
+          async () => {
+            await logInfo("SYNC", `Iniciando mídia (manual, ${quem}).`, "/api/sync-media");
+
+            const report = await runMetaMediaSync(
+              (message, percentage) => send({ type: "progress", message, percentage }),
+              { limit }
+            );
+
+            const described = describeMediaReport(report);
+
+            if (described.ok) {
+              await logInfo("SYNC", `Concluída mídia (manual). ${described.text}`, "/api/sync-media");
+            } else {
+              await logWarning("SYNC", `Concluída mídia com falhas (manual). ${described.text}`, "/api/sync-media");
+            }
+
+            /*
+             * Mídia com falha chega como `complete`, não como `error`: as
+             * métricas já entraram e a arte que faltou não as invalida. Quem
+             * decide o tom do aviso é o cliente, olhando `mediaOk`.
+             *
+             * `summary` segue no fluxo mas não vai para o aviso flutuante: o
+             * detalhe fica no log escrito acima, e a tela diz só o veredito.
+             */
+            send({
+              type: "complete",
+              message: described.text,
+              percentage: 100,
+              summary: described.text,
+              mediaOk: described.ok,
+            });
+          },
+          (holder) => {
+            send({
+              type: "busy",
+              holder: holder.by,
+              since: holder.startedAt,
+              message: `${holder.by} começou uma sincronização ${formatRelative(holder.startedAt) ?? "agora"}.`,
+              percentage: 100,
+            });
+          }
         );
-
-        const described = describeMediaReport(report);
-
-        if (described.ok) {
-          await logInfo("SYNC", `Concluída mídia (manual). ${described.text}`, "/api/sync-media");
-        } else {
-          await logWarning("SYNC", `Concluída mídia com falhas (manual). ${described.text}`, "/api/sync-media");
-        }
-
-        /*
-         * Mídia com falha chega como `complete`, não como `error`: as métricas
-         * já entraram e a arte que faltou não as invalida. Quem decide o tom do
-         * aviso é o cliente, olhando `mediaOk`.
-         */
-        send({
-          type: "complete",
-          message: described.text,
-          percentage: 100,
-          summary: described.text,
-          mediaOk: described.ok,
-        });
       } catch (error) {
         await logError("SYNC", error, "/api/sync-media");
         send({
