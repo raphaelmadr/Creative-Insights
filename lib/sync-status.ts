@@ -25,6 +25,14 @@ export const TRIGGER_SILENCE_TOLERANCE_MS = 60 * 60 * 1000;
 /** O intervalo assumido quando o painel nunca foi salvo. */
 export const DEFAULT_INTERVAL_MINUTES = 120;
 
+/** Quem está sincronizando agora, quando há alguém. */
+export interface SyncRunning {
+  /** Nome de quem disparou, ou o rótulo da sincronização automática. */
+  by: string;
+  /** Início da execução, em ISO. */
+  startedAt: string;
+}
+
 export type SyncHealth =
   /** Desligada no painel — o disparador bate e nada acontece, de propósito. */
   | "desligada"
@@ -41,10 +49,13 @@ export interface SyncStatusInput {
   cronSyncInterval?: number | null;
   lastSyncAt?: Date | string | null;
   lastCronSyncAt?: Date | string | null;
+  /** Informativo: quando as artes foram atualizadas. Não governa a janela. */
   lastMediaSyncAt?: Date | string | null;
   lastCronPingAt?: Date | string | null;
   /** Se existe ao menos uma fonte com credencial (Meta, TikTok…). */
   hasConfiguredSource?: boolean;
+  /** A trava global, se estiver tomada — ver `lib/sync-lock.ts`. */
+  running?: SyncRunning | null;
 }
 
 export interface SyncStatus {
@@ -62,6 +73,11 @@ export interface SyncStatus {
   nextEligibleAt: string | null;
   /** O disparador está em silêncio além da tolerância. */
   triggerSilent: boolean;
+  /**
+   * Uma execução em curso, de quem quer que seja. É o que desabilita o botão
+   * para todo mundo: uma sincronização por vez em toda a instalação.
+   */
+  running: SyncRunning | null;
 }
 
 const toDate = (value: Date | string | null | undefined): Date | null => {
@@ -83,19 +99,18 @@ export function buildSyncStatus(input: SyncStatusInput, now: Date = new Date()):
   const lastSyncAt = toDate(input.lastSyncAt);
   const lastPingAt = toDate(input.lastCronPingAt);
   const metrics = toDate(input.lastCronSyncAt);
-  const media = toDate(input.lastMediaSyncAt);
 
   /*
-   * A próxima janela é a da passada MAIS ATRASADA, que é a primeira a vencer —
-   * a mesma regra do portão em `lib/cron-endpoint.ts`. Uma passada que nunca
-   * rodou vence agora, e por isso derruba a previsão para `null`.
+   * A próxima janela sai de `lastCronSyncAt`, e só dele — é o portão único de
+   * `lib/cron-endpoint.ts` desde que uma batida passou a fazer o trabalho
+   * inteiro. Enquanto eram duas passadas alternadas, aqui se comparava a mais
+   * atrasada das duas; hoje `lastMediaSyncAt` não governa nada, e mantê-lo na
+   * conta faria um `?job=metrics` avulso travar a previsão em "a qualquer
+   * momento" para sempre.
    */
-  const nextEligible =
-    metrics && media
-      ? new Date(
-          Math.min(metrics.getTime(), media.getTime()) + intervalMinutes * 60 * 1000
-        )
-      : null;
+  const nextEligible = metrics
+    ? new Date(metrics.getTime() + intervalMinutes * 60 * 1000)
+    : null;
 
   const dueNow = !nextEligible || nextEligible.getTime() <= now.getTime();
 
@@ -123,6 +138,7 @@ export function buildSyncStatus(input: SyncStatusInput, now: Date = new Date()):
     lastPingAt: lastPingAt?.toISOString() ?? null,
     nextEligibleAt: dueNow ? null : nextEligible!.toISOString(),
     triggerSilent,
+    running: input.running ?? null,
   };
 }
 

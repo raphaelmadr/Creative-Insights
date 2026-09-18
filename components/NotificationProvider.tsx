@@ -284,9 +284,18 @@ export default function NotificationProvider({ children }: { children: ReactNode
   useEffect(() => {
     if (status !== "authenticated") return;
 
-    const relogio = setInterval(() => { refreshSyncStatus(); }, 60 * 1000);
+    /*
+     * Mais rápido enquanto alguém está sincronizando.
+     *
+     * Em repouso, um minuto é folgado para um intervalo que se mede em dezenas
+     * de minutos. Com uma execução em curso o dado é outro: o botão está
+     * desabilitado para toda a equipe, e manter alguém esperando até um minuto
+     * depois de a sincronização ter terminado faz o sistema parecer travado.
+     */
+    const passo = syncStatus?.running ? 15 * 1000 : 60 * 1000;
+    const relogio = setInterval(() => { refreshSyncStatus(); }, passo);
     return () => clearInterval(relogio);
-  }, [status, refreshSyncStatus]);
+  }, [status, refreshSyncStatus, syncStatus?.running]);
 
   // Busca ativa (via IA + Tavily)
   const searchForUpdates = async () => {
@@ -436,6 +445,13 @@ export default function NotificationProvider({ children }: { children: ReactNode
             setSyncMessage(prefixMessage ? `[${prefixMessage}] ${data.message}` : data.message);
             setSyncProgress(data.percentage);
             if (data.type === 'complete') completion = data;
+          } else if (data.type === 'busy') {
+            /*
+             * Outra pessoa já está sincronizando. Não é erro — é a trava global
+             * funcionando. Sobe como resultado, e não como exceção, porque o
+             * aviso na tela é de outro tom: não há nada a consertar.
+             */
+            completion = data;
           } else if (data.type === 'error') {
             throw new Error(data.error);
           }
@@ -458,7 +474,9 @@ export default function NotificationProvider({ children }: { children: ReactNode
    * ignorada, como acontecia quando Meta e TikTok rodavam em Promise.all.
    */
   const syncAll = async () => {
-    if (isSyncingAll) return;
+    // A trava de verdade é a do servidor; esta só evita uma requisição que já
+    // se sabe recusada, e o botão já está desabilitado pelo mesmo motivo.
+    if (isSyncingAll || syncStatus?.running) return;
 
     setIsSyncingAll(true);
     setIsSyncingMeta(true);
@@ -470,22 +488,34 @@ export default function NotificationProvider({ children }: { children: ReactNode
       const completion = await runSyncStream("/api/sync-all");
 
       /*
+       * A trava recusou: alguém já está sincronizando. Para aqui — não faz
+       * sentido seguir para as artes por cima do trabalho de outra pessoa.
+       */
+      if (completion?.type === "busy") {
+        setToastMsg({
+          id: "sync-process",
+          title: `⏳ ${completion.message}`,
+          isNew: false,
+        });
+        await refreshSyncStatus();
+        return;
+      }
+
+      /*
        * Segundo passo, em requisição própria: as artes.
        *
-       * Métricas e mídia não cabem nos mesmos 300s — juntas, quem ficava sem
+       * Métricas e mídia não cabem numa execução só — juntas, quem ficava sem
        * tempo era sempre a mídia, que roda por último. Separadas, cada uma tem
        * o seu teto. Uma falha aqui não invalida as métricas que já entraram,
-       * então ela só entra no aviso final.
+       * então ela só muda o tom do aviso final.
        */
       setSyncMessage("Salvando artes dos criativos...");
-      let mediaSummary: string | null = null;
       let mediaOk = true;
       try {
         const media = await runSyncStream("/api/sync-media", "Artes");
-        mediaSummary = media?.summary || "Artes salvas.";
-        mediaOk = media?.mediaOk !== false;
-      } catch (mediaErr) {
-        mediaSummary = `As artes não puderam ser salvas: ${(mediaErr as Error).message}.`;
+        if (media?.type === "busy") mediaOk = false;
+        else mediaOk = media?.mediaOk !== false;
+      } catch {
         mediaOk = false;
       }
 
@@ -495,24 +525,31 @@ export default function NotificationProvider({ children }: { children: ReactNode
       setSyncCounter(prev => prev + 1);
 
       /*
-       * O ícone segue o PIOR dos dois resultados.
+       * O AVISO É O VEREDITO, e nada além dele.
        *
-       * Antes, um ✅ verde encabeçava a frase mesmo quando a segunda metade
-       * dizia que centenas de imagens não tinham sido salvas — a mensagem se
-       * contradizia e ninguém sabia se devia agir.
+       * Antes o resumo inteiro do servidor vinha para cá: contagens por fonte,
+       * quantos dias do mês couberam na passada, quantas artes subiram — um
+       * parágrafo num aviso flutuante que some em seis segundos. Ninguém termina
+       * de ler, e quem quisesse reler não tinha onde. Agora a frase completa é
+       * gravada em Configurações › Logs pelas próprias rotas, e aqui fica só o
+       * que se decide olhando: deu certo, deu certo pela metade, ou falhou.
+       *
+       * O tom segue o PIOR dos dois resultados: um ✅ verde encabeçando uma
+       * sincronização cujas artes não subiram se contradiz.
        */
-      const base = completion?.message || "Sincronização das redes concluída!";
-      const tudoCerto = !completion?.partial && mediaOk;
+      const parcial = completion?.partial || !mediaOk;
       setToastMsg({
         id: "sync-process",
-        title: `${tudoCerto ? "✅" : "⚠️"} ${base}${mediaSummary ? ` · ${mediaSummary}` : ""}`,
+        title: parcial
+          ? "⚠️ Sincronização concluída em parte — veja os detalhes em Configurações › Logs"
+          : "✅ Sincronização concluída",
         isNew: true,
       });
     } catch (err: any) {
       console.error("Erro na sincronização geral:", err);
       setToastMsg({
         id: "sync-process",
-        title: `❌ ${err.message || "Erro na sincronização das redes."}`,
+        title: "❌ A sincronização falhou — o motivo está em Configurações › Logs",
         isNew: false,
         isError: true,
       });

@@ -21,6 +21,7 @@ import prisma from "@/lib/prisma";
 import { getCurrentUser } from "@/lib/auth";
 import { buildIntegrationStatuses } from "@/lib/integrations";
 import { buildSyncStatus } from "@/lib/sync-status";
+import { readSyncLock } from "@/lib/sync-lock";
 
 export const dynamic = "force-dynamic";
 
@@ -63,6 +64,9 @@ export async function GET() {
       hasConfiguredSource: integrations.some(
         (i) => (i.id === "META" || i.id === "TIKTOK") && i.configured
       ),
+      // A trava sai da linha já lida: é o mesmo registro, e ir ao banco duas
+      // vezes pela mesma chave primária é o que esta rota existe para evitar.
+      running: readSyncLock(settings),
     });
 
     return NextResponse.json({

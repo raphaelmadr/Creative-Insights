@@ -1,7 +1,13 @@
 import { runSync } from "@/lib/channels";
-import { logError } from "@/lib/logger";
+import { logError, logInfo, logWarning } from "@/lib/logger";
+import { getCurrentUser } from "@/lib/auth";
+import { withSyncLock } from "@/lib/sync-lock";
+import { formatRelative } from "@/lib/sync-status";
 
-export const maxDuration = 300;
+/*
+ * Sem `maxDuration`: ele era a declaração do teto da função serverless, e
+ * aqui nada corta a execução por tempo. A sincronização roda até terminar.
+ */
 export const dynamic = "force-dynamic";
 
 /**
@@ -10,9 +16,15 @@ export const dynamic = "force-dynamic";
  * Executa `runSync()`, exatamente a mesma rotina da sincronização automática:
  * todas as fontes configuradas, mesma profundidade, mês corrente. A única
  * diferença entre as duas é o gatilho e o streaming de progresso daqui.
+ *
+ * Uma execução por vez em toda a instalação — ver `lib/sync-lock.ts`. A trava
+ * é do servidor de propósito: o botão desabilitado na tela é conveniência, e
+ * chega atrasado para quem clicou no mesmo segundo em outro computador.
  */
 export async function POST() {
   const encoder = new TextEncoder();
+  const user = await getCurrentUser();
+  const quem = user?.name?.trim() || user?.email || "Alguém";
 
   const stream = new ReadableStream({
     async start(controller) {
@@ -41,39 +53,81 @@ export async function POST() {
       const batida = setInterval(() => send({ type: "ping" }), 15_000);
 
       try {
-        const report = await runSync((message, percentage, source) => {
-          send({ type: "progress", message, percentage, source });
-        });
+        await withSyncLock(
+          quem,
+          async () => {
+            await logInfo("SYNC", `Iniciando sincronização manual (${quem}).`, "/api/sync-all");
 
-        if (report.nothingConfigured) {
-          // Nada configurado é informação, não falha: o toast diz o que fazer.
-          send({
-            type: "complete",
-            message: report.summary,
-            percentage: 100,
-            partial: true,
-            outcomes: [],
-          });
-        } else if (report.ok) {
-          send({
-            type: "complete",
-            message: report.partial
-              ? `Sincronização parcial (teto de tempo). ${report.summary}`
-              : `Sincronização concluída. ${report.summary}`,
-            percentage: 100,
-            partial: report.partial,
-            outcomes: report.outcomes,
-          });
-        } else {
-          // Falha de fonte é reportada como erro — não pode ser mascarada por sucesso.
-          const failed = report.outcomes.filter((o) => !o.ok).map((o) => o.label);
-          send({
-            type: "error",
-            error: `Falha em: ${failed.join(", ")}. ${report.summary}`,
-            percentage: 100,
-            outcomes: report.outcomes,
-          });
-        }
+            const report = await runSync((message, percentage, source) => {
+              send({ type: "progress", message, percentage, source });
+            });
+
+            /*
+             * O RESUMO VAI PARA O LOG, e só o veredito vai para a tela.
+             *
+             * O resumo é uma frase de três linhas — contagens por fonte, quantos
+             * dias do mês couberam na passada, quantas artes subiram. Ela cabe
+             * num registro que se lê com calma; não cabe num aviso flutuante,
+             * onde virava um parágrafo que ninguém termina de ler e que some
+             * sozinho em seis segundos. Quem quiser o detalhe abre
+             * Configurações › Logs, onde ele fica.
+             */
+            if (report.nothingConfigured) {
+              // Nada configurado é informação, não falha: o aviso diz o que fazer.
+              await logWarning("SYNC", report.summary, "/api/sync-all");
+              send({
+                type: "complete",
+                outcome: "nothing-configured",
+                message: report.summary,
+                percentage: 100,
+                partial: true,
+                outcomes: [],
+              });
+            } else if (report.ok) {
+              const prefixo = report.partial
+                ? "Concluída parcial (teto de tempo)."
+                : "Concluída.";
+              await logInfo("SYNC", `${prefixo} ${report.summary}`, "/api/sync-all");
+              send({
+                type: "complete",
+                outcome: report.partial ? "partial" : "ok",
+                message: report.summary,
+                percentage: 100,
+                partial: report.partial,
+                outcomes: report.outcomes,
+              });
+            } else {
+              // Falha de fonte é reportada como erro — não pode ser mascarada por sucesso.
+              const failed = report.outcomes.filter((o) => !o.ok).map((o) => o.label);
+              await logWarning(
+                "SYNC",
+                `Concluída com falhas em ${failed.join(", ")}. ${report.summary}`,
+                "/api/sync-all"
+              );
+              send({
+                type: "error",
+                outcome: "failed",
+                error: `Falha em: ${failed.join(", ")}.`,
+                percentage: 100,
+                outcomes: report.outcomes,
+              });
+            }
+          },
+          (holder) => {
+            /*
+             * Já há uma execução em curso. Não é erro, e não vira log: é o
+             * sistema fazendo o que deve. A tela só precisa dizer de quem se
+             * está esperando.
+             */
+            send({
+              type: "busy",
+              holder: holder.by,
+              since: holder.startedAt,
+              message: `${holder.by} começou uma sincronização ${formatRelative(holder.startedAt) ?? "agora"}.`,
+              percentage: 100,
+            });
+          }
+        );
       } catch (error: any) {
         console.error("Sync Error:", error);
         await logError("BACKEND_SYNC", error, "/api/sync-all");

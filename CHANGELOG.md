@@ -1,6 +1,25 @@
 # Changelog: Creative Insights (Fase 1)
 Data: 31 de Agosto de 2026
 
+## 🚀 O Teto de Tempo Caiu (Setembro 2026)
+Uma sincronização terminava assim: *"Meta: 12 criativos / 5120 métricas / **9 de 18 dias do mês nesta passada — parcial, rode novamente**"*. Não era a Meta recusando nem o servidor faltando: era uma amarra nossa, de uma plataforma que já não nos hospeda.
+
+* **180 segundos, e o comentário dizia de onde vinham: `for Serverless`.** A aplicação rodava em função com limite RÍGIDO de 300s, que cortava a execução no meio sem erro tratável — Meta e TikTok reservavam 180s cada, e o teto interno existia para a sincronização parar sozinha e relatar "parcial" em vez de ser morta e desaparecer. Fora daquela plataforma nada corta execução por tempo, e o teto continuava de pé sem nada por trás.
+* **O mecanismo ficou, o valor saiu.** `wallClockRemainingMs()` passa a devolver `Infinity`, e é assim que as dezenas de comparações `sobrou tempo? < PISO` se desativam sozinhas, sem que nenhuma precise saber que o orçamento sumiu. `SYNC_TIME_LIMIT_MINUTES` no ambiente traz o orçamento de volta — é a alavanca para o dia em que uma execução longa atrapalhar quem navega, já que a conta tem um núcleo só.
+* **A regra nova, do dono: o único limite que respeitamos é o das APIs.** E respeitar é **esperar a janela e continuar**, não abortar. O limite de taxa da Meta lançava exceção e derrubava a sincronização inteira — fazia sentido com teto de 180s, em que esperar os 60s pedidos consumia um terço do orçamento. Agora `throttledFetch` aguarda o tempo que a própria Meta informa (`estimated_time_to_regain_access`) e retoma de onde parou, até dez janelas.
+* **`MAX_TARGETS_PER_RUN` saiu junto.** A fila de mídia era fatiada em 1200 peças por execução pelo mesmo motivo: o passivo não cabia nos 300s. Sem teto, fatiar só fazia a peça 1201 esperar meia hora sem razão. `MEDIA_MAX_TARGETS_PER_RUN` reimpõe, se precisar.
+* **O cron voltou a fazer o trabalho inteiro numa batida.** Métricas e mídia eram **alternadas** — uma batida trazia os números, a seguinte as artes — porque as duas somadas não cabiam nos 300s. Hoje cada batida elegível faz as duas em sequência, sob a mesma trava, com uma janela só (`lastCronSyncAt`). `lastMediaSyncAt` continua carimbado, mas virou informação de tela.
+* **Os `maxDuration = 300` saíram das três rotas de sincronização.** Eram a declaração do teto da função serverless; aqui não têm efeito, e mantê-los só sustentava a ideia de que o limite ainda existia.
+
+## 🔒 Uma Sincronização por Vez, para Todo Mundo (Setembro 2026)
+O botão "Sincronizar Redes" não tinha trava nenhuma. `isSyncingAll` vivia no estado do navegador de quem clicou, o que impedia o segundo clique **daquela pessoa** e mais nada: outra aba, outro computador, outra pessoa — cada um abria a sua varredura completa da Meta e do TikTok.
+
+* **A trava é do banco, não do processo** (`lib/sync-lock.ts`, quatro colunas novas em `SystemSettings`). No cPanel o Passenger pode servir em mais de um processo, e o cron entra pela mesma porta que o botão: uma variável de módulo só travaria o processo que a viu. O portão é a condição do próprio `UPDATE` — não há leitura seguida de escrita, que é onde dois cliques simultâneos passariam os dois. Testado com dez chamadas ao mesmo tempo: um vencedor.
+* **O cron perdeu a meia-solução.** A reivindicação atômica da janela protegia as batidas umas das outras, mas não de um clique manual. Agora a batida toma a mesma trava — e, quando perde, sai **sem reivindicar a janela**, porque reivindicar e só então descobrir que há um sync manual em curso queimaria o ciclo inteiro.
+* **A trava expira por SINAL DE VIDA, não por prazo fixo.** Um prazo longo o bastante para a execução mais lenta deixaria o botão desabilitado para a equipe inteira sempre que um processo morresse — deploy, timeout, queda. A execução viva renova a cada 20s; a morta libera em 90s.
+* **Quem espera sabe de quem está esperando.** O botão desabilitado diz "Fulano está sincronizando", e a tela de sistema diz desde quando. Um botão que não responde sem explicar parece defeito.
+* **O aviso virou o veredito, e o detalhe foi para os Logs.** O resumo do servidor — contagens por fonte, dias do mês, artes — vinha inteiro para um aviso flutuante que some em seis segundos: ninguém terminava de ler, e quem quisesse reler não tinha onde. Agora as rotas gravam a frase completa em Configurações › Logs e a tela mostra só ✅ concluída, ⚠️ concluída em parte, ❌ falhou ou ⏳ alguém já está sincronizando.
+
 ## ⏱️ A Sincronização Automática Volta a Existir (Setembro 2026)
 O cron estava cadastrado, o intervalo estava configurado, e nada sincronizava. Sob o botão "Sincronizar Redes" o painel dizia **"próxima automática: a qualquer momento"** — a mesma frase no primeiro segundo e seis horas depois, porque aquele texto não media tempo nenhum.
 
