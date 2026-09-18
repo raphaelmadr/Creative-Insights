@@ -160,9 +160,27 @@ export async function PUT(request: Request) {
     const body = await request.json();
 
     if (Array.isArray(body.order)) {
+      /*
+       * `updateMany`, e não `update`, por causa da lista velha.
+       *
+       * A tela reordena na hora e manda a lista inteira; entre o desenho dela e
+       * o clique, outra pessoa pode ter apagado um campo — ou a própria pessoa,
+       * na linha de cima. `update` não encontra a linha e derruba a transação
+       * INTEIRA com um erro de banco cru na tela, desfazendo também a
+       * reordenação dos campos que existem. `updateMany` casa zero linhas e
+       * segue: a ordem dos que restaram é gravada, que é o que foi pedido.
+       *
+       * O `boardId` limita o alcance: sem ele, uma lista de ids de outro quadro
+       * renumeraria os campos de lá.
+       */
+      const boardId = typeof body.boardId === "string" ? body.boardId : undefined;
+
       await prisma.$transaction(
         body.order.map((id: string, index: number) =>
-          prisma.boardField.update({ where: { id }, data: { position: index } })
+          prisma.boardField.updateMany({
+            where: { id, ...(boardId ? { boardId } : {}) },
+            data: { position: index },
+          })
         )
       );
       return NextResponse.json({ success: true });
@@ -247,10 +265,31 @@ export async function DELETE(request: Request) {
      * histórico — e se o campo foi removido por engano, recriá-lo com a mesma
      * chave traz tudo de volta.
      */
-    await prisma.boardField.delete({ where: { id } });
+    /*
+     * `deleteMany` porque apagar é IDEMPOTENTE: o que se pediu é que o campo
+     * não exista mais, e ele não existir já é o resultado.
+     *
+     * Com `delete`, o segundo clique — na lista que ainda não recarregou, ou na
+     * aba aberta em outra janela — devolvia um erro de banco cru, com nome de
+     * arquivo compilado e número de linha, para dizer que deu certo duas vezes.
+     */
+    const { count } = await prisma.boardField.deleteMany({ where: { id } });
 
-    return NextResponse.json({ success: true });
-  } catch (error: any) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    return NextResponse.json({ success: true, removidos: count });
+  } catch (error: unknown) {
+    /*
+     * A frase para quem lê, e o detalhe para o log.
+     *
+     * `error.message` de um erro do Prisma é um parágrafo com o nome do arquivo
+     * compilado, o número da linha e o código da consulta — foi isso que a tela
+     * exibiu quando uma remoção repetida falhou. Quem está mexendo no
+     * formulário não tem o que fazer com esse texto; quem for investigar acha
+     * tudo no terminal.
+     */
+    console.error("[Campos] Falha ao remover:", error);
+    return NextResponse.json(
+      { error: "Não foi possível remover o campo. Tente de novo em instantes." },
+      { status: 500 }
+    );
   }
 }

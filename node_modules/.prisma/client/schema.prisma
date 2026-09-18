@@ -411,6 +411,24 @@ model Board {
   /// dropar coluna é irreversível e ela não custa nada; pode ser derrubada.
   cardLabels String? @db.Text
 
+  /// Quais perguntas FIXAS o formulário faz, em JSON
+  /// (`{"description":true,"dueDate":false}`).
+  ///
+  /// Nulo é "nunca configurado", e o formulário pergunta tudo; a chave ausente
+  /// num mapa já gravado é "esta pergunta é nova", e vale o padrão dela. Ver
+  /// `parseFormBuiltins` em `lib/kanban.ts`.
+  ///
+  /// Desligar é parar de PERGUNTAR — o que já foi respondido continua no card.
+  formBuiltins String? @db.Text
+
+  /// Quais seções o card ABERTO mostra, em JSON. Ver `parseCardPanel`.
+  ///
+  /// A terceira superfície configurável do quadro, ao lado de `formBuiltins`
+  /// (o que se pergunta) e `cardBadges` (o que a frente do card mostra). Mesmo
+  /// formato de mapa das outras duas, pelo mesmo motivo: a chave ausente é
+  /// "esta seção é nova", não "está desligada".
+  cardPanel String? @db.Text
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 

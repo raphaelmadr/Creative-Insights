@@ -11,6 +11,7 @@ import {
   reorderColumns,
   type ColumnPlacement,
   DEFAULT_CARD_BADGES,
+  type FormBuiltinKey,
   type CardBadgeKey,
   type GroupDefinition,
   type Priority,
@@ -35,6 +36,7 @@ export default function KanbanBoard({
   people,
   groups = [],
   badges = DEFAULT_CARD_BADGES,
+  builtins,
   onOpenCard,
   onMove,
   onReorderColumns,
@@ -47,6 +49,8 @@ export default function KanbanBoard({
   groups?: GroupDefinition[];
   /** Os atributos embutidos que este quadro mostra na frente do card. */
   badges?: CardBadgeKey[];
+  /** As perguntas de nascença do quadro — o card não mostra o que não se pergunta. */
+  builtins: FormBuiltinKey[];
   onOpenCard: (card: CardData) => void;
   onMove: (cardId: string, columnId: string, order: string[]) => void;
   /** A nova ordem das etapas, com a fase de cada uma, depois de um arrasto. */
@@ -225,8 +229,20 @@ export default function KanbanBoard({
                * A faixa cresce com o número de etapas que cobre: uma fase de
                * três colunas ocupa o triplo de uma de uma só, e as colunas
                * continuam com a mesma largura entre fases diferentes.
+               *
+               * A base é ZERO, e é isso que torna a promessa acima verdadeira.
+               * Com `auto`, a base de cada faixa era o tamanho do conteúdo dela
+               * — o card de título mais longo, a etapa com mais texto — e o
+               * fator de crescimento só repartia a SOBRA. Duas fases de uma
+               * etapa cada terminavam com larguras diferentes porque uma tinha
+               * um card mais largo que a outra, e era exatamente o que se via
+               * no quadro: etapas de tamanhos distintos, sem razão aparente.
+               *
+               * Com base zero, a largura inteira é repartida na proporção do
+               * número de etapas, e cada etapa fica com o mesmo tanto — em
+               * qualquer fase, com qualquer conteúdo.
                */
-              flex: `${largura} 0 auto`,
+              flex: `${largura} 1 0`,
               minWidth: `calc(${largura} * 280px + ${largura - 1} * var(--gap-compact))`,
               // O mesmo teto das etapas que a faixa cobre, senão ela se estica
               // além delas e o título da fase descola das próprias colunas.
@@ -276,8 +292,15 @@ export default function KanbanBoard({
                * largo, crescer sem limite dá colunas de mil pixels — espaço
                * ocupado, não aproveitado. Sobra é melhor à direita, junta, do
                * que diluída dentro de cada etapa.
+               *
+               * Base zero aqui pelo mesmo motivo da faixa: `280px` de base
+               * fazia a etapa mais cheia ficar mais larga que a vizinha dentro
+               * da MESMA fase. O piso de 280 continua — agora como `minWidth`,
+               * que é um limite de verdade e não uma preferência que o conteúdo
+               * negocia.
                */
-              flex: "1 0 280px",
+              flex: "1 1 0",
+              minWidth: "280px",
               maxWidth: "400px",
               display: "flex",
               flexDirection: "column",
@@ -441,6 +464,7 @@ export default function KanbanBoard({
                     people={people}
                     fields={fields}
                     badges={badges}
+                    builtins={builtins}
                     pecas={variationCounts.get(card.id) ?? 0}
                   />
                 </article>

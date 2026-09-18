@@ -5,7 +5,7 @@ import ReactMarkdown from "react-markdown";
 import { Trash2, Send, History, Copy as CopyIcon, Check, ChevronsDownUp, ChevronsUpDown, ArchiveRestore, Archive } from "lucide-react";
 import Modal from "@/components/Modal";
 import { Avatar } from "@/components/Avatar";
-import { type FieldDefinition, formatFieldValue } from "./FieldInput";
+import FieldInput, { type FieldDefinition, formatFieldValue } from "./FieldInput";
 import { type ColumnDefinition } from "./ColumnsSection";
 import VariationCard from "./VariationCard";
 import AttachmentGallery from "./AttachmentGallery";
@@ -20,6 +20,10 @@ import {
   parseAssignees,
   stageCandidates,
   ownershipOf,
+  fonteDaSecao,
+  origemDoCard,
+  type CardPanelKey,
+  type FormBuiltinKey,
   type GroupDefinition,
   formatCardCode,
 } from "@/lib/kanban";
@@ -79,6 +83,8 @@ export default function CardDialog({
   columns,
   groups,
   people,
+  panel,
+  builtins,
   onClose,
   onChanged,
 }: {
@@ -97,11 +103,37 @@ export default function CardDialog({
    */
   groups: GroupDefinition[];
   people: PersonOption[];
+  /**
+   * Quais seções este quadro mostra no painel. Ver `parseCardPanel`.
+   *
+   * Sem valor padrão, pelo mesmo motivo de `groups` logo acima: um `= DEFAULT`
+   * aqui faria a tela que esqueceu de passar a configuração mostrar tudo, em
+   * silêncio, e o defeito só apareceria para quem tivesse desligado alguma
+   * coisa — que é justamente quem pediu o contrário.
+   */
+  panel: CardPanelKey[];
+  /** As perguntas de nascença do quadro — ver `mostra`. */
+  builtins: FormBuiltinKey[];
   onClose: () => void;
   onChanged: () => void;
 }) {
   const [activities, setActivities] = useState<Activity[]>([]);
   const [comment, setComment] = useState("");
+
+  /**
+   * As respostas em edição — o rascunho de quem está FAZENDO a demanda.
+   *
+   * O painel mostrava o que foi respondido como texto cru, e isso tratava a
+   * abertura como palavra final: na prática a data escorrega, a quantidade de
+   * peças muda depois da primeira conversa, e quem descobre isso é quem está
+   * produzindo — não quem abriu o pedido e já foi cuidar de outra coisa. Sem
+   * onde corrigir, o card passava a mentir, e a correção virava um comentário
+   * no acompanhamento que ninguém relê.
+   *
+   * Rascunho e não gravação a cada tecla: um campo de texto longo mandaria uma
+   * requisição por letra digitada. O `Salvar` aparece quando há o que salvar.
+   */
+  const [respostas, setRespostas] = useState<Record<string, unknown>>({});
   const [busy, setBusy] = useState(false);
   const [copied, setCopied] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -116,8 +148,22 @@ export default function CardDialog({
    */
   const [openVariations, setOpenVariations] = useState<Set<number>>(new Set());
 
+  /*
+   * Um BOOLEANO, e não a lista, porque ele entra nas dependências do
+   * `useCallback` logo abaixo.
+   *
+   * `panel` chega como array novo a cada renderização da página — é o resultado
+   * de `parseCardPanel`, refeito toda vez. Nas dependências, ele recriaria
+   * `loadActivities` sempre, e o efeito que a chama recarregaria o histórico em
+   * laço, apagando o comentário meio escrito a cada volta.
+   */
+  const mostraHistorico = panel.includes("activity");
+
   const loadActivities = React.useCallback(async () => {
     if (!card) return;
+    // Quadro sem acompanhamento não busca histórico: seria uma requisição por
+    // card aberto para preencher uma seção que não vai ao ar.
+    if (!mostraHistorico) return;
     try {
       const res = await fetch(`/api/creator/cards?cardId=${card.id}`);
       const data = await res.json();
@@ -126,7 +172,7 @@ export default function CardDialog({
       // O histórico é complemento: se não carregar, o briefing ainda se lê.
       setActivities([]);
     }
-  }, [card]);
+  }, [card, mostraHistorico]);
 
   useEffect(() => {
     setComment("");
@@ -136,9 +182,89 @@ export default function CardDialog({
     loadActivities();
   }, [loadActivities]);
 
+  /*
+   * O rascunho parte do que está gravado, e volta a partir dele a cada recarga.
+   *
+   * Ajuste na RENDERIZAÇÃO, e não num efeito — mesmo idioma de `useRascunho`:
+   * num efeito, o painel apareceria uma vez com as respostas velhas e as
+   * corrigiria no quadro seguinte, o que se vê como um piscar depois de salvar.
+   *
+   * A régua é a identidade do card, e ela serve porque `openCard` é estado da
+   * página: só troca quando o card é aberto ou quando a recarga traz uma versão
+   * nova dele. Não atropela quem está digitando — a página suspende a
+   * conferência periódica enquanto há diálogo aberto, então a troca só acontece
+   * depois de uma gravação, que é quando o servidor passa a ser a verdade.
+   */
+  const [cardVisto, setCardVisto] = useState(card);
+  if (card !== cardVisto) {
+    setCardVisto(card);
+    setRespostas(card ? parseValues(card.values) : {});
+  }
+
   if (!card) return null;
 
   const values = parseValues(card.values);
+
+  /**
+   * Se este quadro mostra esta seção do painel.
+   *
+   * Duas condições, e a segunda é a regra do módulo: a seção precisa estar
+   * ligada E ter de onde tirar valor. O formulário é a base — o que o quadro
+   * não pergunta, o card não tem o que mostrar —, e a tela de preferências
+   * omite a linha da seção sem fonte. Sem a segunda condição aqui, uma seção
+   * ligada antes de a pergunta ser desligada continuaria no painel sem
+   * interruptor nenhum capaz de tirá-la.
+   *
+   * Cada seção continua sumindo sozinha quando não há o que pôr nela: um card
+   * sem copy não abre a seção de copy só porque o quadro a tem ligada.
+   */
+  const mostra = (secao: CardPanelKey) => {
+    if (!panel.includes(secao)) return false;
+    const fonte = fonteDaSecao(secao);
+    return !fonte || builtins.includes(fonte);
+  };
+
+  /*
+   * Os dois lados do bloco de briefing, cada um com o seu interruptor.
+   *
+   * Um só fazia os dois trabalhos, e desligá-lo levava junto todas as respostas
+   * do formulário — sem que o nome dele ("Briefing") desse qualquer pista de
+   * que era isso que ia acontecer.
+   */
+  const textoDoBriefing = mostra("briefing") && !!card.description;
+  const respostasDoFormulario = mostra("answers") && fields.length > 0;
+
+  /*
+   * O que mudou no rascunho, e só isso.
+   *
+   * Manda o diff, e não o conjunto inteiro: o servidor funde o recebido com o
+   * que já está gravado (ver a rota de cards), e mandar tudo reescreveria
+   * respostas que ninguém tocou — inclusive as de um campo que outra pessoa
+   * acabou de alterar na aba dela.
+   */
+  const alteradas = Object.fromEntries(
+    Object.entries(respostas).filter(
+      ([chave, valor]) => JSON.stringify(valor) !== JSON.stringify(values[chave])
+    )
+  );
+  const temAlteracao = Object.keys(alteradas).length > 0;
+
+  /**
+   * Muda uma resposta no rascunho — e zera os filhos dela.
+   *
+   * A mesma regra do formulário de abertura: trocar "Canal" tem de limpar
+   * "Formato", senão fica gravada uma combinação que o novo canal não aceita —
+   * invisível na tela, porque a opção nem aparece mais, e recusada só lá no fim
+   * pelo servidor.
+   */
+  const responder = (field: FieldDefinition, valor: unknown) =>
+    setRespostas((atual) => {
+      const proximo = { ...atual, [field.key]: valor };
+      for (const outro of fields) {
+        if (outro.dependsOn === field.key) delete proximo[outro.key];
+      }
+      return proximo;
+    });
 
   /*
    * A copy do card, quebrada em variações. Vazio quando o texto não segue o
@@ -233,14 +359,27 @@ export default function CardDialog({
       title={card.title}
       // O número abre a linha porque é o que se copia para citar a demanda
       // em outro lugar; a procedência vem depois dele.
-      description={[
-        formatCardCode(card.code),
-        card.requesterName
-          ? `Aberta por ${card.requesterName} em ${stamp(card.createdAt)}`
-          : `Aberta em ${stamp(card.createdAt)}`,
-      ]
-        .filter(Boolean)
-        .join(" · ")}
+      /*
+        A procedência inteira numa linha: número, quem pediu, quando e POR ONDE.
+        
+        A origem faltava, e ela muda como se lê o resto: um briefing montado
+        pelo gerador de copy não foi escrito por ninguém, e um pedido que entrou
+        pelo link aberto traz um e-mail declarado, não verificado. Estava
+        gravada desde sempre e não era dita em lugar nenhum. Ver `ORIGIN_LABEL`.
+      */
+      description={
+        mostra("requester")
+          ? [
+              formatCardCode(card.code),
+              card.requesterName
+                ? `Aberta por ${card.requesterName} em ${stamp(card.createdAt)}`
+                : `Aberta em ${stamp(card.createdAt)}`,
+              origemDoCard(card.origin),
+            ]
+              .filter(Boolean)
+              .join(" · ")
+          : undefined
+      }
       width="min(760px, 100%)"
       footer={
         <>
@@ -287,8 +426,13 @@ export default function CardDialog({
       }
     >
       {/* Etapa, prioridade e responsável: o que muda com mais frequência fica
-          no topo, editável sem abrir outra tela. */}
+          no topo, editável sem abrir outra tela.
+
+          A grade só existe se houver o que pôr nela: com as duas desligadas,
+          ela deixaria um vão de 0,9rem entre o título e o resto. */}
+      {(mostra("stage") || mostra("assignee")) && (
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: "0.9rem" }}>
+        {mostra("stage") && (
         <div className="field">
           <label className="field-label" htmlFor="card-etapa">
             Etapa
@@ -307,7 +451,10 @@ export default function CardDialog({
             ))}
           </select>
         </div>
+        )}
 
+        {mostra("assignee") && (
+        <>
         {/*
           O responsável sai da equipe da etapa em que o card está.
 
@@ -362,8 +509,12 @@ export default function CardDialog({
             </span>
           )}
         </div>
+        </>
+        )}
       </div>
+      )}
 
+      {mostra("priority") && (
       <div className="field">
         <span className="field-label">Prioridade</span>
         <div style={{ display: "flex", flexWrap: "wrap", gap: "0.35rem" }}>
@@ -382,6 +533,7 @@ export default function CardDialog({
           ))}
         </div>
       </div>
+      )}
 
       {arquivado && (
         <div
@@ -413,60 +565,128 @@ export default function CardDialog({
         A `key` amarra o estado do campo ao card: sem ela, abrir outro card
         reaproveitaria o rascunho do anterior, já que o diálogo é o mesmo.
       */}
-      <CardLinkField
-        key={card.id}
-        id="card-link"
-        value={card.linkUrl}
-        busy={travado}
-        hint="A pasta do Drive onde as imagens desta demanda estão."
-        onSave={(url) => patch({ id: card.id, linkUrl: url })}
-      />
-
-      {card.description && (
-        <div className="field">
-          <span className="field-label">Contexto</span>
-          <div style={{ ...block, fontSize: "var(--text-body)", lineHeight: 1.55 }}>
-            <ReactMarkdown>{card.description}</ReactMarkdown>
-          </div>
-        </div>
+      {mostra("link") && (
+        <CardLinkField
+          key={card.id}
+          id="card-link"
+          value={card.linkUrl}
+          busy={travado}
+          hint="A pasta do Drive onde as imagens desta demanda estão."
+          onSave={(url) => patch({ id: card.id, linkUrl: url })}
+        />
       )}
 
       {/* As referências ficam acima do briefing: elas são a parte do pedido que
           se entende antes de ler qualquer coisa. Clicar abre a imagem inteira no
           mesmo popup que abre a arte de um criativo. */}
-      {anexos.length > 0 && (
+      {mostra("attachments") && anexos.length > 0 && (
         <div className="field">
           <span className="field-label">Referências</span>
           <AttachmentGallery attachments={anexos} />
         </div>
       )}
 
-      {fields.length > 0 && (
+      {/*
+        Briefing: o texto corrido e as respostas, num bloco só.
+        
+        Eram dois — "Contexto" com o que foi escrito à mão, "Briefing" com o que
+        foi respondido —, e a divisão não correspondia a nada que quem lê
+        distinga: os dois dizem o que a peça precisa ser. Com nomes diferentes
+        para a mesma coisa, o quadro que criava a própria pergunta de briefing
+        passava a ter as duas caixas, e quem preenchia escolhia uma ao acaso.
+
+        São DUAS condições porque são dois interruptores, um por origem — ver
+        `CARD_PANEL_SECTIONS`. O bloco aparece se qualquer um dos lados tiver o
+        que mostrar, e cada lado responde só por si.
+      */}
+      {(textoDoBriefing || respostasDoFormulario) && (
         <div className="field">
           <span className="field-label">Briefing</span>
           <div style={{ ...block, display: "flex", flexDirection: "column", gap: "0.5rem" }}>
-            {fields.map((field) => (
-              <div key={field.id} style={{ display: "flex", flexDirection: "column", gap: "0.1rem" }}>
-                <span
-                  style={{
-                    fontSize: "var(--text-eyebrow)",
-                    textTransform: "uppercase",
-                    letterSpacing: "0.5px",
-                    color: "var(--muted)",
-                  }}
-                >
-                  {field.label}
-                </span>
-                <span style={{ fontSize: "var(--text-control)" }}>
-                  {formatFieldValue(field, values[field.key])}
-                </span>
+            {textoDoBriefing && (
+              <div style={{ fontSize: "var(--text-body)", lineHeight: 1.55 }}>
+                <ReactMarkdown>{card.description}</ReactMarkdown>
               </div>
-            ))}
+            )}
+
+            {/*
+              Editável para quem está FAZENDO, e o mesmo controle do formulário.
+
+              Não é uma segunda versão do campo: `FieldInput` é o que desenha a
+              pergunta na abertura, e uma cópia aqui divergiria dele no primeiro
+              tipo novo — o deslizante viraria caixa de texto, o campo
+              dependente perderia o pai. Quem produz a peça vê exatamente o
+              controle que quem pediu viu, com a resposta dentro.
+
+              Arquivada, volta a ser texto: um card fora do quadro é registro,
+              e registro não se edita.
+            */}
+            {respostasDoFormulario &&
+              fields.map((field) =>
+                arquivado ? (
+                  <div key={field.id} style={{ display: "flex", flexDirection: "column", gap: "0.1rem" }}>
+                    <span
+                      style={{
+                        fontSize: "var(--text-eyebrow)",
+                        textTransform: "uppercase",
+                        letterSpacing: "0.5px",
+                        color: "var(--muted)",
+                      }}
+                    >
+                      {field.label}
+                    </span>
+                    <span style={{ fontSize: "var(--text-control)" }}>
+                      {formatFieldValue(field, values[field.key])}
+                    </span>
+                  </div>
+                ) : (
+                  <FieldInput
+                    key={field.id}
+                    field={field}
+                    value={respostas[field.key]}
+                    values={respostas}
+                    parentLabel={fields.find((f) => f.key === field.dependsOn)?.label}
+                    onChange={(v) => responder(field, v)}
+                  />
+                )
+              )}
+
+            {/*
+              O Salvar só existe quando há o que salvar.
+              
+              Gravar a cada tecla mandaria uma requisição por letra num campo de
+              texto longo; gravar ao fechar perderia a alteração de quem fecha
+              no Esc. Com o botão aparecendo, a gravação é um ato — e o card
+              continua legível enquanto ninguém mexe em nada.
+            */}
+            {temAlteracao && (
+              <div style={{ display: "flex", gap: "0.5rem", alignItems: "center", flexWrap: "wrap" }}>
+                <button
+                  type="button"
+                  className="btn btn-primary"
+                  disabled={travado}
+                  style={{ padding: "0.35rem 0.8rem", fontSize: "var(--text-caption)" }}
+                  onClick={() => patch({ id: card.id, values: alteradas })}
+                >
+                  <Check size={14} />
+                  Salvar respostas
+                </button>
+                <button
+                  type="button"
+                  className="btn btn-ghost"
+                  disabled={travado}
+                  style={{ padding: "0.35rem 0.8rem", fontSize: "var(--text-caption)" }}
+                  onClick={() => setRespostas(values)}
+                >
+                  Descartar
+                </button>
+              </div>
+            )}
           </div>
         </div>
       )}
 
-      {card.copyText && (
+      {mostra("copy") && card.copyText && (
         <div className="field">
           <span className="field-label" style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "0.5rem" }}>
             <span>
@@ -542,6 +762,7 @@ export default function CardDialog({
         </div>
       )}
 
+      {mostra("activity") && (
       <div className="field">
         <span className="field-label" style={{ display: "flex", alignItems: "center", gap: "0.4rem" }}>
           <History size={14} />
@@ -604,6 +825,7 @@ export default function CardDialog({
           )}
         </div>
       </div>
+      )}
 
       {error && (
         <span className="field-hint" role="alert" style={{ color: "var(--danger)" }}>

@@ -39,12 +39,21 @@ export const FIELD_TYPE_LABEL: Record<FieldType, string> = {
 /**
  * Os limites do campo deslizante.
  *
- * O teto é o mesmo do gerador de copy (`MAX_VARIATIONS`), e de propósito: uma
- * demanda nascida do gerador chega ao quadro com o número de variações que foi
- * pedido lá, e um teto menor aqui recusaria um card que o próprio sistema criou.
+ * O teto é **20**, e não mais o do gerador de copy. Eram a mesma constante, e
+ * as duas medem coisas diferentes: `MAX_VARIATIONS` é quantos textos cabem numa
+ * geração, e esse limite é de tokens de saída do modelo, não do trabalho que a
+ * equipe aceita; a quantidade de peças de uma demanda é uma pergunta do
+ * formulário, e quem responde não tem por que esbarrar num teto que existe por
+ * causa do orçamento de um prompt.
+ *
+ * O `Math.max` é a amarra que sobrou da ligação antiga, e ela precisa ficar: um
+ * teto AQUI menor que o do gerador recusaria um card que o próprio sistema
+ * criou — a demanda nascida do gerador chega com o número de variações pedido
+ * lá. Escrito assim, subir `MAX_VARIATIONS` acima de 20 não quebra nada
+ * silenciosamente.
  */
 export const RANGE_MIN = 1;
-export const RANGE_MAX = MAX_VARIATIONS;
+export const RANGE_MAX = Math.max(20, MAX_VARIATIONS);
 
 /**
  * A unidade de um campo de quantidade, tirada do próprio rótulo.
@@ -139,6 +148,9 @@ export function isPriority(value: unknown): value is Priority {
  * provou que é dele. A origem existe para que essa diferença fique à vista —
  * um card de fora não deve ser lido com a mesma confiança de um aberto por
  * quem estava logado.
+ *
+ * São três valores gravados e só DOIS rótulos na tela: para quem lê o card, o
+ * link aberto é um formulário como o de dentro. Ver `ORIGIN_LABEL`.
  */
 export const CARD_ORIGINS = ["FORM", "COPY", "PUBLIC"] as const;
 export type CardOrigin = (typeof CARD_ORIGINS)[number];
@@ -288,6 +300,27 @@ export function validateValues(
       raw === null ||
       raw === "" ||
       (Array.isArray(raw) && raw.length === 0);
+
+    /*
+     * O deslizante NUNCA está em branco, e é o que consertava um defeito
+     * exasperante: o único valor que não dava para enviar era o que ele já
+     * mostrava.
+     *
+     * O controle nasce desenhado no mínimo, e só produz `onChange` quando
+     * alguém o arrasta. Quem queria uma peça — o valor de partida — não tinha o
+     * que arrastar: a tela mostrava "1", nada era gravado no formulário, e o
+     * servidor recusava com "o campo é obrigatório", apontando para um campo
+     * visivelmente respondido. Qualquer outro número passava, porque qualquer
+     * outro número exige mexer no controle.
+     *
+     * Vale antes da checagem de obrigatório de propósito: não se trata de
+     * preencher um vazio por conveniência, e sim de que este tipo de campo não
+     * tem estado vazio. Ausência é o mínimo — é isso que está na tela.
+     */
+    if (empty && (field.type as FieldType) === "RANGE") {
+      values[field.key] = RANGE_MIN;
+      continue;
+    }
 
     if (empty) {
       if (field.required) {
@@ -536,6 +569,21 @@ export function isOverdue(dueDate: Date | string | null | undefined): boolean {
  * de descobrir sozinho qual das três decidia o quê, e a terceira não decidia:
  * era código.
  *
+ * São DOIS grupos, e só dois:
+ *
+ * - **Do quadro** — número, título, responsável e etapa. Estes não saem de
+ *   pergunta nenhuma: o quadro os produz sozinho, e por isso são opção em
+ *   qualquer quadro, sempre.
+ * - **Do formulário** — tudo o mais. Cada um vive de uma pergunta (`fonte`), e
+ *   some da lista quando o quadro deixa de fazê-la.
+ *
+ * O que NÃO está aqui também é decisão: as peças de copy e o clipe de anexos
+ * saíram do catálogo. Eles nascem só no gerador de copy — nenhum formulário os
+ * pergunta, e nenhum card de demanda comum os tem —, então ofereciam uma
+ * escolha sobre um dado que a maior parte dos quadros nunca vê. Continuam sendo
+ * desenhados no card que os tiver: são parte de um card do gerador, do mesmo
+ * jeito que o título é parte de qualquer card.
+ *
  * `default` é o que vale antes de alguém escolher, e foi escolhido para não
  * mudar nada em quadro nenhum: o que o card já mostrava continua mostrando.
  *
@@ -556,6 +604,12 @@ export const CARD_BADGES = [
      * configurados antes deste selo existir não o listam, e listá-los como
      * desligados esconderia o número de quem nunca teve a chance de escolher.
      */
+  },
+  {
+    key: "title",
+    label: "Título",
+    hint: "O texto que descreve a demanda. Desligado, o card se identifica pelo número e pelos selos.",
+    default: true,
   },
   {
     key: "priority",
@@ -586,27 +640,30 @@ export const CARD_BADGES = [
     legacy: true,
   },
   {
-    key: "briefing",
-    label: "Briefing",
-    hint: "As primeiras linhas do contexto escrito na abertura — ou do briefing que o gerador montou.",
+    /*
+     * Do quadro, e não do formulário: a origem não é respondida por ninguém —
+     * é a porta por onde a demanda entrou, e o sistema sabe qual foi.
+     *
+     * Desligado por padrão, como etapa e briefing: é procedência, não trabalho.
+     * Um quadro que não usa o gerador de copy teria a mesma palavra repetida em
+     * todos os cards, que é uma linha gasta para não distinguir nada. Ligado,
+     * ele vale a pena onde as demandas escritas e as geradas convivem.
+     */
+    key: "origin",
+    label: "Origem",
+    hint: "Se o que está escrito no card foi preenchido no formulário ou montado pelo gerador de copy.",
     default: false,
   },
   {
-    key: "pieces",
-    label: "Peças de copy",
-    hint: "Quantas variações de texto há dentro do card.",
-    default: true,
+    key: "briefing",
+    label: "Briefing",
+    hint: "As primeiras linhas do briefing escrito na abertura — ou do que o gerador montou.",
+    default: false,
   },
   {
     key: "link",
     label: "Link de referência",
     hint: "A pasta ou o material de apoio, clicável direto do quadro.",
-    default: true,
-  },
-  {
-    key: "attachments",
-    label: "Anexos",
-    hint: "O clipe com os arquivos que vieram junto da demanda.",
     default: true,
   },
 ] as const;
@@ -692,6 +749,343 @@ export function serializeCardBadges(value: unknown): string {
   return JSON.stringify(
     Object.fromEntries(CARD_BADGES.map((b) => [b.key, ligados.has(b.key)]))
   );
+}
+
+/**
+ * As perguntas FIXAS do formulário — as que não saem de `BoardField`.
+ *
+ * Elas são de nascença porque o Kanban depende delas: é com prioridade e prazo
+ * que o card se ordena e acende, e o link é a porta para os arquivos. Um campo
+ * definível não serviria — o quadro teria de adivinhar qual dos campos do time
+ * é "o prazo".
+ *
+ * O que faltava era poder DESLIGÁ-LAS. Sendo de nascença, todo quadro as
+ * perguntava, e um time que já tinha a sua própria pergunta de data acabava com
+ * duas — uma no formulário e outra logo abaixo, com nome diferente e o mesmo
+ * sentido. Quem preenchia respondia as duas, ou uma só, e o card mostrava a que
+ * coubesse: a informação passou a depender de qual das duas a pessoa escolheu.
+ *
+ * Desligar aqui é **parar de perguntar**, e nada mais: o dado que já foi
+ * respondido continua no card, e o selo dele continua sendo desenhado. Apagar
+ * junto seria confundir "não pergunto mais isto" com "esqueça o que foi dito".
+ *
+ * `badge` é o selo do card que esta pergunta alimenta. É por ele que a tela de
+ * preferências some com a linha de um selo que não tem mais de onde tirar
+ * valor — ver `badgeTemFonte`.
+ */
+export const FORM_BUILTINS = [
+  {
+    key: "description",
+    label: "Briefing",
+    hint: "O texto livre do pedido — o que quem for produzir precisa saber antes de começar.",
+    badge: "briefing",
+    default: true,
+  },
+  {
+    key: "priority",
+    label: "Prioridade",
+    hint: "Baixa, média, alta ou urgente. Desligada, toda demanda nasce em média.",
+    badge: "priority",
+    default: true,
+  },
+  {
+    key: "dueDate",
+    label: "Prazo",
+    hint: "A data de entrega. É ela que pinta o card de vermelho quando vence.",
+    badge: "dueDate",
+    default: true,
+  },
+  {
+    key: "linkUrl",
+    label: "Link de referência",
+    hint: "A pasta do Drive ou o material de apoio, quando já existe na abertura.",
+    badge: "link",
+    default: true,
+  },
+] as const;
+
+export type FormBuiltinKey = (typeof FORM_BUILTINS)[number]["key"];
+
+/** O que o formulário pergunta enquanto ninguém escolheu: tudo. */
+export const DEFAULT_FORM_BUILTINS: FormBuiltinKey[] = FORM_BUILTINS.filter(
+  (p) => p.default
+).map((p) => p.key);
+
+export function isFormBuiltin(value: unknown): value is FormBuiltinKey {
+  return typeof value === "string" && FORM_BUILTINS.some((p) => p.key === value);
+}
+
+/**
+ * A configuração gravada, de volta como lista do que o formulário pergunta.
+ *
+ * Mesmo formato de `parseCardBadges`, e pelo mesmo motivo: grava-se um MAPA de
+ * decisões, e não a lista do que está ligado. Chave ausente é "nunca decidi", e
+ * vale o padrão do catálogo — uma pergunta fixa nova não nasce desligada nos
+ * quadros que já configuraram as outras.
+ */
+export function parseFormBuiltins(raw: string | null | undefined): FormBuiltinKey[] {
+  if (raw === null || raw === undefined) return [...DEFAULT_FORM_BUILTINS];
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    return [...DEFAULT_FORM_BUILTINS];
+  }
+
+  if (Array.isArray(parsed)) {
+    const listados = new Set(parsed.map(String).filter(isFormBuiltin));
+    return FORM_BUILTINS.filter((p) => listados.has(p.key)).map((p) => p.key);
+  }
+
+  if (parsed && typeof parsed === "object") {
+    const mapa = parsed as Record<string, unknown>;
+    return FORM_BUILTINS.filter((p) => (p.key in mapa ? !!mapa[p.key] : p.default)).map(
+      (p) => p.key
+    );
+  }
+
+  return [...DEFAULT_FORM_BUILTINS];
+}
+
+/** A escolha vinda da tela, pronta para gravar — mapa completo. Ver `serializeCardBadges`. */
+export function serializeFormBuiltins(value: unknown): string {
+  const pedidos = new Set(
+    (Array.isArray(value) ? value.map(String) : []).filter(isFormBuiltin)
+  );
+  return JSON.stringify(
+    Object.fromEntries(FORM_BUILTINS.map((p) => [p.key, pedidos.has(p.key)]))
+  );
+}
+
+/** De qual pergunta fixa cada selo do card tira o valor. Só os que dependem de uma. */
+const FONTE_DO_BADGE = new Map<CardBadgeKey, FormBuiltinKey>(
+  FORM_BUILTINS.map((p) => [p.badge as CardBadgeKey, p.key])
+);
+
+/**
+ * A pergunta fixa que alimenta este selo, ou nulo quando ele nasce do quadro.
+ *
+ * O formulário é a base do quadro: o card mostra o que foi perguntado, e mais
+ * nada. Por isso um selo cuja pergunta o quadro não faz some da tela de
+ * preferências em vez de virar um interruptor sem efeito sobre as demandas
+ * novas — e o que estiver gravado continua gravado, de modo que voltar a
+ * perguntar devolve o selo exatamente como ele estava.
+ *
+ * Selo sem fonte — número, etapa, responsável, peças de copy, anexos — vem do
+ * próprio quadro ou do gerador, e está sempre disponível.
+ */
+export function fonteDoBadge(badge: CardBadgeKey): FormBuiltinKey | null {
+  return FONTE_DO_BADGE.get(badge) ?? null;
+}
+
+/**
+ * O que o card mostra ABERTO — as seções do painel da demanda.
+ *
+ * A terceira e última superfície do quadro a virar configuração. As outras duas
+ * já eram: o formulário (`FORM_BUILTINS` + `BoardField`) e a frente do card
+ * (`CARD_BADGES`). O painel era a que sobrava — dez seções cravadas no
+ * componente, iguais em todo quadro, num sistema onde cada time pergunta coisas
+ * diferentes. Um quadro que não usa o gerador de copy carregava a seção de copy
+ * para sempre; um que não comenta, o acompanhamento.
+ *
+ * `fonte` diz de qual pergunta do formulário a seção vive — e é o eixo de tudo
+ * aqui. O formulário é a base: o que o quadro não pergunta, o card não tem para
+ * mostrar, e oferecer o interruptor seria oferecer uma decisão sobre um valor
+ * que não existe mais. Seção sem `fonte` nasce do próprio quadro (a etapa, o
+ * responsável, o número) ou do gerador de copy, e não depende de pergunta
+ * nenhuma.
+ *
+ * `edita` marca a seção que não é só leitura: desligá-la tira do painel o único
+ * lugar de onde aquilo se muda com o card aberto. Não é motivo para proibir —
+ * etapa e responsável também se mexem arrastando o card, e um quadro pode
+ * querer justamente que só o arrasto os mude —, mas é motivo para avisar, e a
+ * tela de preferências avisa.
+ *
+ * Fora da lista, de propósito: o título, que é o card; e o aviso de arquivada,
+ * que não é informação da demanda e sim o motivo de ela estar travada.
+ */
+export const CARD_PANEL_SECTIONS = [
+  {
+    key: "requester",
+    label: "Quem abriu",
+    hint: "A linha sob o título: o número da demanda, quem pediu e quando.",
+    default: true,
+  },
+  {
+    key: "stage",
+    label: "Etapa",
+    hint: "O seletor de coluna — move o card sem arrastar.",
+    default: true,
+    edita: true,
+  },
+  {
+    key: "assignee",
+    label: "Responsável",
+    hint: "Quem responde pela demanda, marcável um a um dentro da equipe da fase.",
+    default: true,
+    edita: true,
+  },
+  {
+    key: "priority",
+    label: "Prioridade",
+    hint: "Baixa, média, alta ou urgente.",
+    fonte: "priority",
+    default: true,
+    edita: true,
+  },
+  {
+    key: "link",
+    label: "Link das artes",
+    hint: "A pasta do Drive da demanda, no topo do painel.",
+    fonte: "linkUrl",
+    default: true,
+    edita: true,
+  },
+  {
+    key: "attachments",
+    label: "Referências",
+    hint: "As imagens que vieram junto do pedido, em galeria.",
+    default: true,
+  },
+  /*
+   * DOIS interruptores para um bloco só, e a divisão é por ORIGEM.
+   *
+   * Era um só, chamado "Briefing", e ele fazia dois trabalhos: o texto livre da
+   * pergunta de fábrica e as respostas de todas as perguntas do quadro.
+   * Desligá-lo levava junto o formulário inteiro — e ninguém lê um interruptor
+   * chamado "Briefing" como "todas as respostas das minhas perguntas". Foi
+   * exatamente o que aconteceu: o quadro ficou com as respostas invisíveis e
+   * nada na tela explicando por quê.
+   *
+   * O bloco desenhado continua sendo UM, com um título só: para quem lê o card,
+   * o texto do pedido e o que foi respondido são a mesma coisa — foi por isso
+   * que "Contexto" e "Briefing" deixaram de ser duas caixas. O que se separou
+   * foi o controle, não a leitura.
+   */
+  {
+    key: "briefing",
+    label: "Briefing",
+    hint: "O texto livre escrito na abertura da demanda.",
+    fonte: "description",
+    default: true,
+  },
+  {
+    /*
+     * Sem `fonte`: estas respostas não vêm de UMA pergunta fixa, vêm das
+     * perguntas que o quadro criou. O bloco some sozinho quando não há
+     * nenhuma — ver `CardDialog`.
+     */
+    key: "answers",
+    label: "Respostas do formulário",
+    hint: "O que foi respondido em cada pergunta deste quadro.",
+    default: true,
+  },
+  {
+    key: "copy",
+    label: "Copy gerada",
+    hint: "As variações que o gerador escreveu. Só aparece nos cards que vieram dele.",
+    default: true,
+  },
+  {
+    key: "activity",
+    label: "Acompanhamento",
+    hint: "O histórico de idas e vindas e o campo de comentário.",
+    default: true,
+    edita: true,
+  },
+] as const;
+
+export type CardPanelKey = (typeof CARD_PANEL_SECTIONS)[number]["key"];
+
+/**
+ * De onde veio o que está escrito no card — DUAS respostas, não três.
+ *
+ * `BoardCard.origin` guarda três valores, e continua guardando: o link aberto
+ * (`PUBLIC`) traz um e-mail declarado e não provado, e essa diferença importa
+ * para quem for atrás de quem pediu. Mas ela é sobre QUEM PEDIU, e o selo
+ * responde outra pergunta — de onde saiu o que está escrito ali.
+ *
+ * Por essa pergunta, o link público é um formulário: as mesmas perguntas, o
+ * mesmo preenchimento a mão, entrando pela porta de fora em vez da de dentro.
+ * Separá-lo aqui repartia em três uma distinção que só tem dois lados — o que
+ * uma pessoa escreveu e o que a máquina montou — e sugeria que a demanda vinda
+ * do link fosse feita de outro material.
+ *
+ * A procedência do pedido continua registrada onde ela é sobre pessoas: a
+ * primeira linha do histórico do card diz "abriu a demanda pelo link público".
+ * Ver `logActivity` em `lib/demanda-intake.ts`.
+ *
+ * Nada disso era dito em lugar nenhum antes: a frente do card desenhava uma
+ * varinha sem legenda para os do gerador, e o painel não mencionava o assunto.
+ * Quem lia um briefing curto não sabia se alguém escreveu pouco ou se a máquina
+ * montou o texto.
+ */
+export const ORIGIN_LABEL: Record<string, string> = {
+  FORM: "Formulário",
+  PUBLIC: "Formulário",
+  COPY: "Gerador de copy",
+};
+
+/**
+ * O rótulo da origem, ou nulo quando o valor gravado não é conhecido.
+ *
+ * Nulo em vez de um "Desconhecido": a origem é um detalhe de procedência, e uma
+ * palavra que não explica nada gasta a mesma linha que a que explicaria.
+ */
+export function origemDoCard(origin: string | null | undefined): string | null {
+  return (origin && ORIGIN_LABEL[origin]) || null;
+}
+
+/** O painel inteiro — é o que todo quadro mostrava antes de isto ser escolha. */
+export const DEFAULT_CARD_PANEL: CardPanelKey[] = CARD_PANEL_SECTIONS.filter(
+  (s) => s.default
+).map((s) => s.key);
+
+export function isCardPanelKey(value: unknown): value is CardPanelKey {
+  return typeof value === "string" && CARD_PANEL_SECTIONS.some((s) => s.key === value);
+}
+
+/** Mesmo formato e mesmo raciocínio de `parseCardBadges`: mapa de decisões. */
+export function parseCardPanel(raw: string | null | undefined): CardPanelKey[] {
+  if (raw === null || raw === undefined) return [...DEFAULT_CARD_PANEL];
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    return [...DEFAULT_CARD_PANEL];
+  }
+
+  if (Array.isArray(parsed)) {
+    const listados = new Set(parsed.map(String).filter(isCardPanelKey));
+    return CARD_PANEL_SECTIONS.filter((s) => listados.has(s.key)).map((s) => s.key);
+  }
+
+  if (parsed && typeof parsed === "object") {
+    const mapa = parsed as Record<string, unknown>;
+    return CARD_PANEL_SECTIONS.filter((s) =>
+      s.key in mapa ? !!mapa[s.key] : s.default
+    ).map((s) => s.key);
+  }
+
+  return [...DEFAULT_CARD_PANEL];
+}
+
+/** A escolha da tela, pronta para gravar — mapa completo. Ver `serializeCardBadges`. */
+export function serializeCardPanel(value: unknown): string {
+  const pedidas = new Set(
+    (Array.isArray(value) ? value.map(String) : []).filter(isCardPanelKey)
+  );
+  return JSON.stringify(
+    Object.fromEntries(CARD_PANEL_SECTIONS.map((s) => [s.key, pedidas.has(s.key)]))
+  );
+}
+
+/** A pergunta fixa de que esta seção do painel vive, ou nulo. Ver `CARD_PANEL_SECTIONS`. */
+export function fonteDaSecao(secao: CardPanelKey): FormBuiltinKey | null {
+  const achada = CARD_PANEL_SECTIONS.find((s) => s.key === secao);
+  return achada && "fonte" in achada ? (achada.fonte as FormBuiltinKey) : null;
 }
 
 /**

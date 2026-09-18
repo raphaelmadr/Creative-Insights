@@ -444,6 +444,18 @@ export async function POST(request: Request) {
           values: Object.keys(respostas).length ? JSON.stringify(respostas) : null,
           attachments: serializeAttachments(anexos),
           origin: "COPY",
+          /*
+           * A prioridade não é mais escolhida no gerador.
+           *
+           * Ele perguntava "prioridade no quadro" logo abaixo da data de
+           * entrega, e essa pergunta é do FORMULÁRIO — que a faz, ou não, por
+           * decisão do quadro (`FORM_BUILTINS`). Com as duas, um quadro que
+           * tinha desligado a prioridade continuava recebendo cards com
+           * urgência marcada, vindos de outra tela.
+           *
+           * O corpo da requisição ainda é lido, para o cliente antigo que
+           * continuar mandando o campo não perder o valor até publicar.
+           */
           priority: isPriority(body.priority) ? body.priority : "MEDIA",
           /*
            * A data vem como "AAAA-MM-DD" do campo de data do navegador. Uma data

@@ -15,7 +15,6 @@ import {
   type CopyVariation,
 } from "@/lib/copy-parse";
 import { type CardAttachment } from "@/lib/attachments";
-import { PRIORITIES, PRIORITY_LABEL, type Priority } from "@/lib/kanban";
 import {
   COPY_TONES,
   MAX_VARIATIONS,
@@ -101,7 +100,6 @@ export default function CopyPage() {
   const [toneText, setToneText] = useState("");
   const [constraints, setConstraints] = useState("");
   const [variationCount, setVariationCount] = useState(DEFAULT_VARIATIONS);
-  const [priority, setPriority] = useState<Priority>("MEDIA");
 
   const [products, setProducts] = useState<AlluProduct[]>([]);
   const [audiences, setAudiences] = useState<MetaAudience[]>([]);
@@ -437,7 +435,6 @@ export default function CopyPage() {
           // briefing faria o modelo escrever tudo de novo, e o texto que a
           // pessoa acabou de aprovar seria descartado.
           editedCopy: finalCopy(),
-          priority,
           dueDate: dueDate || null,
           attachments,
           groupId,
@@ -1034,24 +1031,6 @@ export default function CopyPage() {
                   <span className="field-hint">
                     Vira o prazo do card no quadro. Em branco, a demanda entra sem prazo.
                   </span>
-                </div>
-
-                <div className="field">
-                  <span className="field-label">Prioridade no quadro</span>
-                  <div style={{ display: "flex", flexWrap: "wrap", gap: "0.35rem" }}>
-                    {PRIORITIES.map((p) => (
-                      <button
-                        key={p}
-                        type="button"
-                        className="btn btn-toggle"
-                        aria-pressed={priority === p}
-                        style={{ padding: "0.35rem 0.7rem", fontSize: "var(--text-caption)" }}
-                        onClick={() => setPriority(p)}
-                      >
-                        {PRIORITY_LABEL[p]}
-                      </button>
-                    ))}
-                  </div>
                 </div>
 
                 <div style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap" }}>
