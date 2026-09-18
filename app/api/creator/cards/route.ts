@@ -89,6 +89,21 @@ export async function GET(request: Request) {
  * chama a mesma rota que a barra do topo. Ver `lib/demanda-intake.ts`.
  */
 
+/**
+ * Uma resposta em uma linha, para o histórico.
+ *
+ * Simples de propósito: o formatador rico do card (`formatFieldValue`) mora num
+ * componente de cliente, e arrastá-lo para cá levaria React inteiro para dentro
+ * de uma rota. Aqui basta que a frase se leia — "1 → 3", "Meta Ads → TikTok
+ * Ads" —, e o valor bonito continua sendo desenhado no card.
+ */
+function legivel(valor: unknown): string {
+  if (valor === undefined || valor === null || valor === "") return "vazio";
+  if (Array.isArray(valor)) return valor.length ? valor.map(String).join(", ") : "vazio";
+  if (typeof valor === "boolean") return valor ? "sim" : "não";
+  return String(valor);
+}
+
 export async function PUT(request: Request) {
   const user = await getCurrentCreator();
   if (!user) return NextResponse.json({ error: CREATOR_ONLY_ERROR }, { status: 403 });
@@ -301,6 +316,12 @@ export async function PUT(request: Request) {
     if (!current) return NextResponse.json({ error: "Demanda não encontrada." }, { status: 404 });
 
     let values = current.values;
+    /*
+     * O que mudou nas respostas, em palavras — montado ANTES da gravação, que é
+     * quando o valor anterior ainda existe.
+     */
+    let mudancaDeRespostas: string | null = null;
+
     if (body.values !== undefined) {
       const fields = await prisma.boardField.findMany({ where: { boardId: current.boardId } });
 
@@ -311,10 +332,62 @@ export async function PUT(request: Request) {
        * campo removido no passado não aparecem lá, e substituir o JSON inteiro
        * pelo que o formulário devolveu as apagaria sem que ninguém pedisse.
        */
-      const merged = { ...parseValues(current.values), ...(body.values as object) };
+      const anteriores = parseValues(current.values);
+      const merged = { ...anteriores, ...(body.values as object) };
       const checked = validateValues(fields, merged);
       if (!checked.ok) return NextResponse.json({ error: checked.error }, { status: 400 });
-      values = Object.keys(checked.values).length ? JSON.stringify(checked.values) : null;
+
+      /*
+       * As respostas ÓRFÃS voltam por cima — e sem elas o parágrafo acima era
+       * mentira.
+       *
+       * `validateValues` percorre os campos do quadro de HOJE e devolve só o que
+       * casa com eles. Uma resposta de campo removido não casa com nada, então
+       * some do resultado: qualquer edição no painel apagava, em silêncio, tudo
+       * que havia sido respondido a perguntas que o quadro não faz mais. A tela
+       * de campos promete o contrário, com essas palavras — "as respostas já
+       * enviadas continuam guardadas nos cards" —, e é essa promessa que torna
+       * remover uma pergunta uma decisão reversível: recriá-la com a mesma
+       * chave traz tudo de volta.
+       *
+       * Ficou invisível o tempo todo porque nada mandava `values` nesta rota: o
+       * painel do card só sabia exibir as respostas. Apareceu no instante em que
+       * ele passou a saber editá-las.
+       */
+      const orfas = Object.fromEntries(
+        Object.entries(anteriores).filter(([chave]) => !fields.some((f) => f.key === chave))
+      );
+
+      const finais = { ...orfas, ...checked.values };
+      values = Object.keys(finais).length ? JSON.stringify(finais) : null;
+
+      /*
+       * Quem produz a peça pode corrigir a data e a quantidade — e quem pediu
+       * precisa ficar sabendo.
+       *
+       * Sem este registro, o prazo combinado na abertura passaria a ser outro
+       * sem rastro: o card mostraria o número novo, e a única pessoa a saber do
+       * antigo seria quem o trocou. É o mesmo critério do link e da prioridade,
+       * logo abaixo — entra no histórico o que alguém vai querer explicar
+       * depois.
+       *
+       * Comparação contra o VALIDADO, não contra o corpo da requisição: o
+       * servidor normaliza (data vira "2026-09-25", deslizante é preso à faixa),
+       * e registrar o que chegou anunciaria uma mudança que não foi gravada.
+       */
+      // Só os campos do quadro entram no histórico: uma órfã nunca muda, e
+      // nomeá-la exigiria um rótulo que já não existe.
+      const mudancas = fields
+        .filter((f) => {
+          const antes = JSON.stringify(anteriores[f.key] ?? null);
+          const depois = JSON.stringify(checked.values[f.key] ?? null);
+          return antes !== depois;
+        })
+        .map((f) => `${f.label} (${legivel(anteriores[f.key])} → ${legivel(checked.values[f.key])})`);
+
+      if (mudancas.length) {
+        mudancaDeRespostas = `ajustou as respostas: ${mudancas.join(", ")}`.slice(0, 500);
+      }
     }
 
     /*
@@ -438,6 +511,10 @@ export async function PUT(request: Request) {
         `mudou a prioridade para ${PRIORITY_LABEL[priority as Priority]}`,
         user
       );
+    }
+
+    if (mudancaDeRespostas) {
+      await logActivity(id, "UPDATED", mudancaDeRespostas, user);
     }
 
     return NextResponse.json({ success: true, card });

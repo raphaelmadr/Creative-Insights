@@ -1,43 +1,66 @@
 "use client";
 
 import React, { useCallback, useMemo, useRef, useState } from "react";
-import { Columns3, LayoutGrid } from "lucide-react";
+import { ClipboardList, Columns3, LayoutGrid, PanelsTopLeft } from "lucide-react";
 import Modal from "@/components/Modal";
 import ColumnsSection, { type ColumnDefinition } from "./ColumnsSection";
 import CardFaceSection, { exemploDeRespostas } from "./CardFaceSection";
+import CardPanelSection from "./CardPanelSection";
+import FormSection from "./FormSection";
 import CardFace, { estiloDoCard } from "./CardFace";
 import { type FieldDefinition } from "./FieldInput";
 import { type CardData } from "./CardDialog";
 import type { PersonOption } from "./DemandDialog";
 import { type SecaoHandle } from "./useRascunho";
-import { type CardBadgeKey, type GroupDefinition } from "@/lib/kanban";
+import {
+  type CardBadgeKey,
+  type CardPanelKey,
+  type FormBuiltinKey,
+  type GroupDefinition,
+} from "@/lib/kanban";
 
 /**
- * Como este quadro se comporta — as etapas e a cara do card, numa janela só.
+ * Como este quadro se comporta — o formulário, o card e as etapas, numa janela só.
  *
- * Eram dois botões e dois diálogos, e a separação não correspondia a nada: quem
- * abre um está ajustando o quadro, e quase sempre abria o outro em seguida —
- * criar uma etapa e decidir o que o card mostra nela são o mesmo ato de
- * arrumação, feito em duas janelas porque o código estava em dois arquivos.
+ * Eram três botões e três diálogos, e a separação não correspondia a nada: quem
+ * abre um está ajustando o quadro, e quase sempre abria os outros em seguida.
+ * Pior, ela escondia a relação entre eles — a tela dos campos ficava num canto
+ * da barra, e nada dizia que era dali que saía tudo o que o card mostra.
+ *
+ * As abas estão na ordem da dependência, e é essa a ideia central do quadro:
+ *
+ *   **Formulário** → o que a demanda diz. É a base; sem pergunta não há dado.
+ *   **Frente do card** → o que disso cabe de relance, no quadro.
+ *   **Card aberto** → o que disso cabe no painel da demanda.
+ *   **Etapas** → por onde ela passa.
+ *
+ * Por isso desligar uma pergunta na primeira aba some com a linha dela nas duas
+ * seguintes: elas não inventam informação, apenas escolhem o que fazer com a que
+ * existe. O que nasce no próprio quadro — número, etapa, responsável — e o que
+ * vem do gerador de copy não dependem de pergunta nenhuma e estão sempre lá.
  *
  * Cada seção continua dona do próprio rascunho e da própria gravação: são
  * destinos diferentes no servidor (a etapa é uma linha de coluna, a cara do card
  * é do quadro e de cada campo). O que se unificou foi a PERGUNTA, e por isso o
- * Salvar é um só — ele grava o que cada seção tiver pendente.
+ * Salvar é um só — ele grava o que cada seção tiver pendente. A aba do
+ * formulário é a exceção, e ela mesma o diz: criar e apagar pergunta são atos,
+ * não preferências, e valem no clique.
  *
- * A prévia é o ponto da tela. Antes se escolhia o que o card mostra lendo uma
- * lista de nomes de selo e imaginando o resultado; agora o card de exemplo está
- * ao lado e reage ao interruptor antes de qualquer gravação. E é o card DE
+ * A prévia é o ponto da aba do card. Antes se escolhia o que o card mostra lendo
+ * uma lista de nomes de selo e imaginando o resultado; agora o card de exemplo
+ * está ao lado e reage ao interruptor antes de qualquer gravação. E é o card DE
  * VERDADE — `CardFace`, o mesmo componente que o quadro desenha —, porque uma
  * imitação envelheceria no primeiro selo novo e passaria a mentir justamente
  * para quem está decidindo olhando para ela.
  */
 
-type Aba = "etapas" | "card";
+type Aba = "formulario" | "card" | "painel" | "etapas";
 
 const ABAS: { id: Aba; label: string; icon: typeof Columns3 }[] = [
+  { id: "formulario", label: "Formulário", icon: ClipboardList },
+  { id: "card", label: "Frente do card", icon: LayoutGrid },
+  { id: "painel", label: "Card aberto", icon: PanelsTopLeft },
   { id: "etapas", label: "Etapas", icon: Columns3 },
-  { id: "card", label: "O que o card mostra", icon: LayoutGrid },
 ];
 
 export default function BoardSetupDialog({
@@ -47,6 +70,8 @@ export default function BoardSetupDialog({
   columns,
   groups,
   badges,
+  panel,
+  builtins,
   fields,
   people,
   onChanged,
@@ -57,6 +82,10 @@ export default function BoardSetupDialog({
   columns: ColumnDefinition[];
   groups?: GroupDefinition[];
   badges: CardBadgeKey[];
+  /** As seções do card aberto. Ver `parseCardPanel`. */
+  panel: CardPanelKey[];
+  /** As perguntas de nascença que o quadro faz. Ver `parseFormBuiltins`. */
+  builtins: FormBuiltinKey[];
   fields: FieldDefinition[];
   /** Para o crachá da prévia mostrar gente de verdade, e não um nome inventado. */
   people: PersonOption[];
@@ -64,8 +93,14 @@ export default function BoardSetupDialog({
 }) {
   const etapas = useRef<SecaoHandle>(null);
   const card = useRef<SecaoHandle>(null);
+  const painel = useRef<SecaoHandle>(null);
   const [busy, setBusy] = useState(false);
-  const [aba, setAba] = useState<Aba>("etapas");
+  /*
+   * Abre no formulário, que é a base: quem vem ajustar o quadro quase sempre
+   * vem por causa de uma pergunta, e as outras abas só fazem sentido depois
+   * dela. Antes abria nas etapas, que é o que menos muda.
+   */
+  const [aba, setAba] = useState<Aba>("formulario");
 
   /*
    * O pendente de cada seção vive AQUI, avisado por ela.
@@ -80,19 +115,44 @@ export default function BoardSetupDialog({
    */
   const [sujoEtapas, setSujoEtapas] = useState(false);
   const [sujoCard, setSujoCard] = useState(false);
+  const [sujoPainel, setSujoPainel] = useState(false);
   const [rascunhoCard, setRascunhoCard] = useState<{
     badges: CardBadgeKey[];
     campos: FieldDefinition[];
   }>({ badges, campos: fields });
 
+  /*
+   * As perguntas do formulário vivem AQUI enquanto a janela está aberta.
+   *
+   * É delas que as outras abas derivam: o que o quadro não pergunta não aparece
+   * na frente do card nem no card aberto. Lendo direto da propriedade, a
+   * derivação só acontecia depois de o quadro inteiro recarregar — alguns
+   * segundos —, e quem ligava a prioridade e ia à aba do card aberto na hora
+   * não encontrava a linha dela. A configuração estava certa; a tela é que
+   * ainda não sabia.
+   *
+   * A régua da adoção é o CONTEÚDO: a propriedade é recalculada a cada
+   * renderização da página, e comparar referências jogaria fora o valor
+   * otimista justamente no intervalo que ele existe para cobrir.
+   */
+  const [perguntas, setPerguntas] = useState<FormBuiltinKey[]>(builtins);
+  const doServidor = JSON.stringify(builtins);
+  const [vistas, setVistas] = useState(doServidor);
+  if (doServidor !== vistas) {
+    setVistas(doServidor);
+    setPerguntas(builtins);
+  }
+  const receberPerguntas = useCallback((p: FormBuiltinKey[]) => setPerguntas(p), []);
+
   const avisarEtapas = useCallback((v: boolean) => setSujoEtapas(v), []);
   const avisarCard = useCallback((v: boolean) => setSujoCard(v), []);
+  const avisarPainel = useCallback((v: boolean) => setSujoPainel(v), []);
   const receberRascunho = useCallback(
     (d: { badges: CardBadgeKey[]; campos: FieldDefinition[] }) => setRascunhoCard(d),
     []
   );
 
-  const sujo = sujoEtapas || sujoCard;
+  const sujo = sujoEtapas || sujoCard || sujoPainel;
 
   /*
    * O card de exemplo: preenchido de propósito em TUDO que pode aparecer.
@@ -138,6 +198,7 @@ export default function BoardSetupDialog({
       // já não é o esperado.
       if (sujoEtapas && etapas.current && !(await etapas.current.salvar())) return;
       if (sujoCard && card.current && !(await card.current.salvar())) return;
+      if (sujoPainel && painel.current && !(await painel.current.salvar())) return;
       onClose();
     } finally {
       setBusy(false);
@@ -153,14 +214,14 @@ export default function BoardSetupDialog({
     <Modal
       open={open}
       onClose={fechar}
-      title="Etapas e cards"
-      description="Por onde a demanda passa, e o que o card mostra sem precisar ser aberto."
+      title="Preferências do quadro"
+      description="O que a demanda pergunta, o que o card mostra e por onde ela passa."
       width="min(1040px, 100%)"
       footer={
         <>
           {sujo && (
             <span className="field-hint" style={{ marginRight: "auto" }}>
-              Alterações pendentes nas duas abas são gravadas juntas.
+              As abas com ponto têm alterações pendentes, e são gravadas juntas.
             </span>
           )}
           <button type="button" className="btn btn-secondary" onClick={fechar} disabled={busy}>
@@ -178,7 +239,7 @@ export default function BoardSetupDialog({
         </>
       }
     >
-      <div className="board-setup">
+      <div className={`board-setup${aba === "card" ? "" : " board-setup-solo"}`}>
         <div className="board-setup-controls">
           {/*
             Abas, e não as duas listas empilhadas: juntas passavam de mil pixels
@@ -202,7 +263,10 @@ export default function BoardSetupDialog({
             {ABAS.map((t) => {
               const Icon = t.icon;
               const ativa = aba === t.id;
-              const pendente = t.id === "etapas" ? sujoEtapas : sujoCard;
+              const pendente =
+                (t.id === "etapas" && sujoEtapas) ||
+                (t.id === "card" && sujoCard) ||
+                (t.id === "painel" && sujoPainel);
               return (
                 <button
                   key={t.id}
@@ -238,6 +302,28 @@ export default function BoardSetupDialog({
             mexesse nas etapas, fosse ver os selos e voltasse, encontraria o
             trabalho desfeito sem nenhum aviso.
           */}
+          {/*
+            A aba do formulário NÃO fica montada junto com as outras.
+
+            As três de baixo guardam rascunho, e desmontá-las jogaria fora o que
+            alguém digitou ao trocar de aba. Esta grava no clique, então não tem
+            o que perder — e tem o que ganhar: montada o tempo todo, ela dispara
+            a recarga do quadro (`onChanged`) a partir de uma tela que ninguém
+            está vendo, e o formulário de criar campo fica de pé por trás das
+            outras abas com o rascunho de quem desistiu.
+          */}
+          {aba === "formulario" && (
+            <div style={{ display: "flex", flexDirection: "column", gap: "0.9rem" }}>
+              <FormSection
+                boardId={boardId}
+                fields={fields}
+                builtins={perguntas}
+                onBuiltins={receberPerguntas}
+                onChanged={onChanged}
+              />
+            </div>
+          )}
+
           <div
             hidden={aba !== "etapas"}
             /* `display` inline junto do `hidden`: o atributo sozinho é vencido
@@ -265,14 +351,32 @@ export default function BoardSetupDialog({
               open={open}
               boardId={boardId}
               badges={badges}
+              builtins={perguntas}
               fields={fields}
               onChanged={onChanged}
               onSujo={avisarCard}
               onDraft={receberRascunho}
             />
           </div>
+
+          <div
+            hidden={aba !== "painel"}
+            style={{ display: aba === "painel" ? "flex" : "none", flexDirection: "column", gap: "0.9rem" }}
+          >
+            <CardPanelSection
+              ref={painel}
+              open={open}
+              boardId={boardId}
+              panel={panel}
+              builtins={perguntas}
+              fields={fields}
+              onChanged={onChanged}
+              onSujo={avisarPainel}
+            />
+          </div>
         </div>
 
+        {aba === "card" && (
         <aside className="board-setup-preview" aria-label="Prévia do card">
           <span className="field-label">Prévia</span>
 
@@ -289,6 +393,7 @@ export default function BoardSetupDialog({
                 people={people}
                 fields={rascunhoCard.campos}
                 badges={rascunhoCard.badges}
+                builtins={perguntas}
                 pecas={12}
               />
             </div>
@@ -299,6 +404,7 @@ export default function BoardSetupDialog({
             aos interruptores na hora — o que aparece aqui é o que vai aparecer lá.
           </span>
         </aside>
+        )}
       </div>
     </Modal>
   );

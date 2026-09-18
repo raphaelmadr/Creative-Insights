@@ -4,11 +4,18 @@ import React, { useEffect, useMemo, useState } from "react";
 import { useParams } from "next/navigation";
 import { Check, Loader2 } from "lucide-react";
 import FieldInput, { type FieldDefinition } from "@/components/creator/FieldInput";
+import DatePicker from "@/components/DatePicker";
 import {
   ALLOWED_EMAIL_DOMAIN,
   CORPORATE_EMAIL_ERROR,
   isCorporateEmail,
 } from "@/lib/corporate-email";
+import {
+  PRIORITIES,
+  PRIORITY_LABEL,
+  type FormBuiltinKey,
+  type Priority,
+} from "@/lib/kanban";
 
 /**
  * O formulário de demanda para quem não tem conta.
@@ -22,11 +29,21 @@ import {
  * formulário interno. Uma segunda cópia do formulário aqui envelheceria: quem
  * acrescentasse um campo no quadro o veria aparecer lá dentro e não aqui, e o
  * defeito só apareceria quando alguém de fora reclamasse.
+ *
+ * As perguntas de FÁBRICA seguem a mesma regra desde que passaram a ser
+ * configuráveis. Antes elas simplesmente não existiam aqui: esta tela sabia
+ * desenhar só os campos do quadro, e quem chegava pelo link não tinha onde
+ * dizer para quando precisava. A saída foi criar uma pergunta de data à mão —
+ * que passou a conviver com o prazo de fábrica do formulário de dentro, duas
+ * datas para a mesma demanda. Com as duas portas lendo a mesma configuração,
+ * não há mais motivo para a cópia.
  */
 
 interface BoardPublico {
   name: string;
   description: string | null;
+  /** As perguntas de fábrica que este quadro faz. Ver `parseFormBuiltins`. */
+  builtins: FormBuiltinKey[];
   fields: FieldDefinition[];
 }
 
@@ -40,6 +57,10 @@ export default function DemandaPublica() {
   const [email, setEmail] = useState("");
   const [nome, setNome] = useState("");
   const [titulo, setTitulo] = useState("");
+  const [briefing, setBriefing] = useState("");
+  const [prioridade, setPrioridade] = useState<Priority>("MEDIA");
+  const [prazo, setPrazo] = useState("");
+  const [link, setLink] = useState("");
   const [valores, setValores] = useState<Record<string, unknown>>({});
 
   const [enviando, setEnviando] = useState(false);
@@ -70,11 +91,22 @@ export default function DemandaPublica() {
    */
   const emailInvalido = email.includes("@") && !isCorporateEmail(email);
 
+  /** Se este quadro faz esta pergunta de fábrica. */
+  const pergunta = (key: FormBuiltinKey) => !!board?.builtins.includes(key);
+
   const faltando = useMemo(() => {
     if (!board) return true;
     if (!isCorporateEmail(email) || !titulo.trim()) return true;
     return board.fields.some((f) => {
       if (!f.required) return false;
+      /*
+       * O deslizante não tem estado vazio: ele já nasce desenhado no mínimo, e
+       * quem quer justamente esse valor não tem o que arrastar. Contá-lo como
+       * "não respondido" deixava o botão de enviar desabilitado diante de um
+       * formulário inteiro preenchido, sem dizer qual campo faltava — o mesmo
+       * defeito que o servidor tinha. Ver `validateValues`.
+       */
+      if (f.type === "RANGE") return false;
       const v = valores[f.key];
       return v === undefined || v === null || v === "" || (Array.isArray(v) && v.length === 0);
     });
@@ -87,10 +119,19 @@ export default function DemandaPublica() {
       const res = await fetch(`/api/public/demanda/${token}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
+        /*
+         * Só o que foi perguntado sobe — o mesmo critério do formulário de
+         * dentro. Mandar o estado inicial de uma pergunta desligada gravaria
+         * uma resposta que ninguém deu.
+         */
         body: JSON.stringify({
           requesterEmail: email,
           requesterName: nome,
           title: titulo,
+          ...(pergunta("description") ? { description: briefing } : {}),
+          ...(pergunta("priority") ? { priority: prioridade } : {}),
+          ...(pergunta("dueDate") && prazo ? { dueDate: prazo } : {}),
+          ...(pergunta("linkUrl") && link.trim() ? { linkUrl: link.trim() } : {}),
           values: valores,
         }),
       });
@@ -161,6 +202,10 @@ export default function DemandaPublica() {
           onClick={() => {
             setPronto(null);
             setTitulo("");
+            setBriefing("");
+            setPrioridade("MEDIA");
+            setPrazo("");
+            setLink("");
             setValores({});
           }}
         >
@@ -233,6 +278,79 @@ export default function DemandaPublica() {
           onChange={(e) => setTitulo(e.target.value)}
         />
       </div>
+
+      {/*
+        As de fábrica antes das do quadro, na mesma ordem do formulário de
+        dentro: as duas portas levam à mesma demanda, e quem já preencheu uma
+        não deveria ter de reaprender a outra.
+      */}
+      {pergunta("description") && (
+        <div className="field">
+          <label className="field-label" htmlFor="publico-briefing">
+            Briefing
+          </label>
+          <textarea
+            id="publico-briefing"
+            className="field-input field-prose"
+            value={briefing}
+            placeholder="O que quem for produzir precisa saber antes de começar."
+            onChange={(e) => setBriefing(e.target.value)}
+          />
+        </div>
+      )}
+
+      {pergunta("priority") && (
+        <div className="field">
+          <span className="field-label">Prioridade</span>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: "0.35rem" }}>
+            {PRIORITIES.map((p) => (
+              <button
+                key={p}
+                type="button"
+                className="btn btn-toggle"
+                aria-pressed={prioridade === p}
+                style={{ padding: "0.35rem 0.7rem", fontSize: "var(--text-caption)" }}
+                onClick={() => setPrioridade(p)}
+              >
+                {PRIORITY_LABEL[p]}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {pergunta("dueDate") && (
+        <div className="field">
+          <label className="field-label" htmlFor="publico-prazo">
+            Para quando
+          </label>
+          <DatePicker
+            id="publico-prazo"
+            value={prazo}
+            onChange={setPrazo}
+            placeholder="Sem prazo"
+          />
+        </div>
+      )}
+
+      {/* Um campo de texto, e não o seletor de link do quadro: aquele conhece
+          as pastas do time e mora dentro da sessão. Aqui basta um endereço. */}
+      {pergunta("linkUrl") && (
+        <div className="field">
+          <label className="field-label" htmlFor="publico-link">
+            Link de referência
+          </label>
+          <input
+            id="publico-link"
+            type="url"
+            className="field-input"
+            value={link}
+            placeholder="https://drive.google.com/…"
+            onChange={(e) => setLink(e.target.value)}
+          />
+          <span className="field-hint">A pasta ou o material de apoio, se já existir.</span>
+        </div>
+      )}
 
       {board.fields.map((field) => (
         <FieldInput

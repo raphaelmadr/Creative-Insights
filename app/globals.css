@@ -783,6 +783,29 @@ button.filter-control:hover {
   transition: background-color 0.2s ease, border-color 0.2s ease, color 0.2s ease, opacity 0.2s ease;
 }
 
+/*
+ * O botão de barra de ferramentas — menor, e IGUAL entre si.
+ *
+ * Existe porque a barra do quadro tinha duas alturas convivendo: as ações da
+ * esquerda no tamanho cheio do `.btn`, as de configuração da direita numa
+ * medida reduzida escrita inline na página. O desencontro não dizia nada — não
+ * é que uma fileira fosse mais importante que a outra, é que uma nasceu depois
+ * — e custava uma linha inteira de altura numa barra que disputa espaço com o
+ * quadro.
+ *
+ * Modificador no design system, e não estilo inline repetido em cada botão: a
+ * medida passa a ter um lugar só, e a próxima barra que precisar dela não vai
+ * inventar a terceira altura. O papel continua vindo de `.btn-primary` ou
+ * `.btn-secondary` — o tamanho não diz importância, a cor diz.
+ */
+.btn-compact {
+  padding: 0.45rem 0.85rem;
+  font-size: var(--text-caption);
+  /* Piso de altura para que o botão com selo de contagem dentro — o Arquivo —
+     não fique um fio mais alto que os vizinhos. */
+  min-height: 2.15rem;
+}
+
 .btn:focus-visible {
   outline: 2px solid var(--primary);
   outline-offset: 2px;
@@ -1329,6 +1352,17 @@ button.filter-control:hover {
   grid-template-columns: minmax(0, 1fr) 300px;
   gap: 1.25rem;
   align-items: start;
+}
+
+/*
+ * Só a aba da frente do card tem prévia — as outras ocupam a largura inteira.
+ *
+ * Um espaço de 300px reservado para uma prévia que não existe deixaria a lista
+ * de perguntas espremida em metade do diálogo, e do lado de fora um vazio que
+ * não se explica.
+ */
+.board-setup.board-setup-solo {
+  grid-template-columns: minmax(0, 1fr);
 }
 
 .board-setup-controls {

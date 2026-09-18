@@ -48,6 +48,14 @@ export async function GET(request: Request) {
             id: true,
             name: true,
             description: true,
+            /*
+             * A configuração do formulário sai daqui junto com as perguntas: é
+             * ela que diz se este quadro pede briefing, prazo, prioridade e
+             * link. Sem ela, o botão da barra do topo desenharia o formulário
+             * completo enquanto o board desenha o enxuto — duas portas para a
+             * mesma demanda, perguntando coisas diferentes.
+             */
+            formBuiltins: true,
             groups: { orderBy: { position: "asc" } },
             fields: { orderBy: { position: "asc" } },
           },

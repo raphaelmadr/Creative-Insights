@@ -4,7 +4,8 @@ import React, { useState } from "react";
 import nextDynamic from "next/dynamic";
 import { Check, Loader2, Plus } from "lucide-react";
 import Modal from "@/components/Modal";
-import { formatCardCode, type GroupDefinition } from "@/lib/kanban";
+import { formatCardCode, parseFormBuiltins, type GroupDefinition } from "@/lib/kanban";
+import { fetchJson } from "@/lib/fetch-json";
 import { type FieldDefinition } from "./FieldInput";
 
 /**
@@ -29,6 +30,8 @@ interface FormularioDeDemanda {
   id: string;
   name: string;
   description: string | null;
+  /** JSON das perguntas fixas do quadro. Ver `parseFormBuiltins`. */
+  formBuiltins: string | null;
   groups: GroupDefinition[];
   fields: FieldDefinition[];
 }
@@ -63,11 +66,10 @@ export default function NovaDemandaButton({
     setCarregando(true);
     setErro(null);
     try {
-      const res = await fetch("/api/demanda");
-      const json = await res.json();
-      if (!res.ok) throw new Error(json.error || "Não foi possível carregar o formulário.");
-      if (!json.board) throw new Error("Nenhum quadro está recebendo demandas no momento.");
-      setBoard(json.board);
+      const { ok, data } = await fetchJson<any>("/api/demanda");
+      if (!ok) throw new Error(data?.error || "Não foi possível carregar o formulário.");
+      if (!data.board) throw new Error("Nenhum quadro está recebendo demandas no momento.");
+      setBoard(data.board);
     } catch (e) {
       setErro((e as Error).message);
     } finally {
@@ -134,6 +136,7 @@ export default function NovaDemandaButton({
           boardName={board.name}
           groups={board.groups}
           fields={board.fields}
+          builtins={parseFormBuiltins(board.formBuiltins)}
           onCreated={(card) => setPronto(card)}
         />
       ) : aberto ? (

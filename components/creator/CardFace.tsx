@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useMemo } from "react";
-import { Clock, Wand2, Link2 } from "lucide-react";
+import { Clock, Link2 } from "lucide-react";
 import { Avatar } from "@/components/Avatar";
 import { type FieldDefinition, formatFieldValue } from "./FieldInput";
 import { type CardData } from "./CardDialog";
@@ -12,9 +12,12 @@ import {
   clampText,
   isOverdue,
   parseAssignees,
+  fonteDoBadge,
+  origemDoCard,
   PRIORITY_COLOR,
   PRIORITY_LABEL,
   type CardBadgeKey,
+  type FormBuiltinKey,
   type Priority,
   formatCardCode,
   unidadeDoCampo,
@@ -77,6 +80,7 @@ export default function CardFace({
   people,
   fields,
   badges,
+  builtins,
   pecas,
 }: {
   card: CardData;
@@ -86,10 +90,31 @@ export default function CardFace({
   /** Todos os campos do quadro; só os marcados como visíveis são desenhados. */
   fields: FieldDefinition[];
   badges: CardBadgeKey[];
+  /** As perguntas de nascença que o quadro faz. Ver `parseFormBuiltins`. */
+  builtins: FormBuiltinKey[];
   /** Quantas variações de copy há dentro — 0 quando não é card do gerador. */
   pecas: number;
 }) {
-  const shows = useMemo(() => new Set(badges), [badges]);
+  /*
+   * O que o quadro escolheu mostrar, menos o que ele deixou de perguntar.
+   *
+   * O filtro mora AQUI, e não só na tela de preferências, porque os dois
+   * precisam concordar. Filtrando só lá, um selo ligado antes de a pergunta ser
+   * desligada sumiria da lista e continuaria no card — visível, e sem nenhum
+   * interruptor no sistema capaz de apagá-lo.
+   *
+   * O que está gravado continua gravado: voltar a fazer a pergunta devolve o
+   * selo exatamente como ele estava.
+   */
+  const shows = useMemo(() => {
+    const perguntadas = new Set(builtins);
+    return new Set(
+      badges.filter((b) => {
+        const fonte = fonteDoBadge(b);
+        return !fonte || perguntadas.has(fonte);
+      })
+    );
+  }, [badges, builtins]);
 
   /*
    * Texto e pílula se separam porque ocupam lugares diferentes: o escrito à
@@ -121,6 +146,7 @@ export default function CardFace({
   const due = card.dueDate ? new Date(card.dueDate) : null;
   const late = !card.completedAt && isOverdue(card.dueDate);
   const anexos = parseAttachments(card.attachments);
+  const origem = origemDoCard(card.origin);
   const link = describeCardLink(card.linkUrl);
 
   return (
@@ -144,19 +170,36 @@ export default function CardFace({
       )}
 
       <div style={{ display: "flex", alignItems: "flex-start", gap: "0.4rem" }}>
-        {card.origin === "COPY" && (
-          <Wand2 size={13} color="var(--primary)" style={{ flexShrink: 0, marginTop: "2px" }} />
+        {/*
+          Sem marca de origem na FRENTE do card.
+          
+          Havia uma varinha para o card do gerador de copy, e ela custava mais
+          do que rendia: um símbolo azul sem legenda, que só quem já conhecia o
+          gerador sabia ler, ocupando o começo da linha do título em todo card
+          vindo dele. A origem continua dita onde ela ajuda a interpretar o que
+          se está lendo — a linha de procedência do card aberto. Ver
+          `ORIGIN_LABEL`.
+        */}
+        {shows.has("title") ? (
+          <span style={{ flex: 1, minWidth: 0, fontSize: "var(--text-control)", fontWeight: 600, lineHeight: 1.35 }}>
+            {card.title}
+          </span>
+        ) : (
+          // Segura a largura para o selo de peças continuar à direita, como
+          // faz o rodapé quando só um dos dois lados está ligado.
+          <span style={{ flex: 1, minWidth: 0 }} />
         )}
-        <span style={{ flex: 1, minWidth: 0, fontSize: "var(--text-control)", fontWeight: 600, lineHeight: 1.35 }}>
-          {card.title}
-        </span>
 
         {/* Quantas peças de texto há para produzir ali dentro — a
             diferença entre uma demanda e doze não deveria exigir
-            abrir o card. Os cards criados pelo gerador já dizem isso
-            no título ("… • 12 Peças"); o selo é para os de antes do
-            formato, e não aparece duas vezes no mesmo card. */}
-        {shows.has("pieces") && pecas > 1 && !titleShowsPieceCount(card.title, pecas) && (
+            abrir o card.
+
+            Sem interruptor: isto não vem de pergunta nenhuma, vem do gerador
+            de copy, e um card que não nasceu dele nunca o mostra. Os cards
+            criados pelo gerador já dizem a contagem no título ("… • 12
+            Peças"); o selo é para os de antes do formato, e não aparece duas
+            vezes no mesmo card. */}
+        {pecas > 1 && !titleShowsPieceCount(card.title, pecas) && (
           <span
             title={`${pecas} variações de copy`}
             style={{
@@ -260,6 +303,23 @@ export default function CardFace({
         )}
 
         {/*
+          Quem escreveu o que está no card: uma pessoa ou a máquina.
+
+          Antes havia uma varinha azul nos cards do gerador e nada nos demais —
+          símbolo sem legenda, e a ausência dele não dizia nada. Como selo
+          escrito, a distinção se lê sem decorar ícone; e como selo, ela é
+          escolha de quem configura o quadro, não do código.
+
+          Duas respostas, não três: o link público é um formulário. Ver
+          `ORIGIN_LABEL`.
+        */}
+        {shows.has("origin") && origem && (
+          <span className="card-badge" title={`Origem: ${origem}`}>
+            {origem}
+          </span>
+        )}
+
+        {/*
           O link não é um badge como os outros: os demais informam, e
           este leva a algum lugar. Por isso é uma âncora de verdade —
           abre em aba nova, aparece no menu de contexto, dá para
@@ -289,9 +349,11 @@ export default function CardFace({
           </a>
         )}
 
-        {shows.has("attachments") && (
-          <AttachmentGallery attachments={anexos} variant="badge" />
-        )}
+        {/* O clipe, pelo mesmo motivo do selo de peças: o anexo chega pelo
+            gerador de copy, não por pergunta de formulário. `AttachmentGallery`
+            já devolve nada quando a lista está vazia — o card de uma demanda
+            comum não desenha clipe nenhum. */}
+        <AttachmentGallery attachments={anexos} variant="badge" />
 
         {/*
           As respostas de valor fechado, como pílula.

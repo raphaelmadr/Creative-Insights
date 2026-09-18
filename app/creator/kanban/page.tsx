@@ -1,10 +1,9 @@
 "use client";
 
-import React, { useCallback, useEffect, useRef, useState } from "react";
-import { Plus, SlidersHorizontal, Columns3, LayoutGrid, Layers, Archive, Link2 } from "lucide-react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Plus, SlidersHorizontal, LayoutGrid, Layers, Archive, Link2 } from "lucide-react";
 import KanbanBoard from "@/components/creator/KanbanBoard";
 import DemandDialog, { type PersonOption } from "@/components/creator/DemandDialog";
-import FieldsDialog from "@/components/creator/FieldsDialog";
 import { type ColumnDefinition } from "@/components/creator/ColumnsSection";
 import BoardSetupDialog from "@/components/creator/BoardSetupDialog";
 import PublicLinkDialog from "@/components/creator/PublicLinkDialog";
@@ -15,6 +14,8 @@ import { type FieldDefinition } from "@/components/creator/FieldInput";
 import { Skeleton } from "@/components/Skeleton";
 import {
   parseCardBadges,
+  parseCardPanel,
+  parseFormBuiltins,
   type GroupDefinition,
   type ColumnPlacement,
 } from "@/lib/kanban";
@@ -32,6 +33,10 @@ interface BoardDetail extends BoardSummary {
   groups: GroupDefinition[];
   /** JSON dos mini-badges — cru, como está no banco. Ver `parseCardBadges`. */
   cardBadges: string | null;
+  /** JSON das seções do card aberto. Ver `parseCardPanel`. */
+  cardPanel: string | null;
+  /** JSON das perguntas fixas do formulário. Ver `parseFormBuiltins`. */
+  formBuiltins: string | null;
   /** O código do link público, ou nulo quando o quadro não tem um. */
   publicToken: string | null;
 }
@@ -54,8 +59,7 @@ export default function KanbanPage() {
   const [error, setError] = useState<string | null>(null);
 
   const [newDemand, setNewDemand] = useState(false);
-  const [editFields, setEditFields] = useState(false);
-  /** Etapas e cara do card: uma pergunta só, uma janela só. */
+  /** Formulário, card e etapas: uma pergunta só, uma janela só. */
   const [editBoard, setEditBoard] = useState(false);
   const [editLink, setEditLink] = useState(false);
   const [editGroups, setEditGroups] = useState(false);
@@ -153,6 +157,21 @@ export default function KanbanPage() {
    * pode ser cumprido. Nas telas de configuração, todos continuam aparecendo:
    * é justamente lá que um grupo vazio ganha a primeira etapa.
    */
+  /*
+   * A configuração do quadro, lida uma vez por carga.
+   *
+   * Chamar os `parse*` dentro do JSX devolvia um array novo a cada
+   * renderização, e quem os recebe usa alguns deles em dependências de efeito e
+   * de memo. Aqui em cima, a identidade só muda quando o quadro muda — que é
+   * exatamente quando ela deveria mudar.
+   */
+  const badges = useMemo(() => parseCardBadges(board?.cardBadges), [board?.cardBadges]);
+  const painel = useMemo(() => parseCardPanel(board?.cardPanel), [board?.cardPanel]);
+  const perguntasFixas = useMemo(
+    () => parseFormBuiltins(board?.formBuiltins),
+    [board?.formBuiltins]
+  );
+
   const gruposQueRecebem = board
     ? board.groups.filter((g) => board.columns.some((c) => c.groupId === g.id))
     : [];
@@ -161,7 +180,6 @@ export default function KanbanPage() {
   const dialogoAberto =
     !!openCard ||
     newDemand ||
-    editFields ||
     editBoard ||
     editLink ||
     editGroups ||
@@ -344,8 +362,6 @@ export default function KanbanPage() {
     if (!res.ok) load(activeId);
   };
 
-  const headerButton = { padding: "0.45rem 0.85rem", fontSize: "var(--text-caption)" } as const;
-
   return (
     <div className="dashboard-container board-shell">
       <section style={{ flex: 1, display: "flex", flexDirection: "column", gap: "1.25rem", minWidth: 0, minHeight: 0 }}>
@@ -372,13 +388,19 @@ export default function KanbanPage() {
               quadro, não onde se usa. O secundário ao lado do primário diz qual
               é o caminho de todo dia e qual é o de quando se precisa dele.
             */}
-            <button className="btn btn-primary" onClick={() => setNewDemand(true)} disabled={!board}>
+            {/* Todos os botões da barra na mesma medida: o que distingue a
+                ação principal é a cor, não a altura. Ver `.btn-compact`. */}
+            <button
+              className="btn btn-primary btn-compact"
+              onClick={() => setNewDemand(true)}
+              disabled={!board}
+            >
               <Plus size={15} />
               Nova demanda
             </button>
 
             <button
-              className="btn btn-secondary"
+              className="btn btn-secondary btn-compact"
               onClick={() => setEditLink(true)}
               disabled={!board}
               title="Endereço para qualquer pessoa da empresa abrir demanda sem ter conta"
@@ -396,7 +418,9 @@ export default function KanbanPage() {
                   setLoading(true);
                   load(e.target.value);
                 }}
-                style={{ maxWidth: "240px" }}
+                /* A mesma altura dos botões ao lado: um seletor mais alto que
+                   a fileira reabriria o desencontro que `.btn-compact` fechou. */
+                style={{ maxWidth: "240px", minHeight: "2.15rem" }}
               >
                 {boards.map((b) => (
                   <option key={b.id} value={b.id}>
@@ -407,29 +431,25 @@ export default function KanbanPage() {
             )}
 
             <span style={{ marginLeft: "auto", display: "flex", gap: "0.5rem", flexWrap: "wrap" }}>
+              {/*
+                Um botão, e não dois.
+                
+                "Campos" e "Etapas e cards" eram portas separadas para decisões
+                encadeadas: o que se pergunta define o que o card pode mostrar.
+                Separadas, quem enxugava o card não achava a pergunta que o
+                enchia — ela estava atrás do outro botão, com outro nome.
+              */}
               <button
-                className="btn btn-secondary"
-                style={headerButton}
-                onClick={() => setEditFields(true)}
-                disabled={!board}
-                title="Definir o que o formulário desta equipe pergunta"
-              >
-                <SlidersHorizontal size={14} />
-                Campos
-              </button>
-              <button
-                className="btn btn-secondary"
-                style={headerButton}
+                className="btn btn-secondary btn-compact"
                 onClick={() => setEditBoard(true)}
                 disabled={!board}
-                title="As etapas do fluxo e o que o card mostra em cada uma"
+                title="O formulário, o que o card mostra e as etapas do fluxo"
               >
-                <Columns3 size={14} />
-                Etapas e cards
+                <SlidersHorizontal size={14} />
+                Preferências
               </button>
               <button
-                className="btn btn-secondary"
-                style={headerButton}
+                className="btn btn-secondary btn-compact"
                 onClick={() => setEditGroups(true)}
                 disabled={!board}
                 title="Agrupar as etapas em grupos — Criação, Growth, Mídia"
@@ -446,8 +466,7 @@ export default function KanbanPage() {
                 Aqui ele continua à mão, sem disputar a esteira.
               */}
               <button
-                className="btn btn-secondary"
-                style={headerButton}
+                className="btn btn-secondary btn-compact"
                 onClick={() => setShowArchive(true)}
                 disabled={!board}
                 title={`${archivedCount} demanda(s) fora do quadro`}
@@ -503,7 +522,8 @@ export default function KanbanPage() {
             fields={board.fields}
             people={people}
             groups={board.groups}
-            badges={parseCardBadges(board.cardBadges)}
+            badges={badges}
+            builtins={perguntasFixas}
             onOpenCard={setOpenCard}
             onMove={move}
             onReorderColumns={reordenarEtapas}
@@ -537,15 +557,8 @@ export default function KanbanPage() {
             boardName={board.name}
             groups={gruposQueRecebem}
             fields={board.fields}
+            builtins={perguntasFixas}
             onCreated={() => load(activeId)}
-          />
-
-          <FieldsDialog
-            open={editFields}
-            onClose={() => setEditFields(false)}
-            boardId={board.id}
-            fields={board.fields}
-            onChanged={() => load(activeId)}
           />
 
           <BoardSetupDialog
@@ -554,7 +567,9 @@ export default function KanbanPage() {
             boardId={board.id}
             columns={board.columns}
             groups={board.groups}
-            badges={parseCardBadges(board.cardBadges)}
+            badges={badges}
+            panel={painel}
+            builtins={perguntasFixas}
             fields={board.fields}
             people={people}
             onChanged={() => load(activeId)}
@@ -600,6 +615,8 @@ export default function KanbanPage() {
             columns={board.columns}
             groups={board.groups}
             people={people}
+            panel={painel}
+            builtins={perguntasFixas}
             onClose={() => setOpenCard(null)}
             onChanged={() => load(activeId)}
           />

@@ -23,6 +23,7 @@ import {
   isCorporateEmail,
   normalizeCorporateEmail,
 } from "@/lib/corporate-email";
+import { parseFormBuiltins } from "@/lib/kanban";
 
 export const dynamic = "force-dynamic";
 
@@ -74,6 +75,7 @@ async function quadroDoToken(token: string) {
       id: true,
       name: true,
       description: true,
+      formBuiltins: true,
       fields: { orderBy: { position: "asc" } },
     },
   });
@@ -95,6 +97,17 @@ export async function GET(_req: Request, ctx: { params: Promise<{ token: string 
     board: {
       name: board.name,
       description: board.description,
+      /*
+       * As perguntas fixas saem daqui pelo mesmo motivo que as outras: é o
+       * MESMO formulário do quadro, visto de fora.
+       *
+       * Era o buraco que fazia o time criar campo repetido. Esta tela só sabia
+       * desenhar os campos definíveis, então o prazo e o briefing de fábrica
+       * não existiam para quem chega pelo link — e a única saída era criar uma
+       * pergunta de data e uma de briefing à mão, que passavam a conviver com
+       * as de fábrica no formulário de dentro.
+       */
+      builtins: parseFormBuiltins(board.formBuiltins),
       // Sem `id`: quem preenche não precisa dele, e não tê-lo em mãos é uma
       // porta a menos para tentar as rotas autenticadas do quadro.
       fields: board.fields.map((f) => ({
@@ -152,7 +165,9 @@ export async function POST(req: Request, ctx: { params: Promise<{ token: string 
       boardId: board.id,
       title: body.title,
       description: body.description,
+      priority: body.priority,
       dueDate: body.dueDate,
+      linkUrl: body.linkUrl,
       values: body.values,
       requester: { email, name: String(body.requesterName ?? "").trim() || email },
       origin: "PUBLIC",

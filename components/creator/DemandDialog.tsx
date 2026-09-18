@@ -2,6 +2,7 @@
 
 import React, { useEffect, useState } from "react";
 import Modal from "@/components/Modal";
+import { fetchJson } from "@/lib/fetch-json";
 import DatePicker from "@/components/DatePicker";
 import CardLinkField from "./CardLinkField";
 import FieldInput, { type FieldDefinition } from "./FieldInput";
@@ -10,6 +11,7 @@ import {
   PRIORITY_LABEL,
   parseAssignees,
   type Priority,
+  type FormBuiltinKey,
   type GroupDefinition,
 } from "@/lib/kanban";
 
@@ -33,11 +35,19 @@ export interface PersonOption {
 /**
  * O formulário de entrada de uma demanda.
  *
- * Metade dele é fixa — título, prazo, prioridade, responsável — e metade é
- * desenhada a partir dos campos do quadro. A parte fixa não vira campo
+ * Metade dele é fixa — título, briefing, prioridade, prazo, responsável — e
+ * metade é desenhada a partir dos campos do quadro. A parte fixa não vira campo
  * definível porque o próprio Kanban depende dela: é com prioridade e prazo que
- * o card se ordena e se destaca, e um quadro em que alguém apagou o campo
- * "prazo" perderia isso sem perceber.
+ * o card se ordena e se destaca, e um campo qualquer chamado "prazo" não diria
+ * ao quadro que é dele que sai a data.
+ *
+ * Fixa, porém, não quer dizer obrigatória: o quadro escolhe quais dessas
+ * perguntas faz (`builtins`). Sem essa escolha, um time que já pergunta a data
+ * do jeito dele acabava respondendo duas — ver `FORM_BUILTINS`.
+ *
+ * Título e responsável ficam de fora da escolha, e por motivos diferentes: um
+ * card sem título é uma linha em branco no quadro, e sem time a demanda não tem
+ * para onde ir.
  */
 export default function DemandDialog({
   open,
@@ -46,6 +56,7 @@ export default function DemandDialog({
   boardName,
   groups = [],
   fields,
+  builtins,
   onCreated,
 }: {
   open: boolean;
@@ -55,6 +66,14 @@ export default function DemandDialog({
   /** Os grupos do quadro — cada um é um time, e é neles que a equipe mora. */
   groups?: GroupDefinition[];
   fields: FieldDefinition[];
+  /**
+   * Quais perguntas de nascença este quadro faz. Ver `parseFormBuiltins`.
+   *
+   * Sem valor padrão de propósito: um `= DEFAULT_FORM_BUILTINS` aqui faria a
+   * tela que esqueceu de passar a configuração perguntar tudo — exatamente o
+   * defeito que esta lista existe para corrigir —, e sem erro nenhum a apontá-lo.
+   */
+  builtins: FormBuiltinKey[];
   /** Recebe o card recém-criado — o quadro recarrega, a barra do topo confirma. */
   onCreated: (card: { code: number | null; title: string }) => void;
 }) {
@@ -92,6 +111,9 @@ export default function DemandDialog({
   const grupoEscolhido = groups.find((g) => g.id === groupId) ?? null;
   const equipeDoGrupo = parseAssignees(grupoEscolhido?.assignees);
 
+  /** Se este quadro faz esta pergunta de nascença. */
+  const pergunta = (key: FormBuiltinKey) => builtins.includes(key);
+
   const submit = async () => {
     if (!title.trim()) {
       setError("A demanda precisa de um título.");
@@ -114,31 +136,44 @@ export default function DemandDialog({
        * pessoa autenticada, e este mesmo diálogo é aberto pela barra do topo por
        * quem não tem o board. Uma porta só — ver `lib/demanda-intake.ts`.
        */
-      const res = await fetch("/api/demanda", {
+      const { ok, data } = await fetchJson<any>("/api/demanda", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
+        /*
+         * Só o que foi perguntado sobe.
+         *
+         * Os estados das perguntas desligadas continuam no valor inicial, e
+         * mandá-los seria gravar uma resposta que ninguém deu — uma prioridade
+         * "média" que o formulário não ofereceu, e que o card exibiria como se
+         * fosse escolha de quem pediu. A prioridade some inteira, e não vira
+         * nula: é ela que pinta a borda do card, e o servidor tem o padrão.
+         */
         body: JSON.stringify({
           boardId,
           title,
-          description,
-          priority,
-          dueDate: dueDate || null,
+          description: pergunta("description") ? description : "",
+          ...(pergunta("priority") ? { priority } : {}),
+          dueDate: (pergunta("dueDate") && dueDate) || null,
           groupId: groupId || null,
-          linkUrl,
+          linkUrl: pergunta("linkUrl") ? linkUrl : null,
           values,
         }),
       });
-      const data = await res.json();
 
-      if (!res.ok) {
-        setError(data.error || "Não foi possível abrir a demanda.");
+      if (!ok) {
+        setError(data?.error || "Não foi possível abrir a demanda.");
         return;
       }
 
       onCreated(data.card ?? { code: null, title });
       onClose();
-    } catch {
-      setError("Falha de conexão ao abrir a demanda.");
+    } catch (e) {
+      /*
+       * A mensagem do erro, e não uma genérica: "falha de conexão" mandaria
+       * conferir a internet quando o que houve foi a hospedagem recusando a
+       * requisição. `RespostaNaoJson` já vem com a frase certa.
+       */
+      setError((e as Error)?.message || "Falha de conexão ao abrir a demanda.");
     } finally {
       setSaving(false);
     }
@@ -174,53 +209,75 @@ export default function DemandDialog({
         />
       </div>
 
-      <div className="field">
-        <label className="field-label" htmlFor="demanda-descricao">
-          Contexto
-        </label>
-        <textarea
-          id="demanda-descricao"
-          className="field-input field-prose"
-          value={description}
-          placeholder="O que quem for produzir precisa saber antes de começar."
-          onChange={(e) => setDescription(e.target.value)}
-        />
-      </div>
-
-      <div className="field">
-        <span className="field-label">Prioridade</span>
-        <div style={{ display: "flex", flexWrap: "wrap", gap: "0.35rem" }}>
-          {PRIORITIES.map((p) => (
-            <button
-              key={p}
-              type="button"
-              className="btn btn-toggle"
-              aria-pressed={priority === p}
-              style={{ padding: "0.35rem 0.7rem", fontSize: "var(--text-caption)" }}
-              onClick={() => setPriority(p)}
-            >
-              {PRIORITY_LABEL[p]}
-            </button>
-          ))}
-        </div>
-      </div>
-
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: "0.9rem" }}>
+      {/* "Briefing", e não "Contexto".
+          
+          Eram dois nomes para a mesma coisa em telas diferentes — o formulário
+          pedia contexto, o card mostrava briefing —, e um quadro que criasse a
+          própria pergunta de briefing ficava com as duas, sem nada na tela
+          dizendo que pediam o mesmo. */}
+      {pergunta("description") && (
         <div className="field">
-          <label className="field-label" htmlFor="demanda-prazo">
-            Prazo
+          <label className="field-label" htmlFor="demanda-descricao">
+            Briefing
           </label>
-          <DatePicker
-            id="demanda-prazo"
-            value={dueDate}
-            onChange={setDueDate}
-            placeholder="Sem prazo"
+          <textarea
+            id="demanda-descricao"
+            className="field-input field-prose"
+            value={description}
+            placeholder="O que quem for produzir precisa saber antes de começar."
+            onChange={(e) => setDescription(e.target.value)}
           />
         </div>
+      )}
+
+      {pergunta("priority") && (
+        <div className="field">
+          <span className="field-label">Prioridade</span>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: "0.35rem" }}>
+            {PRIORITIES.map((p) => (
+              <button
+                key={p}
+                type="button"
+                className="btn btn-toggle"
+                aria-pressed={priority === p}
+                style={{ padding: "0.35rem 0.7rem", fontSize: "var(--text-caption)" }}
+                onClick={() => setPriority(p)}
+              >
+                {PRIORITY_LABEL[p]}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* `auto-fit` já cuida do prazo desligado: sem ele a grade tem uma coluna
+          só, e o seletor de time ocupa a linha inteira em vez de metade dela. */}
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: "0.9rem" }}>
+        {pergunta("dueDate") && (
+          <div className="field">
+            <label className="field-label" htmlFor="demanda-prazo">
+              Prazo
+            </label>
+            <DatePicker
+              id="demanda-prazo"
+              value={dueDate}
+              onChange={setDueDate}
+              placeholder="Sem prazo"
+            />
+          </div>
+        )}
 
         <div className="field">
+          {/*
+            O rótulo é a PERGUNTA, não o nome do dado.
+            
+            Dizia "Responsável", e a palavra desencontrava do que o campo faz:
+            aqui se escolhe um TIME, e "responsável" no resto do quadro é a
+            pessoa que assumiu o card. Quem abria a demanda procurava um nome e
+            encontrava uma lista de áreas.
+          */}
           <label className="field-label" htmlFor="demanda-grupo">
-            Responsável
+            Para qual time é esta solicitação?
             <span style={{ color: "var(--danger)", marginLeft: "0.25rem" }} aria-hidden="true">
               *
             </span>
@@ -251,7 +308,7 @@ export default function DemandDialog({
             {groups.length === 0
               ? "Este quadro ainda não tem grupos. Crie um em Grupos antes de abrir demandas."
               : !grupoEscolhido
-                ? "Para qual time é esta peça?"
+                ? "A demanda entra na fila do time escolhido."
                 : equipeDoGrupo.length
                   ? `Entra na fila de "${grupoEscolhido.name}" e ${equipeDoGrupo.length} pessoa(s) do time assumem.`
                   : `"${grupoEscolhido.name}" não tem ninguém marcado: qualquer pessoa pode assumir.`}
@@ -261,13 +318,15 @@ export default function DemandDialog({
 
       {/* O link pode já existir na abertura — quem pede a peça costuma ter a
           pasta de referência antes de escrever o briefing. */}
-      <CardLinkField
-        id="demanda-link"
-        value={linkUrl}
-        onSave={setLinkUrl}
-        busy={saving}
-        hint="A pasta do Drive com as imagens, se já existir."
-      />
+      {pergunta("linkUrl") && (
+        <CardLinkField
+          id="demanda-link"
+          value={linkUrl}
+          onSave={setLinkUrl}
+          busy={saving}
+          hint="A pasta do Drive com as imagens, se já existir."
+        />
+      )}
 
       {fields.map((field) => (
         <FieldInput

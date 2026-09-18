@@ -12,7 +12,11 @@ import prisma from "@/lib/prisma";
 import { getCurrentCreator } from "@/lib/auth";
 import { CREATOR_ONLY_ERROR } from "@/lib/roles";
 import { ensureDefaultBoard, archiveDeliveredBeforeThisMonth, boardPulse, BOARD_INCLUDE } from "@/lib/kanban-store";
-import { serializeCardBadges } from "@/lib/kanban";
+import {
+  serializeCardBadges,
+  serializeCardPanel,
+  serializeFormBuiltins,
+} from "@/lib/kanban";
 
 export async function GET(request: Request) {
   const user = await getCurrentCreator();
@@ -122,7 +126,16 @@ export async function PUT(request: Request) {
   if (!user) return NextResponse.json({ error: CREATOR_ONLY_ERROR }, { status: 403 });
 
   try {
-    const { id, name, description, receivesCopy, cardBadges, publicLink } = await request.json();
+    const {
+      id,
+      name,
+      description,
+      receivesCopy,
+      cardBadges,
+      cardPanel,
+      formBuiltins,
+      publicLink,
+    } = await request.json();
     if (!id) return NextResponse.json({ error: "ID do quadro é obrigatório." }, { status: 400 });
 
     /*
@@ -152,6 +165,16 @@ export async function PUT(request: Request) {
          * volta na próxima leitura.
          */
         ...(cardBadges !== undefined ? { cardBadges: serializeCardBadges(cardBadges) } : {}),
+        /*
+         * As perguntas fixas, pelo mesmo caminho e pelo mesmo motivo: a lista
+         * vem da tela, o catálogo manda na ordem, e `[]` — nenhuma pergunta
+         * fixa — precisa virar texto, senão a próxima leitura entenderia que
+         * ninguém configurou e traria todas de volta.
+         */
+        ...(formBuiltins !== undefined
+          ? { formBuiltins: serializeFormBuiltins(formBuiltins) }
+          : {}),
+        ...(cardPanel !== undefined ? { cardPanel: serializeCardPanel(cardPanel) } : {}),
         /*
          * O link público, ligado ou desligado — e o código vem do servidor,
          * nunca do corpo da requisição.
