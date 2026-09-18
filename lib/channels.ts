@@ -55,9 +55,9 @@ interface SourceDefinition {
   /**
    * O nome pelo qual `lib/external-log.ts` conhece o serviço.
    *
-   * Separado de `label` de propósito: a tela chama de "Entregas" o que o
-   * provedor chama de "Slack", e é o nome do provedor que sabe apontar o campo
-   * e a tela onde a credencial se conserta.
+   * Separado de `label` de propósito: a tela chama o canal pelo nome curto
+   * ("Meta"), e é o nome do provedor ("Meta Ads") que sabe apontar o campo e a
+   * tela onde a credencial se conserta.
    */
   service: string;
   /** Uma fonte só entra na execução quando tem credenciais utilizáveis. */
@@ -156,7 +156,7 @@ export async function runSync(
       partial: false,
       nothingConfigured: true,
       summary:
-        "Nenhuma fonte configurada — nada a sincronizar. Cadastre as credenciais da Meta, do TikTok e/ou do Slack em Configurações › API.",
+        "Nenhuma fonte configurada — nada a sincronizar. Cadastre as credenciais da Meta e/ou do TikTok em Configurações › Sistema.",
     };
   }
 

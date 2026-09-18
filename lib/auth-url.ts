@@ -3,19 +3,18 @@
  *
  * O `redirect_uri` enviado ao Google é montado pelo NextAuth a partir de
  * `NEXTAUTH_URL`. Quando essa variável não existe no ambiente, o NextAuth cai
- * no domínio que a plataforma injeta — e na Vercel esse domínio **muda a cada
- * deploy**. O Google recusa qualquer URI que não esteja na lista de autorizados
- * do cliente OAuth, então o login passa a falhar com `redirect_uri_mismatch`
- * toda vez que sai um deploy novo, sem nada ter mudado no código.
+ * em um endereço adivinhado — e o Google recusa qualquer URI que não esteja na
+ * lista de autorizados do cliente OAuth, então o login falha com
+ * `redirect_uri_mismatch` sem nada ter mudado no código.
  *
  * A resolução aqui fixa um endereço estável. A ordem nunca piora uma
  * configuração que já esteja certa:
  *
  *  1. `NEXTAUTH_URL` do ambiente — é a configuração canônica do NextAuth, e
- *     quem a definiu explicitamente manda;
- *  2. o campo do painel, para quem administra sem acesso ao deploy;
- *  3. `VERCEL_PROJECT_PRODUCTION_URL`, que é o domínio estável do projeto —
- *     diferente de `VERCEL_URL`, que é o do deploy e muda sempre.
+ *     quem a definiu explicitamente manda. No cPanel ela é cadastrada no painel
+ *     do Node, e é o caminho recomendado;
+ *  2. o campo do painel, para quem administra sem acesso ao ambiente do
+ *     servidor.
  *
  * Endereço local nunca conta como público: em produção ele é sintoma de
  * variável esquecida, e usá-lo mandaria o Google redirecionar para a máquina
@@ -27,7 +26,7 @@ import prisma from "./prisma";
 /** Caminho fixo do NextAuth para o retorno do Google. */
 export const GOOGLE_CALLBACK_PATH = "/api/auth/callback/google";
 
-export type AuthUrlSource = "NEXTAUTH_URL" | "PAINEL" | "VERCEL_PROJECT_PRODUCTION_URL";
+export type AuthUrlSource = "NEXTAUTH_URL" | "PAINEL";
 
 export interface AuthUrlResolution {
   /** Base sem barra final, com protocolo. `null` quando nada público é conhecido. */
@@ -56,7 +55,6 @@ export async function resolveAuthUrl(): Promise<AuthUrlResolution> {
   const candidates: { value: string | null; source: AuthUrlSource }[] = [
     { value: normalize(process.env.NEXTAUTH_URL), source: "NEXTAUTH_URL" },
     { value: normalize(panelUrl), source: "PAINEL" },
-    { value: normalize(process.env.VERCEL_PROJECT_PRODUCTION_URL), source: "VERCEL_PROJECT_PRODUCTION_URL" },
   ];
 
   const resolved = candidates.find((c) => c.value && !isLocal(c.value));

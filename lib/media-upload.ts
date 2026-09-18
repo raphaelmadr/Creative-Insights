@@ -98,7 +98,6 @@ export function isPermanentMediaUrl(
   }
 
   if (config.host && hostname === config.host) return true;
-  if (hostname.endsWith("public.blob.vercel-storage.com")) return true;
 
   return false;
 }

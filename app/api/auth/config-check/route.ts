@@ -18,7 +18,6 @@ export const dynamic = "force-dynamic";
 const SOURCE_LABEL: Record<string, string> = {
   NEXTAUTH_URL: "variável de ambiente NEXTAUTH_URL",
   PAINEL: "campo do painel (Configurações › Sistema)",
-  VERCEL_PROJECT_PRODUCTION_URL: "domínio de produção injetado pela Vercel",
 };
 
 export async function GET() {
@@ -69,12 +68,7 @@ export async function GET() {
 
   if (!auth.redirectUri) {
     problems.push(
-      "Nenhum endereço público conhecido. Defina NEXTAUTH_URL no ambiente de produção."
-    );
-  } else if (auth.source === "VERCEL_PROJECT_PRODUCTION_URL") {
-    problems.push(
-      "O endereço veio do domínio da Vercel, não de uma configuração sua. Funciona, mas defina " +
-      "NEXTAUTH_URL no ambiente para que ele não dependa da plataforma."
+      "Nenhum endereço público conhecido. Defina NEXTAUTH_URL no painel do Node do cPanel."
     );
   }
 
@@ -110,10 +104,10 @@ export async function GET() {
       ? [
           `No Google Cloud Console › APIs e Serviços › Credenciais, abra o cliente OAuth e adicione exatamente esta URI em "URIs de redirecionamento autorizados": ${auth.redirectUri}`,
           "A URI precisa bater caractere por caractere: mesmo protocolo, mesmo domínio e sem barra no final.",
-          `Defina NEXTAUTH_URL=${auth.baseUrl} nas variáveis de ambiente de produção e publique de novo — sem isso o endereço pode mudar a cada deploy.`,
+          `Defina NEXTAUTH_URL=${auth.baseUrl} nas variáveis de ambiente do app no cPanel e reinicie a aplicação.`,
         ]
       : [
-          "Defina NEXTAUTH_URL com o endereço público do sistema (por exemplo https://seu-dominio.com) nas variáveis de ambiente de produção e publique de novo.",
+          "Defina NEXTAUTH_URL com o endereço público do sistema (por exemplo https://seu-dominio.com) nas variáveis de ambiente do app no cPanel e reinicie a aplicação.",
         ],
   });
 }

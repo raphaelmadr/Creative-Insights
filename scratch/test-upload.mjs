@@ -35,11 +35,6 @@ async function uploadTikTokImageToCPanel(url, settings, fallbackFilename) {
         console.log("Upload result:", result);
         if (result.success && result.url) return result.url;
       }
-    } else if (process.env.BLOB_READ_WRITE_TOKEN) {
-      console.log("Uploading to Vercel Blob");
-      const { put } = await import('@vercel/blob');
-      const uploadResult = await put(`ad-images/${filename}`, blob, { access: 'public', addRandomSuffix: false });
-      return uploadResult.url;
     }
   } catch (e) {
     console.error("Error uploading TikTok image:", e);
