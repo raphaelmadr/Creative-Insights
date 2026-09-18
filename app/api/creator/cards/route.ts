@@ -28,7 +28,10 @@ import {
   type Priority,
 } from "@/lib/kanban";
 import { intakeColumnId, topPosition, logActivity } from "@/lib/kanban-store";
-import { registrarEntregaDoCard } from "@/lib/kanban-deliveries";
+import {
+  atualizarVolumetriaEntregue,
+  registrarEntregaDoCard,
+} from "@/lib/kanban-deliveries";
 import { normalizeCardLink } from "@/lib/card-link";
 
 /**
@@ -515,6 +518,42 @@ export async function PUT(request: Request) {
 
     if (mudancaDeRespostas) {
       await logActivity(id, "UPDATED", mudancaDeRespostas, user);
+    }
+
+    /*
+     * A entrega já contada acompanha a resposta corrigida.
+     *
+     * `Delivery.pieces` é uma fotografia do que o card respondia quando chegou à
+     * coluna de entrega, e isso bastava enquanto a resposta não se editava mais.
+     * Agora se edita — e é depois de entregar que o número real costuma
+     * aparecer. Sem este acerto, o card diria 3 peças e o ranking contaria 1.
+     *
+     * Depois da gravação, e com os valores já validados: é o número que ficou no
+     * banco que precisa ser contado, não o que chegou na requisição.
+     *
+     * Falhar aqui não derruba a edição, pelo mesmo motivo que vale no arrasto: a
+     * correção é consequência, e uma consequência que falha vira aviso no painel
+     * de logs — não uma resposta que a pessoa não consegue salvar.
+     */
+    if (body.values !== undefined) {
+      try {
+        const ajuste = await atualizarVolumetriaEntregue({
+          cardId: id,
+          boardId: current.boardId,
+          values,
+        });
+
+        if (ajuste) {
+          await logActivity(
+            id,
+            "UPDATED",
+            `corrigiu a volumetria entregue: ${ajuste.antes} → ${ajuste.depois}`,
+            user
+          );
+        }
+      } catch (erro) {
+        console.error("[Entregas] Falha ao corrigir a volumetria:", erro);
+      }
     }
 
     return NextResponse.json({ success: true, card });
