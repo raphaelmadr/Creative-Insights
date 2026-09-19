@@ -1,18 +1,24 @@
 "use client";
 
 import React, { useState, useEffect } from "react";
-import { Save, Loader2, Copy, Check, AlertTriangle, RefreshCw, Eye, EyeOff, ShieldCheck, ShieldAlert } from "lucide-react";
+import { Save, Loader2, Copy, Check, AlertTriangle, Eye, EyeOff, ShieldCheck, ShieldAlert } from "lucide-react";
 import { FieldGrid, SettingsField, SettingsModal, SettingsSaveProvider, SettingsSection } from "@/components/SettingsUI";
 import { SyncStatusView } from "@/components/SyncStatusView";
 import { useNotifications } from "@/components/NotificationProvider";
 
-/** Cadência do disparador externo: bate sempre, o painel filtra. */
-const RECOMMENDED_CRON_EXPRESSION = "*/15 * * * *";
+/*
+ * Cadência do disparador externo: bate sempre, o painel filtra.
+ *
+ * 3 minutos, não 15: o endpoint só faz trabalho quando a passada anterior é
+ * mais velha que o intervalo escolhido abaixo (`cronSyncInterval`), e o passo
+ * do disparador precisa ser no máximo a metade desse intervalo para nunca
+ * perder uma janela por atraso de relógio. Com 15 min de intervalo mínimo no
+ * seletor, um disparador a cada 15 min já violava a própria regra; a 3 min
+ * sobra folga para qualquer intervalo configurável aqui.
+ */
+const RECOMMENDED_CRON_EXPRESSION = "*/3 * * * *";
 
 interface CronTriggerState {
-  hasSecret: boolean;
-  hasDbSecret: boolean;
-  hasEnvSecret: boolean;
   baseUrl: string | null;
   reachableExternally: boolean;
   triggerUrl: string | null;
@@ -50,7 +56,6 @@ export default function SistemaPage() {
    */
   const [loadError, setLoadError] = useState<string | null>(null);
   const [savingSettings, setSavingSettings] = useState(false);
-  const [rotating, setRotating] = useState(false);
   const [copied, setCopied] = useState<string | null>(null);
   const [format, setFormat] = useState<TriggerFormat>("command");
 
@@ -109,7 +114,7 @@ export default function SistemaPage() {
   const loadAll = React.useCallback(() => {
     return Promise.all([
       fetch("/api/settings").then(r => r.json()),
-      fetch("/api/settings/cron-secret").then(r => r.json()),
+      fetch("/api/settings/cron-trigger").then(r => r.json()),
     ]).then(([settingsRes, cronRes]) => {
       /*
        * Falha aqui não pode terminar em `setSettings` nunca chamado: o estado
@@ -215,29 +220,6 @@ export default function SistemaPage() {
     }
   };
 
-  const handleRotateSecret = async () => {
-    if (rotating) return;
-    if (trigger?.hasDbSecret && !window.confirm(
-      "Gerar um segredo novo invalida o atual. O disparador do cPanel vai receber 401 até você colar o valor novo lá. Continuar?"
-    )) return;
-
-    setRotating(true);
-    try {
-      const res = await fetch("/api/settings/cron-secret", { method: "POST" });
-      const data = await res.json();
-      if (data.success) {
-        // O comando já nasce visível e montado com a chave nova — não há mais
-        // nada a revelar nem a compor.
-        setTrigger(data);
-      } else {
-        alert("Erro ao gerar o segredo: " + (data.error || "desconhecido"));
-      }
-    } catch (e) {
-      alert("Erro ao gerar o segredo do cron.");
-    }
-    setRotating(false);
-  };
-
   if (fetching) {
     return (
       <div className="glass-panel" style={{ padding: "4rem", display: "flex", justifyContent: "center", opacity: 0.5 }}>
@@ -288,7 +270,7 @@ export default function SistemaPage() {
 
   const insecureUploadUrl = /^http:\/\//i.test(settings.cpanelUploadUrl.trim());
   const triggerValue = (format === "command" ? trigger?.triggerCommand : trigger?.triggerUrl) ?? "";
-  const urlUsable = !!triggerValue && !!trigger?.reachableExternally && !!trigger?.hasSecret;
+  const urlUsable = !!triggerValue && !!trigger?.reachableExternally;
 
 
   const noticeStyle = (tone: "warn" | "info"): React.CSSProperties => ({
@@ -550,22 +532,22 @@ export default function SistemaPage() {
         <SettingsSection
           brand="cpanel"
           title="Disparador externo (Cron Job do cPanel)"
-          description="Um único Cron Job. O cPanel bate nesta URL; a cadência de verdade é a definida acima. Configure o cron para cada 15 minutos e deixe o painel decidir."
+          description="Um único Cron Job, sem credencial nenhuma. O cPanel bate nesta URL; a cadência de verdade é a definida acima. Configure o cron para cada 3 minutos e deixe o painel decidir."
           status={urlUsable}
         >
 
           <p style={{ fontSize: "var(--text-control)", color: "var(--muted)", margin: 0, lineHeight: 1.6 }}>
-            Cole o valor abaixo no Cron Job do cPanel com a frequência <code>{RECOMMENDED_CRON_EXPRESSION}</code> (a cada 15 min).
-            O disparador só acorda a aplicação; é o intervalo acima que decide se há sincronização — então
-            mudá-lo passa a valer na hora, sem mexer no servidor.
+            Cole o valor abaixo no Cron Job do cPanel com a frequência <code>{RECOMMENDED_CRON_EXPRESSION}</code> (a cada 3 min).
+            O disparador não carrega nem cobra credencial: ele só acorda a aplicação, que consulta o
+            intervalo acima para decidir se sincroniza — mudar o intervalo passa a valer na hora, sem
+            mexer no servidor. A maioria das batidas não faz nada além de checar a janela.
           </p>
 
           <p style={{ fontSize: "var(--text-control)", color: "var(--muted)", margin: 0, lineHeight: 1.6 }}>
-            É <strong style={{ color: "var(--foreground)" }}>um cadastro só</strong>. Cada batida executa uma das duas passadas,
-            alternando: primeiro as <strong style={{ color: "var(--foreground)" }}>métricas e status</strong>, na batida seguinte
-            as <strong style={{ color: "var(--foreground)" }}>artes e capas</strong>. As duas não cabem na mesma execução — uma
-            requisição expira em 300s e só a leitura da Meta consome 180s —, e era por isso que as artes,
-            que rodavam por último, nunca chegavam a ser salvas.
+            É <strong style={{ color: "var(--foreground)" }}>um cadastro só</strong>. Toda batida elegível roda as duas
+            passadas — <strong style={{ color: "var(--foreground)" }}>métricas e status</strong>, depois <strong style={{ color: "var(--foreground)" }}>artes e capas</strong> — em sequência,
+            sob a mesma trava que o botão manual usa. Elas já foram alternadas entre batidas por causa de um
+            teto de tempo que esta instalação não tem mais.
           </p>
 
           <div style={{ display: "flex", flexDirection: "column", gap: "0.5rem", fontSize: "var(--text-cardtitle)" }}>
@@ -576,17 +558,15 @@ export default function SistemaPage() {
             </span>
 
             {/*
-              O comando aparece inteiro e legível, e não mascarado.
-              Escondê-lo atrás de um campo de senha era o que fazia parecer que
-              faltava montar alguma coisa — e o segredo já é visível só para
-              administradores, que são os únicos que abrem esta tela.
-              Textarea, e não input: um curl completo não cabe numa linha.
+              O comando aparece inteiro e legível — não há mais segredo nenhum
+              para mascarar. Textarea, e não input: um curl completo não cabe
+              numa linha.
             */}
             <textarea
               readOnly
               rows={3}
               value={triggerValue}
-              placeholder="Clique em Gerar para produzir o comando completo"
+              placeholder="Não foi possível determinar o endereço público desta instalação."
               onFocus={e => e.currentTarget.select()}
               className="field-input"
               style={{
@@ -611,10 +591,6 @@ export default function SistemaPage() {
                 {copied === "trigger" ? <Check size={14} /> : <Copy size={14} />}
                 {copied === "trigger" ? "Copiado!" : "Copiar comando"}
               </button>
-              <button type="button" onClick={handleRotateSecret} disabled={rotating} className="btn" style={{ borderColor: "var(--card-border)" }}>
-                {rotating ? <Loader2 size={14} className="spin" /> : <RefreshCw size={14} />}
-                {trigger?.hasDbSecret ? "Gerar nova chave" : "Gerar"}
-              </button>
               <button
                 type="button"
                 onClick={() => setFormat(f => (f === "command" ? "url" : "command"))}
@@ -627,20 +603,10 @@ export default function SistemaPage() {
 
             <span style={{ fontSize: "var(--text-control)", color: "var(--muted)", opacity: 0.8, lineHeight: 1.5 }}>
               {format === "command"
-                ? "Já vem pronto, com a chave dentro: copie e cole, não há nada a montar. A chave viaja no cabeçalho, fora da URL, e o comando descarta a resposta em caso de sucesso para o cPanel não te enviar um e-mail a cada batida."
-                : "Use só se o seu disparador aceitar apenas um link, sem comando. Aqui a chave viaja na própria URL e por isso aparece nos logs de acesso do servidor — o comando é mais seguro."}
-            </span>
-            <span style={{ fontSize: "var(--text-control)", color: "var(--muted)", opacity: 0.8 }}>
-              Gerar uma nova chave já monta o comando com ela e grava no mesmo instante — o valor acima é sempre o que o servidor aceita agora. Se você já tinha um cron cadastrado, troque-o pelo novo comando.
+                ? "Copie e cole direto no campo \"Command\": não há segredo para digitar, nem chave para vencer com o tempo. O comando descarta a resposta em caso de sucesso para o cPanel não te enviar um e-mail a cada batida."
+                : "Use só se o seu disparador aceitar apenas um link, sem comando — é a mesma URL, sem nada a esconder nela."}
             </span>
           </div>
-
-          {!trigger?.hasSecret && (
-            <div style={noticeStyle("warn")}>
-              <ShieldAlert size={16} style={{ flexShrink: 0, marginTop: "0.1rem" }} />
-              <span>Sem segredo, qualquer um que descobrir o endereço consegue disparar a sincronização. Clique em <strong>Gerar</strong>.</span>
-            </div>
-          )}
 
           {trigger && !trigger.reachableExternally && (
             <div style={noticeStyle("warn")}>
@@ -655,15 +621,15 @@ export default function SistemaPage() {
             </div>
           )}
 
-          {trigger?.hasSecret && !trigger.hasDbSecret && (
-            <div style={noticeStyle("info")}>
-              <ShieldCheck size={16} style={{ flexShrink: 0, marginTop: "0.1rem" }} />
-              <span>
-                O valor acima usa o <code>CRON_SECRET</code> do ambiente do servidor. Clique em <strong>Gerar</strong> para
-                administrar o segredo por aqui — o de ambiente continua aceito, então a troca não derruba o disparador.
-              </span>
-            </div>
-          )}
+          <div style={noticeStyle("info")}>
+            <ShieldCheck size={16} style={{ flexShrink: 0, marginTop: "0.1rem" }} />
+            <span>
+              Sem credencial de propósito: qualquer um que descobrir esta URL só consegue perguntar
+              "está na hora?" — a resposta é "sim" no máximo uma vez por intervalo (configurado acima em
+              "Sincronização automática"). A única porta que vale vigiar é <code>?force=1</code>, que
+              ignora essa janela e deve ficar fora de qualquer link compartilhado.
+            </span>
+          </div>
         </SettingsSection>
 
         <SettingsSection

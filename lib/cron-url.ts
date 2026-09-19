@@ -107,12 +107,13 @@ export async function resolveCronBaseUrl(req?: Request): Promise<CronUrlResoluti
 }
 
 /**
- * URL completa com o segredo na query — formato para disparadores que só
- * aceitam colar um link. O segredo acaba nos logs de acesso do servidor.
+ * URL completa — formato para disparadores que só aceitam colar um link.
+ *
+ * Sem segredo, de propósito: o endpoint não exige `Authorization` (ver
+ * `lib/cron-endpoint.ts`), então não há nada sensível para tirar da URL.
  */
-export function buildTriggerUrl(baseUrl: string, secret: string | null): string {
-  const url = `${baseUrl}${CRON_PATH}`;
-  return secret ? `${url}?secret=${encodeURIComponent(secret)}` : url;
+export function buildTriggerUrl(baseUrl: string): string {
+  return `${baseUrl}${CRON_PATH}`;
 }
 
 /**
@@ -120,17 +121,14 @@ export function buildTriggerUrl(baseUrl: string, secret: string | null): string 
  * numa shell e não aceita URL pura.
  *
  * Cada flag existe por um motivo:
- * - `-H Authorization` mantém o segredo fora da URL e, portanto, fora dos logs
- *   de acesso do servidor.
  * - `-o /dev/null` descarta o corpo da resposta em caso de sucesso. Sem isso, o
- *   cPanel enviaria um e-mail com o JSON a cada batida — 96 por dia.
+ *   cPanel enviaria um e-mail com o JSON a cada batida — a cada 3 minutos.
  * - `-f` faz o curl retornar erro em HTTP >= 400 e `-S` imprime a mensagem, de
  *   modo que só as falhas geram e-mail.
  * - `-m 300` impede que uma requisição pendurada deixe o processo do cron vivo
  *   para sempre; o teto interno da sincronização é de 180s.
  */
-export function buildTriggerCommand(baseUrl: string, secret: string | null): string {
+export function buildTriggerCommand(baseUrl: string): string {
   const url = `${baseUrl}${CRON_PATH}`;
-  const auth = secret ? `-H "Authorization: Bearer ${secret}" ` : "";
-  return `curl -fsS -m 300 -o /dev/null ${auth}"${url}"`;
+  return `curl -fsS -m 300 -o /dev/null "${url}"`;
 }

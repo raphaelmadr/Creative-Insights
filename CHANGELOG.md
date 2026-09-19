@@ -1,6 +1,16 @@
 # Changelog: Creative Insights (Fase 1)
 Data: 31 de Agosto de 2026
 
+## 🔓 O Disparador Perdeu a Credencial, de Propósito (Setembro 2026)
+O segredo do cron rendeu mais incidente do que proteção. Cada vez que alguém clicava em "Gerar nova chave" — inclusive durante a recuperação de um banco que tinha perdido credenciais —, o comando já cadastrado no cPanel ficava com a chave velha, e o disparador passava a receber 401 em silêncio até alguém notar e copiar o comando de novo. A pergunta certa não era "como tornar a rotação mais segura", era "o que essa credencial protege, de verdade".
+
+* **A resposta: quase nada que o próprio portão de intervalo já não protegesse.** `/api/cron/sync-all` só faz trabalho de verdade quando a passada anterior é mais velha que o intervalo escolhido em Configurações › Sistema — a esmagadora maioria das batidas responde "fora da janela" sem tocar em Meta, TikTok ou banco. Descobrir a URL sem segredo nenhum não dá a quem a encontrar mais poder do que o próprio cron cadastrado já tem: no máximo, uma sincronização por janela. A única porta que de fato ignora esse portão é `?force=1`, que já existia para teste manual e continua sendo a única coisa que vale vigiar.
+* **`isCronRequestAuthorized` e `acceptedSecrets` saíram de `lib/cron-endpoint.ts`.** Não há mais 401 por segredo ausente ou trocado, nem o log "Batida recusada" que existia só para diagnosticar essa classe de falha — a classe inteira deixou de existir.
+* **`buildTriggerUrl`/`buildTriggerCommand` não recebem mais segredo.** O comando do cartão "Disparador externo" virou `curl -fsS -m 300 -o /dev/null "<url>"`, sem `-H Authorization`. Menos uma coisa para desincronizar entre painel e cPanel.
+* **A rota de rotação saiu.** `/api/settings/cron-secret` (POST, gerava e gravava uma chave nova) foi removida; o que sobrou — resolver a URL pública e montar o comando — mudou para `/api/settings/cron-trigger` (GET, só leitura, ainda restrito a admin porque continua sob `api/settings`, fora do prefixo que o middleware libera para o disparador). O botão "Gerar/Gerar nova chave" saiu da tela junto com os avisos que só faziam sentido enquanto o segredo existia.
+* **A coluna `SystemSettings.cronSecret` fica no banco, sem uso.** Derrubar a coluna é uma migração de schema em produção que este projeto não tem como fazer daqui; o campo é inofensivo parado e pode ser removido numa limpeza futura.
+* **A cadência recomendada do disparador subiu de 15 para 3 minutos.** Não é sobre segurança, é sobre a regra que este projeto já documentava e não seguia: o passo do disparador precisa ser no máximo a metade do intervalo escolhido no painel, para nunca perder uma janela por atraso de relógio. Com o seletor permitindo 15 min como menor intervalo, um disparador que também batia a cada 15 violava a própria regra por construção. A 3 min, a folga cobre qualquer intervalo do seletor — e como a maioria das batidas não faz nada além de checar a janela, bater mais vezes custa pouco.
+
 ## 🚀 O Teto de Tempo Caiu (Setembro 2026)
 Uma sincronização terminava assim: *"Meta: 12 criativos / 5120 métricas / **9 de 18 dias do mês nesta passada — parcial, rode novamente**"*. Não era a Meta recusando nem o servidor faltando: era uma amarra nossa, de uma plataforma que já não nos hospeda.
 
