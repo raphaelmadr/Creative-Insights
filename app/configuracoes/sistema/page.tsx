@@ -41,6 +41,14 @@ type TriggerFormat = "command" | "url";
 
 export default function SistemaPage() {
   const [fetching, setFetching] = useState(true);
+  /*
+   * Distingue "carreguei e está vazio" de "falhei ao carregar". Sem isso, uma
+   * falha na leitura de `/api/settings` deixava `settings` no valor inicial —
+   * todo string vazia — e a tela abria normalmente, pronta para gravar esse
+   * vazio por cima de toda credencial já salva no primeiro clique em "Salvar
+   * alterações" (que grava todos os cartões juntos, veja o rodapé do form).
+   */
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [savingSettings, setSavingSettings] = useState(false);
   const [rotating, setRotating] = useState(false);
   const [copied, setCopied] = useState<string | null>(null);
@@ -103,51 +111,69 @@ export default function SistemaPage() {
       fetch("/api/settings").then(r => r.json()),
       fetch("/api/settings/cron-secret").then(r => r.json()),
     ]).then(([settingsRes, cronRes]) => {
-      if (settingsRes.success && settingsRes.data) {
-        const data = settingsRes.data;
-        const media = settingsRes.mediaStorage;
-        setStorage(media ?? null);
-        setIntegrations(settingsRes.integrations ?? []);
-        setSettings({
-          cronSyncEnabled: data.cronSyncEnabled ?? true,
-          cronSyncInterval: data.cronSyncInterval ?? 120,
-          // Valor efetivo, não só o do banco: se estiver na variável de
-          // ambiente, o campo mostra o que está de fato em vigor.
-          cpanelUploadUrl: media?.uploadUrl ?? data.cpanelUploadUrl ?? "",
-          cpanelUploadSecret: media?.uploadSecret ?? data.cpanelUploadSecret ?? "",
-          metaAdAccountId: data.metaAdAccountId ?? "",
-          metaAccessToken: data.metaAccessToken ?? "",
-          metaRiskApprovedConversionId: data.metaRiskApprovedConversionId ?? "",
-          metaPaymentApprovedConversionId: data.metaPaymentApprovedConversionId ?? "",
-          tiktokAdvertiserId: data.tiktokAdvertiserId ?? "",
-          tiktokAccessToken: data.tiktokAccessToken ?? "",
-          googleClientId: data.googleClientId ?? "",
-          googleClientSecret: data.googleClientSecret ?? "",
-          slackBotToken: data.slackBotToken ?? "",
-          slackChannelId: data.slackChannelId ?? "",
-        });
-        setStatus({
-          /*
-           * Espelha o registro de fontes do backend (`lib/channels.ts`), que
-           * são as redes e só elas. "Entregas" saiu desta lista: as entregas
-           * deixaram de ser lidas de mensagens do Slack quando passaram a ser
-           * medidas no Kanban, mas continuavam listadas aqui como se a
-           * sincronização ainda fosse atrás delas.
-           */
-          sources: [
-            { label: "Meta", configured: !!(data.metaAdAccountId && data.metaAccessToken) },
-            { label: "TikTok", configured: !!(data.tiktokAdvertiserId && data.tiktokAccessToken) },
-          ],
-        });
+      /*
+       * Falha aqui não pode terminar em `setSettings` nunca chamado: o estado
+       * inicial já é todo string vazia, e deixá-lo como está equivale a
+       * carregar "tudo vazio" sem avisar — pronto para ser salvo por cima do
+       * banco. Melhor estourar e deixar o chamador decidir o que fazer.
+       */
+      if (!settingsRes.success || !settingsRes.data) {
+        throw new Error(settingsRes.error || "Resposta inválida de /api/settings");
       }
+
+      const data = settingsRes.data;
+      const media = settingsRes.mediaStorage;
+      setStorage(media ?? null);
+      setIntegrations(settingsRes.integrations ?? []);
+      setSettings({
+        cronSyncEnabled: data.cronSyncEnabled ?? true,
+        cronSyncInterval: data.cronSyncInterval ?? 120,
+        // Valor efetivo, não só o do banco: se estiver na variável de
+        // ambiente, o campo mostra o que está de fato em vigor.
+        cpanelUploadUrl: media?.uploadUrl ?? data.cpanelUploadUrl ?? "",
+        cpanelUploadSecret: media?.uploadSecret ?? data.cpanelUploadSecret ?? "",
+        metaAdAccountId: data.metaAdAccountId ?? "",
+        metaAccessToken: data.metaAccessToken ?? "",
+        metaRiskApprovedConversionId: data.metaRiskApprovedConversionId ?? "",
+        metaPaymentApprovedConversionId: data.metaPaymentApprovedConversionId ?? "",
+        tiktokAdvertiserId: data.tiktokAdvertiserId ?? "",
+        tiktokAccessToken: data.tiktokAccessToken ?? "",
+        googleClientId: data.googleClientId ?? "",
+        googleClientSecret: data.googleClientSecret ?? "",
+        slackBotToken: data.slackBotToken ?? "",
+        slackChannelId: data.slackChannelId ?? "",
+      });
+      setStatus({
+        /*
+         * Espelha o registro de fontes do backend (`lib/channels.ts`), que
+         * são as redes e só elas. "Entregas" saiu desta lista: as entregas
+         * deixaram de ser lidas de mensagens do Slack quando passaram a ser
+         * medidas no Kanban, mas continuavam listadas aqui como se a
+         * sincronização ainda fosse atrás delas.
+         */
+        sources: [
+          { label: "Meta", configured: !!(data.metaAdAccountId && data.metaAccessToken) },
+          { label: "TikTok", configured: !!(data.tiktokAdvertiserId && data.tiktokAccessToken) },
+        ],
+      });
+
       if (cronRes.success) setTrigger(cronRes);
     });
   }, []);
 
-  useEffect(() => {
+  const runLoad = React.useCallback(() => {
     setFetching(true);
-    loadAll().finally(() => setFetching(false));
+    setLoadError(null);
+    loadAll()
+      .catch((err) => {
+        setLoadError(err instanceof Error ? err.message : "Erro desconhecido.");
+      })
+      .finally(() => setFetching(false));
   }, [loadAll]);
+
+  useEffect(() => {
+    runLoad();
+  }, [runLoad]);
 
   const handleSaveSettings = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
@@ -161,7 +187,18 @@ export default function SistemaPage() {
       alert(res.ok ? "Configurações salvas com sucesso!" : "Erro ao salvar as configurações.");
       // Recarrega para o "Status das Integrações" refletir a credencial que
       // acabou de ser salva — antes era preciso trocar de página para isso.
-      if (res.ok) await Promise.all([loadAll(), refreshSyncStatus()]);
+      // `loadAll` agora pode rejeitar (ver comentário acima); a gravação já
+      // aconteceu, então uma falha só nesta releitura não deve virar "erro ao
+      // salvar" nem travar a tela — apenas os badges de integração ficam
+      // desatualizados até a próxima visita.
+      if (res.ok) {
+        await Promise.all([
+          loadAll().catch((err) => {
+            console.error("Falha ao recarregar configurações após salvar:", err);
+          }),
+          refreshSyncStatus(),
+        ]);
+      }
     } catch (err) {
       alert("Erro ao salvar configurações do sistema.");
     }
@@ -205,6 +242,38 @@ export default function SistemaPage() {
     return (
       <div className="glass-panel" style={{ padding: "4rem", display: "flex", justifyContent: "center", opacity: 0.5 }}>
         <Loader2 className="spin" size={32} color="var(--primary)" />
+      </div>
+    );
+  }
+
+  /*
+   * Bloqueado, não em branco.
+   *
+   * Sem esta tela, uma falha de leitura (rede, banco momentaneamente
+   * indisponível) devolvia o formulário normal com `settings` no valor
+   * inicial — tudo string vazia —, indistinguível de "carregado e vazio". O
+   * único botão de salvar grava todos os cartões juntos; o próximo clique,
+   * por qualquer motivo, gravaria esse vazio por cima de toda credencial que
+   * já estava no banco. É o caminho mais provável para credenciais do Google,
+   * Meta, TikTok etc. que "desaparecem sozinhas".
+   */
+  if (loadError) {
+    return (
+      <div
+        className="glass-panel"
+        style={{ padding: "3rem", display: "flex", flexDirection: "column", gap: "1rem", alignItems: "flex-start", maxWidth: "34rem" }}
+      >
+        <div style={{ display: "flex", gap: "0.6rem", alignItems: "flex-start", color: "#b45309" }}>
+          <AlertTriangle size={18} style={{ flexShrink: 0, marginTop: "0.15rem" }} />
+          <span style={{ fontSize: "var(--text-control)", lineHeight: 1.6 }}>
+            Não foi possível carregar as configurações atuais ({loadError}). Salvar agora
+            gravaria os campos desta tela como vazios por cima das credenciais que já estão no
+            banco — por isso o formulário fica bloqueado até a leitura funcionar.
+          </span>
+        </div>
+        <button type="button" onClick={runLoad} className="btn btn-primary">
+          Tentar novamente
+        </button>
       </div>
     );
   }
