@@ -34,7 +34,7 @@
   "/api/presence/route": "/api/presence",
   "/api/public/demanda/[token]/route": "/api/public/demanda/[token]",
   "/api/reports/creators/route": "/api/reports/creators",
-  "/api/settings/cron-secret/route": "/api/settings/cron-secret",
+  "/api/settings/cron-trigger/route": "/api/settings/cron-trigger",
   "/api/settings/route": "/api/settings",
   "/api/settings/summary/route": "/api/settings/summary",
   "/api/sync-all/route": "/api/sync-all",

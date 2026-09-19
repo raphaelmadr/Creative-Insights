@@ -86,28 +86,35 @@ O Passenger injeta `PORT`, e o `server.js` do Next o respeita.
 ## Cron: um cadastro só
 
 A sincronização automática depende de **um** Cron Job no cPanel, batendo a cada
-15 minutos. Ele não decide nada: só acorda a aplicação. Quem decide se há
+3 minutos. Ele não decide nada: só acorda a aplicação. Quem decide se há
 sincronização e com que frequência é Configurações › Sistema, e por isso mudar o
-intervalo no painel vale na hora, sem tocar no servidor.
+intervalo no painel vale na hora, sem tocar no servidor. A maioria das batidas
+não faz nada além de checar se a janela do intervalo já venceu.
 
-Cada batida executa **uma** das duas passadas — métricas ou mídia —, a que
-esperou mais. As duas não cabem na mesma execução.
+Cada batida elegível executa as **duas** passadas — métricas e mídia —, em
+sequência, sob a mesma trava. Isso deixou de ser um problema quando o teto de
+300s da função serverless saiu de cena (ver changelog); a única regra que
+sobrou é o passo do disparador ser no máximo a metade do intervalo escolhido no
+painel, para nunca perder uma janela por atraso de relógio — 3 min cobre com
+folga qualquer intervalo do seletor (mínimo 15 min).
 
 1. Abra **Configurações › Sistema** no domínio de produção
-2. No cartão "Disparador externo", clique em **Gerar** e copie o comando
-3. No cPanel, em *Cron Jobs*, cadastre-o com a frequência `*/15 * * * *`
+2. No cartão "Disparador externo", copie o comando — já vem pronto, sem nada a gerar
+3. No cPanel, em *Cron Jobs*, cadastre-o com a frequência `*/3 * * * *`
 
-O comando já vem com a chave dentro, no cabeçalho `Authorization`. Gerar uma
-chave nova invalida a anterior: o cron cadastrado passa a receber 401 até o
-comando ser trocado.
+**O endpoint não cobra credencial.** Não há segredo para vencer, rotacionar ou
+desatualizar entre o painel e o cPanel — a mesma classe de falha ("comando
+colado com a chave antiga") que já causou incidente aqui deixou de existir. A
+proteção real é o próprio portão de intervalo: uma batida sem `?force=1` nunca
+faz a aplicação chamar Meta ou TikTok fora da janela que o painel define, então
+descobrir a URL não dá a ninguém mais do que o próprio cron já tem.
 
 **Como saber se está de pé.** O mesmo cartão mostra *Última batida do
-disparador*. Esse carimbo é gravado assim que uma requisição autorizada chega —
-antes de qualquer decisão de intervalo —, então ele distingue as duas causas de
-silêncio que davam a mesma tela: cron que não chega (URL velha, chave trocada,
-cadastro apagado) e cron que chega mas ainda não venceu a janela. Mais de uma
-hora sem batida, com o cron a cada 15 min, são quatro batidas perdidas: o painel
-acusa.
+disparador*. Esse carimbo é gravado assim que uma requisição chega — antes de
+qualquer decisão de intervalo —, então ele prova que o cadastro no cPanel está
+vivo, independente de a batida ter rodado passada ou só respondido "fora da
+janela". Mais de 15 minutos sem batida, com o cron a cada 3 min, já são cinco
+batidas perdidas: o painel acusa.
 
 Para testar na hora, sem esperar a janela: acrescente `?force=1` à URL, ou
 `?job=media` para forçar a passada de artes.

@@ -5,8 +5,17 @@
  * O disparador não decide nada — ele só acorda a aplicação. Quem decide se há
  * sincronização e com que frequência são duas configurações do painel:
  * `cronSyncEnabled` e `cronSyncInterval`. Por isso o cron do cPanel deve bater
- * com frequência alta (a cada 15 min) e é este módulo que filtra: mudar o
+ * com frequência alta (a cada 3 min) e é este módulo que filtra: mudar o
  * intervalo no painel passa a valer na hora, sem tocar no servidor.
+ *
+ * Sem segredo, de propósito
+ * --------------------------
+ * O endpoint já não exige `Authorization`. Batida sem credencial não é o mesmo
+ * que batida sem controle: toda batida cai no mesmo portão de intervalo abaixo
+ * — a esmagadora maioria simplesmente responde "fora da janela" sem tocar em
+ * API nenhuma. O único jeito de forçar trabalho fora da janela é `?force=1`,
+ * que continua existindo para teste manual e agora é a única porta que vale a
+ * pena vigiar caso este endpoint seja descoberto por alguém de fora.
  *
  * O que é sincronizado não é decidido aqui: é `runSync()`, o mesmo caminho do
  * botão manual.
@@ -53,71 +62,8 @@ const DEFAULT_INTERVAL_MINUTES = 120;
  */
 const CLAIM_TOLERANCE_MS = 60 * 1000;
 
-/**
- * O segredo aceito é o gerado pelo painel (`cronSecret`). Sem ele o endpoint
- * fica aberto — é o estado que o painel sinaliza como pendente.
- */
-export async function acceptedSecrets(): Promise<string[]> {
-  const secrets: string[] = [];
-
-  try {
-    const settings = await prisma.systemSettings.findUnique({
-      where: { id: 1 },
-      select: { cronSecret: true },
-    });
-    if (settings?.cronSecret) secrets.push(settings.cronSecret);
-  } catch (error) {
-    // Banco indisponível: sem segredo legível, a sincronização falharia adiante
-    // de qualquer forma — o log registra a causa real.
-    console.error("[Cron] Não foi possível ler o segredo do banco:", error);
-  }
-
-  return secrets;
-}
-
-/**
- * Um único autorizador para todos os endpoints de cron.
- *
- * Antes o cron de notícias validava por `process.env.CRON_SECRET` enquanto o de
- * sincronização passou a usar o segredo do painel — dois endpoints de cron
- * exigindo segredos diferentes, e o de notícias ficando aberto quando a
- * variável não existia.
- */
-export async function isCronRequestAuthorized(req: Request): Promise<boolean> {
-  const secrets = await acceptedSecrets();
-
-  if (secrets.length === 0) {
-    console.warn(
-      "[Cron] Endpoint sem segredo configurado — qualquer um com a URL pode disparar. Gere um em Configurações › Sistema."
-    );
-    return true;
-  }
-
-  const url = new URL(req.url);
-  const header = req.headers.get("authorization");
-  const query = url.searchParams.get("secret") || url.searchParams.get("token");
-  return secrets.some((s) => header === `Bearer ${s}` || query === s);
-}
-
 export async function handleCronRequest(req: Request) {
   const url = new URL(req.url);
-
-  if (!(await isCronRequestAuthorized(req))) {
-    /*
-     * Registrar a recusa, e não só devolver 401.
-     *
-     * Era a única falha do caminho automático que não deixava rastro em
-     * Configurações › Logs: o segredo trocado no painel, ou a URL antiga ainda
-     * cadastrada no servidor, produziam exatamente a mesma tela de um cron que
-     * nunca foi criado — nenhum log, nenhum carimbo, nada a investigar.
-     */
-    await logWarning(
-      "CRON",
-      "Batida recusada: segredo ausente ou incorreto. Confira o comando cadastrado no cPanel contra o segredo em Configurações › Sistema.",
-      "/api/cron/sync-all"
-    );
-    return NextResponse.json({ success: false, error: "Unauthorized" }, { status: 401 });
-  }
 
   // `?force=1` ignora o portão de intervalo, para testar o disparo na hora.
   const force = ["1", "true", "yes"].includes(
@@ -131,11 +77,11 @@ export async function handleCronRequest(req: Request) {
      * A linha de configurações é criada sob demanda: numa instalação nova o
      * painel pode nunca ter sido salvo, e o cron não pode morrer por isso.
      *
-     * O mesmo `upsert` carimba a batida. Antes daqui só existem a autorização e
-     * a leitura da URL, então este carimbo significa exatamente "o disparador
-     * chegou e foi aceito" — independente de rodar passada, de estar fora da
-     * janela ou de a sincronização estar desligada no painel. É o único sinal
-     * que prova que o cadastro no cPanel está de pé.
+     * O mesmo `upsert` carimba a batida. Antes daqui só existe a leitura da
+     * URL, então este carimbo significa exatamente "o disparador chegou" —
+     * independente de rodar passada, de estar fora da janela ou de a
+     * sincronização estar desligada no painel. É o único sinal que prova que
+     * o cadastro no cPanel está de pé.
      */
     const settings = await prisma.systemSettings.upsert({
       where: { id: 1 },

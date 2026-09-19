@@ -259,10 +259,10 @@
       "namedRegex": "^/api/settings(?:/)?$"
     },
     {
-      "page": "/api/settings/cron-secret",
-      "regex": "^/api/settings/cron\\-secret(?:/)?$",
+      "page": "/api/settings/cron-trigger",
+      "regex": "^/api/settings/cron\\-trigger(?:/)?$",
       "routeKeys": {},
-      "namedRegex": "^/api/settings/cron\\-secret(?:/)?$"
+      "namedRegex": "^/api/settings/cron\\-trigger(?:/)?$"
     },
     {
       "page": "/api/settings/summary",
