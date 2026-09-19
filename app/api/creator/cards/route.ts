@@ -31,8 +31,11 @@ import { intakeColumnId, topPosition, logActivity } from "@/lib/kanban-store";
 import {
   atualizarVolumetriaEntregue,
   registrarEntregaDoCard,
+  volumetriaDoCard,
 } from "@/lib/kanban-deliveries";
 import { normalizeCardLink } from "@/lib/card-link";
+import { enviarMensagemSlack, montarMensagemEntrega } from "@/lib/slack-delivery";
+import { logWarning } from "@/lib/logger";
 
 /**
  * O histórico de um card — e o arquivo do quadro.
@@ -136,6 +139,7 @@ export async function PUT(request: Request) {
           title: true,
           assignees: true,
           values: true,
+          linkUrl: true,
           // A fase de ORIGEM: é a comparação com a de destino que diz se o card
           // mudou de time ou só andou dentro do mesmo. `isDone` entra para que
           // a entrega seja contada na CHEGADA à conclusão, e não a cada arrasto
@@ -246,6 +250,45 @@ export async function PUT(request: Request) {
         origemConcluia: card.column?.isDone ?? false,
         movidoPor: quemMoveu,
       });
+
+      /*
+       * O aviso de entrega no Slack, na mesma transição pra coluna de
+       * conclusão que credita a volumetria — mas é um gatilho À PARTE, não
+       * uma consequência de `registrarEntregaDoCard`: aquela função conta
+       * entrega mesmo sem link nenhum (card movido sem passar pelo painel de
+       * upload), e avisar o Slack sem link nenhum pra mostrar não faz
+       * sentido. A condição de quando avisar mora aqui.
+       *
+       * Sem `card.linkUrl`: não é erro, é o caminho normal de quem move o
+       * card sem ter subido nada pelo painel novo ainda (ou nunca vai usar
+       * essa forma de entrega) — vira aviso em Logs, não uma falha que
+       * desfaria o movimento.
+       */
+      if (target.isDone && !(card.column?.isDone ?? false)) {
+        if (card.linkUrl) {
+          try {
+            const pecas = await volumetriaDoCard(card.boardId, card.values, card.title);
+            const mensagem = montarMensagemEntrega({
+              nome: user.name || user.email,
+              pecas,
+              conteudo: `<${card.linkUrl}|${card.title}>`,
+            });
+            await enviarMensagemSlack(mensagem);
+          } catch (err) {
+            await logWarning(
+              "ENTREGAS",
+              `Aviso de entrega no Slack falhou para "${card.title}": ${err instanceof Error ? err.message : String(err)}`,
+              "app/api/creator/cards/route.ts"
+            );
+          }
+        } else {
+          await logWarning(
+            "ENTREGAS",
+            `"${card.title}" chegou à coluna de conclusão sem link de entrega (ninguém subiu arquivos pelo painel) — aviso do Slack não foi enviado.`,
+            "app/api/creator/cards/route.ts"
+          );
+        }
+      }
 
       /*
        * O dono volta na resposta porque o servidor pode tê-lo DECIDIDO.

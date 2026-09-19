@@ -988,6 +988,19 @@ export const CARD_PANEL_SECTIONS = [
     default: true,
   },
   {
+    /*
+     * Sem `fonte`, mesmo motivo de "attachments": não é resposta de pergunta
+     * nenhuma. Some sozinho quando o Drive não está configurado (ver
+     * `DeliveryUploadPanel`) — "não configurado" aparece dentro da seção, não
+     * como a seção inteira faltando, porque quem abre o card precisa entender
+     * por que não tem onde subir a entrega, não só notar a ausência.
+     */
+    key: "delivery",
+    label: "Entrega de criativos",
+    hint: "Solta o lote de arquivos de uma vez — nomeia, organiza no Drive e libera o link sozinho.",
+    default: true,
+  },
+  {
     key: "activity",
     label: "Acompanhamento",
     hint: "O histórico de idas e vindas e o campo de comentário.",

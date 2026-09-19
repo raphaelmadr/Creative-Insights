@@ -83,6 +83,8 @@ export default function SistemaPage() {
     googleClientSecret: "",
     slackBotToken: "",
     slackChannelId: "",
+    driveServiceAccountJson: "",
+    driveRootFolderId: "",
   });
 
   /*
@@ -147,6 +149,8 @@ export default function SistemaPage() {
         googleClientSecret: data.googleClientSecret ?? "",
         slackBotToken: data.slackBotToken ?? "",
         slackChannelId: data.slackChannelId ?? "",
+        driveServiceAccountJson: data.driveServiceAccountJson ?? "",
+        driveRootFolderId: data.driveRootFolderId ?? "",
       });
       setStatus({
         /*
@@ -432,8 +436,8 @@ export default function SistemaPage() {
 
         <SettingsSection
           brand="slack"
-          title="Slack — sem uso hoje"
-          description="As entregas já não são lidas de mensagens do Slack: passaram a ser contadas no Kanban, quando o card chega à coluna de conclusão. Nenhuma rotina lê estas credenciais — elas ficam guardadas para um uso futuro."
+          title="Slack — aviso de entrega"
+          description="Quando um card com arquivos de entrega já enviados ao Drive é movido para a coluna de conclusão, o sistema avisa este canal — mesmo bot que o ad-naming-tool já usa, com os mesmos escopos."
           status={!!(settings.slackBotToken && settings.slackChannelId)}
         >
           <FieldGrid>
@@ -443,7 +447,7 @@ export default function SistemaPage() {
               placeholder="xoxb-..."
               value={settings.slackBotToken}
               onChange={v => setSettings({ ...settings, slackBotToken: v })}
-              hint="O app precisa do escopo channels:history e estar convidado no canal."
+              hint="Escopos: chat:write (postar o aviso) e channels:read + users:read (listar quem marcar). O bot precisa estar convidado no canal."
             />
             <SettingsField
               label="Channel ID"
@@ -451,6 +455,31 @@ export default function SistemaPage() {
               value={settings.slackChannelId}
               onChange={v => setSettings({ ...settings, slackChannelId: v })}
               hint="No Slack: clique no nome do canal › no rodapé do painel aparece o ID."
+            />
+          </FieldGrid>
+        </SettingsSection>
+
+        <SettingsSection
+          brand="google"
+          title="Google Drive — entrega de criativos"
+          description="Nomeia, organiza em Ano/Mês/Formato/ID e sobe os arquivos de entrega direto do card. Mesma service account do ad-naming-tool — precisa ter acesso de Editor na pasta raiz configurada abaixo."
+          status={!!(settings.driveServiceAccountJson && settings.driveRootFolderId)}
+        >
+          <FieldGrid columns={1}>
+            <SettingsField
+              label="Service Account (JSON)"
+              multiline
+              placeholder='{"type":"service_account","project_id":"...","private_key":"...", ...}'
+              value={settings.driveServiceAccountJson}
+              onChange={v => setSettings({ ...settings, driveServiceAccountJson: v })}
+              hint="Cole o conteúdo inteiro do arquivo .json baixado do Google Cloud Console."
+            />
+            <SettingsField
+              label="Pasta raiz (ID)"
+              placeholder="1G9lWZc8uayO0XwYTrdYwuz_elqd5u7Zt"
+              value={settings.driveRootFolderId}
+              onChange={v => setSettings({ ...settings, driveRootFolderId: v })}
+              hint="O trecho depois de /folders/ na URL da pasta no Drive."
             />
           </FieldGrid>
         </SettingsSection>

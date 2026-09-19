@@ -139,6 +139,7 @@ export async function POST(request: Request) {
       openaiApiKey, anthropicApiKey, tavilyApiKey,
       groqApiKey, openRouterApiKey, cohereApiKey, huggingFaceApiKey,
       slackBotToken, slackChannelId,
+      driveServiceAccountJson, driveRootFolderId,
       teamCreativeGoal, cronSyncEnabled, cronSyncInterval,
       cpanelUploadUrl, cpanelUploadSecret,
       googleClientId, googleClientSecret, nextAuthSecret, nextAuthUrl,
@@ -187,6 +188,8 @@ export async function POST(request: Request) {
     if (huggingFaceApiKey !== undefined) updateData.huggingFaceApiKey = huggingFaceApiKey;
     if (slackBotToken !== undefined) updateData.slackBotToken = slackBotToken;
     if (slackChannelId !== undefined) updateData.slackChannelId = slackChannelId;
+    if (driveServiceAccountJson !== undefined) updateData.driveServiceAccountJson = driveServiceAccountJson;
+    if (driveRootFolderId !== undefined) updateData.driveRootFolderId = driveRootFolderId;
     if (teamCreativeGoal !== undefined) {
       // `|| 300` recusava o zero: meta global zerada voltava a 300 na gravação.
       const parsed = parseInt(teamCreativeGoal, 10);
@@ -252,6 +255,8 @@ export async function POST(request: Request) {
         ...(tiktokAppId !== undefined && { tiktokAppId }),
         ...(tiktokAppSecret !== undefined && { tiktokAppSecret }),
         ...(tiktokAccessToken !== undefined && { tiktokAccessToken }),
+        ...(driveServiceAccountJson !== undefined && { driveServiceAccountJson }),
+        ...(driveRootFolderId !== undefined && { driveRootFolderId }),
       }
     });
 

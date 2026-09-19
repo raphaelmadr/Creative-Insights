@@ -1,0 +1,515 @@
+"use client";
+
+/**
+ * Entrega de criativos — solta o lote inteiro, o sistema nomeia, casa por
+ * proporção (Feed/Story) e sobe pro Drive, sozinho.
+ *
+ * Porta a experiência do ad-naming-tool (Pedro Pimenta) pra dentro do card:
+ * lá a pessoa digitava quantidade, frente, responsável e ID à mão — aqui vêm
+ * do próprio card (`values`, `assignees`, `code`). O que sobra pra escolher
+ * na tela é só o que o card não sabe de antemão: qual formato é este envio
+ * (vídeo e animação usam a mesma extensão, não dá pra adivinhar) e quantas
+ * peças têm.
+ *
+ * "Quantidade" aqui é local ao envio, não o valor do campo de volumetria do
+ * quadro — são perguntas parecidas, mas não a mesma: a volumetria mede
+ * entregas pro ranking do time (`lib/kanban-deliveries.ts`), enquanto esta
+ * conta quantas peças o CASAMENTO de arquivos deste envio precisa preencher.
+ * Concordam na prática, mas fazê-las a mesma coisa exigiria expor a lógica de
+ * `volumetriaDoCard` (que consulta o banco) pro navegador.
+ */
+
+import React, { useEffect, useMemo, useRef, useState } from "react";
+import { UploadCloud, X, Loader2, CheckCircle2, ImageIcon, Video } from "lucide-react";
+import type { FieldDefinition } from "./FieldInput";
+import type { PersonOption } from "./DemandDialog";
+import { formatCardCode, parseAssignees } from "@/lib/kanban";
+import {
+  type DeliveryFormat,
+  type ArquivoParaCasar,
+  type CasamentoPeca,
+  REGRA,
+  validarFrentes,
+  montarNomeArquivo,
+  casarArquivos,
+  formatoTemPosicoes,
+  nomeResponsavelDoEmail,
+} from "@/lib/delivery-naming";
+
+const FORMATOS: { key: DeliveryFormat; label: string; icone: typeof ImageIcon }[] = [
+  { key: "estatico", label: "Estático", icone: ImageIcon },
+  { key: "animacao", label: "Animação", icone: Video },
+  { key: "video", label: "Vídeo", icone: Video },
+];
+
+const EXTENSOES_IMAGEM = /\.(png|jpe?g|webp)$/i;
+const EXTENSOES_VIDEO = /\.(mp4|mov|webm)$/i;
+
+interface ArquivoLocal extends ArquivoParaCasar {
+  file: File;
+}
+
+/** Mede a proporção de uma imagem/vídeo no navegador — só isto é DOM; o resto de `lib/delivery-naming.ts` é puro. */
+function medirArquivo(file: File): Promise<{ w: number | null; h: number | null; ratio: number | null }> {
+  const isImg = EXTENSOES_IMAGEM.test(file.name);
+  const isVid = EXTENSOES_VIDEO.test(file.name);
+  if (!isImg && !isVid) return Promise.resolve({ w: null, h: null, ratio: null });
+
+  return new Promise((resolve) => {
+    let feito = false;
+    let url: string;
+    try {
+      url = URL.createObjectURL(file);
+    } catch {
+      resolve({ w: null, h: null, ratio: null });
+      return;
+    }
+    const acabar = (w: number | null, h: number | null) => {
+      if (feito) return;
+      feito = true;
+      try {
+        URL.revokeObjectURL(url);
+      } catch {
+        /* já revogada */
+      }
+      resolve({ w, h, ratio: w && h ? w / h : null });
+    };
+    if (isImg) {
+      const img = new Image();
+      img.onload = () => acabar(img.naturalWidth, img.naturalHeight);
+      img.onerror = () => acabar(null, null);
+      img.src = url;
+    } else {
+      const video = document.createElement("video");
+      video.preload = "metadata";
+      video.muted = true;
+      video.playsInline = true;
+      video.onloadedmetadata = () => acabar(video.videoWidth, video.videoHeight);
+      video.onerror = () => acabar(null, null);
+      video.src = url;
+    }
+    setTimeout(() => acabar(null, null), 8000);
+  });
+}
+
+const CHUNK_BYTES = 4 * 1024 * 1024;
+
+async function subirArquivo(params: {
+  file: File;
+  parentId: string;
+  filename: string;
+  onProgresso: (pct: number) => void;
+}): Promise<void> {
+  const sessaoRes = await fetch("/api/creator/cards/delivery/upload-session", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ parentId: params.parentId, filename: params.filename, mimeType: params.file.type }),
+  });
+  const sessao = await sessaoRes.json();
+  if (!sessaoRes.ok) throw new Error(sessao.error || "Erro ao iniciar o upload.");
+
+  let offset = 0;
+  const total = params.file.size;
+  while (offset < total) {
+    const fim = Math.min(offset + CHUNK_BYTES, total);
+    const pedaco = await params.file.slice(offset, fim).arrayBuffer();
+    const url =
+      `/api/creator/cards/delivery/chunk?uploadUrl=${encodeURIComponent(sessao.uploadUrl)}` +
+      `&offset=${offset}&total=${total}`;
+    const res = await fetch(url, { method: "POST", body: pedaco });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || "Erro ao enviar um pedaço do arquivo.");
+    offset = fim;
+    params.onProgresso(Math.round((offset / total) * 100));
+    if (data.concluido) break;
+  }
+}
+
+export default function DeliveryUploadPanel({
+  cardId,
+  code,
+  assignees,
+  values,
+  fields,
+  people,
+  onUploaded,
+}: {
+  cardId: string;
+  code: number | null;
+  assignees: string | null;
+  values: Record<string, unknown>;
+  fields: FieldDefinition[];
+  /** Pra resolver a sigla do responsável (`rm`, `ez`...) — mesma lista que o seletor de responsável já usa. */
+  people: PersonOption[];
+  onUploaded: () => void;
+}) {
+  const [driveOk, setDriveOk] = useState<boolean | null>(null);
+  const [formato, setFormato] = useState<DeliveryFormat>("estatico");
+  const [quantidade, setQuantidade] = useState(1);
+  const [pool, setPool] = useState<ArquivoLocal[]>([]);
+  const [enviando, setEnviando] = useState(false);
+  const [progresso, setProgresso] = useState<Record<number, number>>({});
+  const [erro, setErro] = useState<string | null>(null);
+  const [concluido, setConcluido] = useState<{ trilha: string; folderId: string } | null>(null);
+  const input = useRef<HTMLInputElement>(null);
+  const proximoIndice = useRef(0);
+
+  useEffect(() => {
+    fetch("/api/settings/summary")
+      .then((r) => r.json())
+      .then((data) => {
+        const drive = (data.integrations || []).find((i: { id: string }) => i.id === "GOOGLE_DRIVE");
+        setDriveOk(!!drive?.configured);
+      })
+      .catch(() => setDriveOk(false));
+  }, []);
+
+  const idCard = formatCardCode(code);
+
+  /*
+   * Chave "frente" fixa, mesma convenção de `CHAVES_DE_VOLUMETRIA` em
+   * `lib/kanban-deliveries.ts`: o campo é do quadro, mas esta funcionalidade
+   * é deste quadro específico (o de produção de criativos), então procurar
+   * por um nome combinado é proporcional — sem campo "frente", a entrega
+   * simplesmente sai sem frente no nome, em vez de travar.
+   */
+  const frenteField = fields.find((f) => f.key === "frente");
+  const frentesResposta = values["frente"];
+  const frentes = Array.isArray(frentesResposta)
+    ? frentesResposta.map(String)
+    : frentesResposta
+      ? [String(frentesResposta)]
+      : [];
+  const validacaoFrentes = frenteField ? validarFrentes(frentes) : { ok: true as const };
+
+  /*
+   * A sigla do responsável — mesma convenção do Pedro (`rm`, `ez`, `pp`...),
+   * conferido no dropdown "responsável" da ferramenta dele: o valor gravado
+   * no nome do arquivo é literalmente a sigla, não o nome nem o e-mail.
+   *
+   * Nem todo mundo no quadro tem ficha de criador (mídia paga, revisão não
+   * desenham peça — `lib/kanban.ts` é explícito sobre isso), então sem sigla
+   * cai pro nome cadastrado, e só na ausência dos dois pro e-mail. A sigla
+   * ganha de qualquer jeito quando existe: é a única das três que aparece nos
+   * nomes de arquivo e de anúncio já em uso pelo time.
+   */
+  const responsavel = useMemo(() => {
+    const emails = parseAssignees(assignees);
+    const primeiro = emails[0];
+    if (!primeiro) return "";
+    const pessoa = people.find((p) => p.email.toLowerCase() === primeiro.toLowerCase());
+    return pessoa?.acronym || pessoa?.name || nomeResponsavelDoEmail(primeiro);
+  }, [assignees, people]);
+
+  const casamento: CasamentoPeca[] = useMemo(() => {
+    if (!idCard) return [];
+    return casarArquivos({
+      pool,
+      quantidade,
+      formato,
+      extensaoEsperada: REGRA[formato].ext === "mp4" ? "mp4" : REGRA[formato].ext,
+      nomeEsperadoPorIndice: (indice) =>
+        montarNomeArquivo({ formato, indice, frentes, responsavel, idCard, data: new Date() }),
+    });
+  }, [pool, quantidade, formato, frentes, responsavel, idCard]);
+
+  const trocarFormato = (novo: DeliveryFormat) => {
+    setFormato(novo);
+    setPool([]);
+    setErro(null);
+    setConcluido(null);
+  };
+
+  const adicionarArquivos = async (fileList: FileList) => {
+    // Estático só aceita imagem; vídeo/animação aceitam os dois — a mesma
+    // extensão .mp4 vale pra ambos, e imagem entra porque alguns lotes de
+    // animação exportam quadro de capa junto.
+    const regexOk = formato === "estatico" ? EXTENSOES_IMAGEM : /\.(mp4|mov|webm|png|jpe?g|webp)$/i;
+    const arquivos = Array.from(fileList).filter((f) => regexOk.test(f.name));
+    if (!arquivos.length) return;
+
+    const medidos = await Promise.all(
+      arquivos.map(async (file) => {
+        const { ratio } = await medirArquivo(file);
+        const dot = file.name.lastIndexOf(".");
+        const base = dot > -1 ? file.name.slice(0, dot) : file.name;
+        const extensao = dot > -1 ? file.name.slice(dot + 1) : "";
+        const poolIndex = proximoIndice.current++;
+        return { poolIndex, base, extensao, ratio, file } satisfies ArquivoLocal;
+      })
+    );
+
+    setPool((atual) => [...atual, ...medidos]);
+    setConcluido(null);
+  };
+
+  const limpar = () => {
+    setPool([]);
+    proximoIndice.current = 0;
+    setErro(null);
+    setConcluido(null);
+  };
+
+  const enviarTudo = async () => {
+    if (!idCard) {
+      setErro("Este card não tem um código (MKT-XXXX) — não é possível nomear a entrega.");
+      return;
+    }
+    if (!validacaoFrentes.ok) {
+      setErro(validacaoFrentes.erro || "Frente inválida.");
+      return;
+    }
+
+    setEnviando(true);
+    setErro(null);
+    setProgresso({});
+
+    try {
+      const folderRes = await fetch("/api/creator/cards/delivery/folder", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ cardId, formato }),
+      });
+      const pasta = await folderRes.json();
+      if (!folderRes.ok) throw new Error(pasta.error || "Erro ao resolver a pasta de destino.");
+
+      let totalEnviados = 0;
+      const temPosicoes = formatoTemPosicoes(formato);
+
+      for (let indice = 0; indice < quantidade; indice++) {
+        const peca = casamento[indice];
+        if (!peca) continue;
+
+        const slots: { chave: "feed" | "story" | "video"; poolIndex: number | null | undefined; parentId: string }[] = temPosicoes
+          ? [
+              { chave: "feed", poolIndex: peca.feed, parentId: pasta.feedId },
+              { chave: "story", poolIndex: peca.story, parentId: pasta.storyId },
+            ]
+          : [{ chave: "video", poolIndex: peca.video, parentId: pasta.id }];
+
+        for (const slot of slots) {
+          if (slot.poolIndex == null) continue;
+          const arquivo = pool.find((p) => p.poolIndex === slot.poolIndex);
+          if (!arquivo) continue;
+
+          const nomePeca =
+            formato === "video" ? undefined : REGRA[formato].nome ? arquivo.base : undefined;
+          const nomeBase = montarNomeArquivo({
+            formato,
+            indice: indice + 1,
+            frentes,
+            responsavel,
+            idCard,
+            nomePeca,
+          });
+          const filename = `${nomeBase}.${arquivo.extensao || "bin"}`;
+
+          await subirArquivo({
+            file: arquivo.file,
+            parentId: slot.parentId,
+            filename,
+            onProgresso: (pct) => setProgresso((p) => ({ ...p, [arquivo.poolIndex]: pct })),
+          });
+          totalEnviados++;
+        }
+      }
+
+      const completeRes = await fetch("/api/creator/cards/delivery/complete", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ cardId, folderId: pasta.id, totalArquivos: totalEnviados }),
+      });
+      const completeData = await completeRes.json();
+      if (!completeRes.ok) throw new Error(completeData.error || "Erro ao concluir a entrega.");
+
+      setConcluido({ trilha: pasta.trilha, folderId: pasta.id });
+      setPool([]);
+      onUploaded();
+    } catch (e) {
+      setErro(e instanceof Error ? e.message : "Erro ao enviar a entrega.");
+    } finally {
+      setEnviando(false);
+    }
+  };
+
+  if (driveOk === null) return null; // carregando — evita o "não configurado" piscar antes da resposta
+
+  if (!driveOk) {
+    return (
+      <div className="field">
+        <span className="field-label">Entrega de criativos</span>
+        <span className="field-hint">
+          Google Drive não configurado — preencha a Service Account e a pasta raiz em{" "}
+          <strong>Configurações › Sistema</strong> para habilitar o envio direto do card.
+        </span>
+      </div>
+    );
+  }
+
+  const totalSlots = casamento.reduce(
+    (acc, peca) => acc + (formatoTemPosicoes(formato) ? (peca.feed != null ? 1 : 0) + (peca.story != null ? 1 : 0) : peca.video != null ? 1 : 0),
+    0
+  );
+  const totalEsperado = formatoTemPosicoes(formato) ? quantidade * 2 : quantidade;
+
+  return (
+    <div className="field" style={{ gap: "0.7rem" }}>
+      <span className="field-label">Entrega de criativos</span>
+
+      <div style={{ display: "flex", gap: "0.4rem", flexWrap: "wrap" }}>
+        {FORMATOS.map(({ key, label, icone: Icone }) => (
+          <button
+            key={key}
+            type="button"
+            className="btn btn-secondary"
+            disabled={enviando}
+            onClick={() => trocarFormato(key)}
+            style={{
+              opacity: formato === key ? 1 : 0.6,
+              borderColor: formato === key ? "var(--primary)" : "var(--card-border)",
+            }}
+          >
+            <Icone size={14} />
+            {label}
+          </button>
+        ))}
+
+        <label style={{ display: "flex", alignItems: "center", gap: "0.4rem", marginLeft: "auto", fontSize: "var(--text-control)" }}>
+          Peças
+          <input
+            type="number"
+            min={1}
+            max={30}
+            value={quantidade}
+            disabled={enviando}
+            onChange={(e) => setQuantidade(Math.max(1, Math.min(30, parseInt(e.target.value, 10) || 1)))}
+            className="field-input"
+            style={{ width: "4rem" }}
+          />
+        </label>
+      </div>
+
+      {!frenteField && (
+        <span className="field-hint" style={{ color: "var(--warning, #b45309)" }}>
+          Este quadro não tem o campo "frente" — a entrega sai sem essa parte no nome.
+        </span>
+      )}
+      {frenteField && !validacaoFrentes.ok && (
+        <span className="field-hint" role="alert" style={{ color: "var(--danger)" }}>
+          {validacaoFrentes.erro}
+        </span>
+      )}
+
+      <div
+        onDragOver={(e) => e.preventDefault()}
+        onDrop={(e) => {
+          e.preventDefault();
+          if (!enviando) adicionarArquivos(e.dataTransfer.files);
+        }}
+        onClick={() => !enviando && input.current?.click()}
+        style={{
+          border: "1px dashed var(--card-border)",
+          borderRadius: "10px",
+          padding: "1.4rem",
+          textAlign: "center",
+          cursor: enviando ? "default" : "pointer",
+          opacity: enviando ? 0.6 : 1,
+          fontSize: "var(--text-control)",
+          color: "var(--muted)",
+        }}
+      >
+        <UploadCloud size={20} style={{ marginBottom: "0.3rem" }} />
+        <div>Solta aqui todo o lote de uma vez, ou clica pra escolher</div>
+        <div style={{ fontSize: "var(--text-caption)", opacity: 0.8 }}>
+          {formato === "estatico" ? "Imagens (.png, .jpg, .webp)" : "Vídeos e/ou imagens do lote"}
+        </div>
+        <input
+          ref={input}
+          type="file"
+          multiple
+          hidden
+          onChange={(e) => {
+            if (e.target.files?.length) adicionarArquivos(e.target.files);
+            if (input.current) input.current.value = "";
+          }}
+        />
+      </div>
+
+      {pool.length > 0 && (
+        <>
+          <div style={{ display: "flex", flexDirection: "column", gap: "0.4rem" }}>
+            {Array.from({ length: quantidade }, (_, indice) => {
+              const peca = casamento[indice];
+              const temPosicoes = formatoTemPosicoes(formato);
+              const linhas = temPosicoes
+                ? ([
+                    ["Feed", peca?.feed, peca?.confiancas.feed],
+                    ["Story", peca?.story, peca?.confiancas.story],
+                  ] as const)
+                : ([["Arquivo", peca?.video, peca?.confiancas.video]] as const);
+
+              return (
+                <div
+                  key={indice}
+                  style={{
+                    display: "flex", flexDirection: "column", gap: "0.2rem",
+                    padding: "0.6rem 0.8rem", borderRadius: "8px",
+                    border: "1px solid var(--card-border)", fontSize: "var(--text-caption)",
+                  }}
+                >
+                  <strong>Peça {indice + 1}</strong>
+                  {linhas.map(([rotulo, poolIndex, autoDetectado]) => {
+                    const arquivo = poolIndex != null ? pool.find((p) => p.poolIndex === poolIndex) : null;
+                    return (
+                      <div key={rotulo} style={{ display: "flex", justifyContent: "space-between", gap: "0.5rem" }}>
+                        <span style={{ color: "var(--muted)" }}>{rotulo}:</span>
+                        {arquivo ? (
+                          <span>
+                            {arquivo.base}.{arquivo.extensao}
+                            {autoDetectado === false && (
+                              <em style={{ opacity: 0.7 }}> (por proporção — confira)</em>
+                            )}
+                            {progresso[arquivo.poolIndex] != null && enviando && ` — ${progresso[arquivo.poolIndex]}%`}
+                          </span>
+                        ) : (
+                          <span style={{ opacity: 0.6 }}>sem arquivo</span>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              );
+            })}
+          </div>
+
+          <div style={{ display: "flex", gap: "0.5rem", alignItems: "center" }}>
+            <button type="button" className="btn btn-primary" disabled={enviando} onClick={enviarTudo}>
+              {enviando ? <Loader2 size={14} className="spin" /> : <UploadCloud size={14} />}
+              {enviando ? "Enviando…" : "Enviar entrega"}
+            </button>
+            <button type="button" className="btn btn-secondary" disabled={enviando} onClick={limpar}>
+              <X size={14} />
+              Limpar
+            </button>
+            <span style={{ fontSize: "var(--text-caption)", color: "var(--muted)" }}>
+              {totalSlots} de {totalEsperado} posições identificadas
+            </span>
+          </div>
+        </>
+      )}
+
+      {erro && (
+        <span className="field-hint" role="alert" style={{ color: "var(--danger)" }}>
+          {erro}
+        </span>
+      )}
+
+      {concluido && (
+        <span className="field-hint" style={{ display: "flex", alignItems: "center", gap: "0.4rem", color: "var(--success, #16a34a)" }}>
+          <CheckCircle2 size={14} />
+          Entrega enviada — {concluido.trilha}. O link já está no card.
+        </span>
+      )}
+    </div>
+  );
+}

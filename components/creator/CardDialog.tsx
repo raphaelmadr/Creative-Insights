@@ -10,6 +10,7 @@ import { type ColumnDefinition } from "./ColumnsSection";
 import VariationCard from "./VariationCard";
 import AttachmentGallery from "./AttachmentGallery";
 import CardLinkField from "./CardLinkField";
+import DeliveryUploadPanel from "./DeliveryUploadPanel";
 import { parseCopyVariations } from "@/lib/copy-parse";
 import { parseAttachments } from "@/lib/attachments";
 import type { PersonOption } from "./DemandDialog";
@@ -573,6 +574,22 @@ export default function CardDialog({
           busy={travado}
           hint="A pasta do Drive onde as imagens desta demanda estão."
           onSave={(url) => patch({ id: card.id, linkUrl: url })}
+        />
+      )}
+
+      {/* Logo abaixo do link que ela mesma preenche: quem sobe a entrega vê o
+          resultado (o link) surgir ali em cima assim que termina, sem precisar
+          rolar a tela pra confirmar que funcionou. */}
+      {mostra("delivery") && (
+        <DeliveryUploadPanel
+          key={card.id}
+          cardId={card.id}
+          code={card.code}
+          assignees={card.assignees}
+          values={values}
+          fields={fields}
+          people={people}
+          onUploaded={onChanged}
         />
       )}
 

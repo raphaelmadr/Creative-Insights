@@ -1,5 +1,5 @@
 var R=require("../../../../chunks/[turbopack]_runtime.js")("server/app/api/cron/sync-all/route.js")
-R.c("server/chunks/[root-of-the-server]__18i586h._.js")
+R.c("server/chunks/[root-of-the-server]__1r78cvv._.js")
 R.c("server/chunks/node_modules_next_dist_esm_build_templates_app-route_0jzka2p.js")
 R.c("server/chunks/lib_0j27v1z._.js")
 R.c("server/chunks/lib_channels_ts_1mparh8._.js")

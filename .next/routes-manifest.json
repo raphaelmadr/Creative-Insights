@@ -109,6 +109,30 @@
       "namedRegex": "^/api/creator/cards(?:/)?$"
     },
     {
+      "page": "/api/creator/cards/delivery/chunk",
+      "regex": "^/api/creator/cards/delivery/chunk(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/api/creator/cards/delivery/chunk(?:/)?$"
+    },
+    {
+      "page": "/api/creator/cards/delivery/complete",
+      "regex": "^/api/creator/cards/delivery/complete(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/api/creator/cards/delivery/complete(?:/)?$"
+    },
+    {
+      "page": "/api/creator/cards/delivery/folder",
+      "regex": "^/api/creator/cards/delivery/folder(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/api/creator/cards/delivery/folder(?:/)?$"
+    },
+    {
+      "page": "/api/creator/cards/delivery/upload-session",
+      "regex": "^/api/creator/cards/delivery/upload\\-session(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/api/creator/cards/delivery/upload\\-session(?:/)?$"
+    },
+    {
       "page": "/api/creator/cards/purge",
       "regex": "^/api/creator/cards/purge(?:/)?$",
       "routeKeys": {},

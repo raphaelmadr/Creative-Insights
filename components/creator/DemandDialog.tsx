@@ -30,6 +30,8 @@ export interface PersonOption {
   email: string;
   name: string;
   avatarUrl?: string | null;
+  /** Sigla de criador (`rm`, `ez`...) — só quem tem ficha em `Creator`. Ver `lib/acronyms.ts`. */
+  acronym?: string | null;
 }
 
 /**
