@@ -241,6 +241,16 @@ model SystemSettings {
   slackBotToken     String?
   slackChannelId    String?
 
+  /// Service account do Google (Drive) usada na entrega de criativos: nomeia,
+  /// organiza em pastas por Ano/Mês/Formato/ID e sobe os arquivos do lote.
+  /// Reaproveita a service account do ad-naming-tool (Pedro Pimenta) — o JSON
+  /// inteiro baixado do Google Cloud Console, colado aqui. Ver `lib/drive-delivery.ts`.
+  driveServiceAccountJson String? @db.Text
+  /// Pasta raiz do Drive onde a árvore Ano/Mês/Formato é criada. Mesma pasta
+  /// que o ad-naming-tool já usa — a service account acima precisa ter acesso
+  /// de Editor a ela.
+  driveRootFolderId String?
+
   cpanelUploadUrl    String? @db.Text
   cpanelUploadSecret String? @db.Text
 

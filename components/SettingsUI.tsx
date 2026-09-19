@@ -201,6 +201,7 @@ export function SettingsField({
   hint,
   mono = true,
   type,
+  multiline,
 }: {
   label: string;
   value: string | number;
@@ -210,17 +211,32 @@ export function SettingsField({
   hint?: string;
   mono?: boolean;
   type?: string;
+  /** Textarea em vez de input — para valores longos (ex.: JSON de credencial).
+   * Não mascara: `<textarea>` não tem `type="password"`, e esta tela já é só
+   * para administradores (mesmo raciocínio do comando do cron, mais abaixo
+   * nesta página, que também mostra o segredo em texto puro). */
+  multiline?: boolean;
 }) {
   return (
     <label style={{ display: "flex", flexDirection: "column", gap: "0.4rem", fontSize: "var(--text-control)", minWidth: 0 }}>
       <span style={{ fontWeight: 600 }}>{label}</span>
-      <input
-        type={type ?? (secret ? "password" : "text")}
-        value={value}
-        onChange={e => onChange(e.target.value)}
-        placeholder={placeholder}
-        style={{ ...FIELD_STYLE, fontFamily: mono ? FIELD_STYLE.fontFamily : "inherit" }}
-      />
+      {multiline ? (
+        <textarea
+          rows={6}
+          value={value}
+          onChange={e => onChange(e.target.value)}
+          placeholder={placeholder}
+          style={{ ...FIELD_STYLE, fontFamily: mono ? FIELD_STYLE.fontFamily : "inherit", resize: "vertical", whiteSpace: "pre" }}
+        />
+      ) : (
+        <input
+          type={type ?? (secret ? "password" : "text")}
+          value={value}
+          onChange={e => onChange(e.target.value)}
+          placeholder={placeholder}
+          style={{ ...FIELD_STYLE, fontFamily: mono ? FIELD_STYLE.fontFamily : "inherit" }}
+        />
+      )}
       {hint && (
         <span style={{ fontSize: "var(--text-caption)", color: "var(--muted)", opacity: 0.85, lineHeight: 1.5 }}>{hint}</span>
       )}

@@ -22,6 +22,7 @@ import prisma from "@/lib/prisma";
 import { getCurrentCreator } from "@/lib/auth";
 import { CREATOR_ONLY_ERROR } from "@/lib/roles";
 import { excludeDevUserWhere } from "@/lib/dev-user";
+import { primaryAcronym } from "@/lib/acronyms";
 
 export const dynamic = "force-dynamic";
 
@@ -40,12 +41,23 @@ export async function GET() {
       // dono do sistema escolheu no painel, e a do Google muda sem aviso.
       prisma.creator.findMany({
         where: { userEmail: { not: null } },
-        select: { userEmail: true, avatarUrl: true },
+        select: { userEmail: true, avatarUrl: true, acronym: true },
       }),
     ]);
 
     const fotoDoCriador = new Map(
       creators.filter((c) => c.avatarUrl).map((c) => [c.userEmail!.toLowerCase(), c.avatarUrl])
+    );
+
+    /*
+     * A sigla do criador (`RM`, `EZ`...), pro nome do arquivo na entrega de
+     * criativos — a mesma convenção que já nomeia os anúncios (ver
+     * `lib/designer-match.ts`). Só quem tem ficha de criador tem sigla; o
+     * resto do time (mídia paga, revisão) segue sem, e a nomenclatura usa o
+     * e-mail como recurso.
+     */
+    const siglaDoCriador = new Map(
+      creators.filter((c) => c.acronym).map((c) => [c.userEmail!.toLowerCase(), primaryAcronym(c.acronym).toLowerCase()])
     );
 
     return NextResponse.json({
@@ -58,6 +70,7 @@ export async function GET() {
           // quem assume é pior que um endereço.
           name: u.name?.trim() || u.email,
           avatarUrl: fotoDoCriador.get(u.email.toLowerCase()) ?? u.image ?? null,
+          acronym: siglaDoCriador.get(u.email.toLowerCase()) ?? null,
         })),
     });
   } catch (error: any) {

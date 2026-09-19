@@ -31,7 +31,9 @@ export type IntegrationId =
   | "AI"
   | "TAVILY"
   | "MEDIA_STORAGE"
-  | "GOOGLE_AUTH";
+  | "GOOGLE_AUTH"
+  | "GOOGLE_DRIVE"
+  | "SLACK";
 
 export interface IntegrationStatus {
   id: IntegrationId;
@@ -71,6 +73,8 @@ export function buildIntegrationStatuses(settings: SettingsRow): IntegrationStat
   // ambiente, então reportar "via .env" aqui seria mentira.
   const storageInPanel = filled(settings?.cpanelUploadUrl) && filled(settings?.cpanelUploadSecret);
   const googleInPanel = filled(settings?.googleClientId) && filled(settings?.googleClientSecret);
+  const driveInPanel = filled(settings?.driveServiceAccountJson) && filled(settings?.driveRootFolderId);
+  const slackInPanel = filled(settings?.slackBotToken) && filled(settings?.slackChannelId);
 
   return [
     {
@@ -123,6 +127,22 @@ export function buildIntegrationStatuses(settings: SettingsRow): IntegrationStat
       enables: "entrada no sistema com conta Google",
       where: "Configurações › API",
       fromEnv: !googleInPanel && env("GOOGLE_CLIENT_ID") && env("GOOGLE_CLIENT_SECRET"),
+    },
+    {
+      id: "GOOGLE_DRIVE",
+      label: "Google Drive (entrega de criativos)",
+      configured: driveInPanel,
+      enables: "nomear, organizar em pastas e subir os arquivos de entrega direto do card",
+      where: "Configurações › Sistema",
+      fromEnv: false,
+    },
+    {
+      id: "SLACK",
+      label: "Slack",
+      configured: slackInPanel,
+      enables: "aviso de entrega no canal, com marcação de quem quiser",
+      where: "Configurações › Sistema",
+      fromEnv: false,
     },
   ];
 }
