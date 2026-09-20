@@ -12,7 +12,7 @@
  */
 
 import prisma from "./prisma";
-import { parseValues, parseAssignees, CHAVES_DE_VOLUMETRIA, campoVolumetria } from "./kanban";
+import { parseValues, CHAVES_DE_VOLUMETRIA, campoVolumetria } from "./kanban";
 import { logWarning } from "./logger";
 
 /**
@@ -203,21 +203,30 @@ export async function registrarEntregaDoCard(params: {
 }
 
 /**
- * Peças entregues por criador, direto do estado ATUAL do quadro — não de um
- * histórico gravado em `Delivery`.
+ * Peças entregues por criador — o QUANDO vem do quadro, o QUEM vem do que foi
+ * gravado na hora da entrega.
  *
- * É o que faz o dash de equipe ser espelho, e não uma contagem que só cresce:
- * um card reaberto (arrastado pra fora de uma coluna de conclusão) tem
- * `completedAt` apagado na hora do movimento — ver `target.isDone ? new
- * Date() : null` em `app/api/creator/cards/route.ts` — e some daqui na
- * próxima leitura, sem nenhuma limpeza manual. Se o responsável do card mudar
- * enquanto ele continua concluído, o crédito muda junto. Card arquivado
- * continua entrando: arquivar é arrumação do quadro, não desfazer a entrega.
+ * Duas fontes, cada uma certa pro que responde:
  *
- * Só credita quando há UM responsável claro — mesma regra de
- * `registrarEntregaDoCard`. Sem ninguém, ou com a demanda ainda do time
- * inteiro (fila não assumida por uma pessoa), não há como ratear sem inventar
- * uma regra que ninguém pediu, então o card fica de fora da soma.
+ * - **`completedAt` diz SE isto ainda conta.** É apagado no instante em que o
+ *   card sai de uma coluna de conclusão (`target.isDone ? new Date() : null`
+ *   em `app/api/creator/cards/route.ts`) — reaberto ou seguindo viagem pro
+ *   próximo grupo, tanto faz. Por isso um card reaberto some daqui sozinho,
+ *   sem limpeza manual: é o que faz o dash ser espelho, e não uma contagem
+ *   que só cresce.
+ * - **`Delivery.creatorId` diz QUEM.** Não é `card.assignees` — esse campo
+ *   muda nas etapas seguintes (chegar em "Revisão" reatribui o card ao TIME
+ *   de Revisão, de propósito: é essa marca que avisa quem revisa que há algo
+ *   novo — ver `resolveMoveAssignees`). Ler `assignees` aqui creditaria a
+ *   Revisão pela peça que a Criação produziu, assim que o card avançasse.
+ *   `registrarEntregaDoCard` grava o responsável de ANTES dessa
+ *   reatribuição, e é esse registro — imutável enquanto o card não é
+ *   reaberto e entregue de novo — que fica valendo pro crédito.
+ *
+ * Um card com `completedAt` no intervalo mas sem `Delivery` correspondente
+ * (chegou na coluna de conclusão sem ninguém identificável pra creditar — ver
+ * os avisos em `registrarEntregaDoCard`) fica de fora da soma, no mesmo
+ * espírito: sem responsável, sem invenção de regra de rateio.
  */
 export async function pecasEntreguesPorCriador(
   startDate: Date,
@@ -225,27 +234,19 @@ export async function pecasEntreguesPorCriador(
 ): Promise<Map<string, number>> {
   const cards = await prisma.boardCard.findMany({
     where: { completedAt: { gte: startDate, lte: endDate } },
-    select: { boardId: true, title: true, values: true, assignees: true },
+    select: { id: true, boardId: true, title: true, values: true },
   });
   if (!cards.length) return new Map();
 
-  const emails = new Set<string>();
-  for (const card of cards) {
-    const responsaveis = parseAssignees(card.assignees);
-    if (responsaveis.length === 1) emails.add(responsaveis[0]);
-  }
-
-  const creators = await prisma.creator.findMany({
-    where: { userEmail: { in: [...emails] } },
-    select: { id: true, userEmail: true },
+  const deliveries = await prisma.delivery.findMany({
+    where: { cardId: { in: cards.map((c) => c.id) } },
+    select: { cardId: true, creatorId: true },
   });
-  const creatorIdPorEmail = new Map(creators.map((c) => [c.userEmail!, c.id]));
+  const creatorIdPorCard = new Map(deliveries.map((d) => [d.cardId, d.creatorId]));
 
   const porCriador = new Map<string, number>();
   for (const card of cards) {
-    const responsaveis = parseAssignees(card.assignees);
-    if (responsaveis.length !== 1) continue;
-    const creatorId = creatorIdPorEmail.get(responsaveis[0]);
+    const creatorId = creatorIdPorCard.get(card.id);
     if (!creatorId) continue;
 
     const pecas = await volumetriaDoCard(card.boardId, card.values, card.title);

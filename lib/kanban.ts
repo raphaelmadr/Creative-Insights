@@ -1546,27 +1546,29 @@ export function resolveMoveAssignee(
  * A atribuição manual sobrevive a tudo isto: ela acontece pelo painel do card,
  * por outro caminho, e não passa por aqui.
  *
- * TERCEIRA situação, e ela vem antes das outras duas: **chegar numa etapa de
- * conclusão**. Isso não é "há trabalho novo na fila do time" nem "alguém
- * pegou" — é o fim do trabalho, não o começo de outro. Reatribuir para o time
- * inteiro do grupo de destino (a regra de "chegar numa fase") credita a
- * entrega a quem vai TRABALHAR na próxima etapa, não a quem produziu esta —
- * era assim que uma demanda da Criação, entregue direto numa etapa de
- * conclusão de outro grupo, deixava de contar pra quem a fez. O dono
- * continua sendo quem já estava com ela, e é essa pessoa que o dash de
- * equipe credita (ver `lib/kanban-deliveries.ts`) e que o aviso de entrega no
- * Slack nomeia como quem entregou (ver `lib/slack-delivery.ts`).
+ * Chegar numa etapa de CONCLUSÃO segue a mesma primeira regra — o time
+ * inteiro do grupo de destino, ex.: "Revisão" — e é de propósito: é essa
+ * marca no card que diz pra quem revisa que há algo novo pra olhar. Uma
+ * versão anterior desta função tratava conclusão como caso à parte e
+ * preservava o dono de antes, pensando em quem produziu a peça — só que
+ * "Responsável" no card é sobre quem trabalha nela AGORA, não sobre quem
+ * já trabalhou. O efeito foi o card chegar em "Entregue para revisão" e
+ * continuar marcado com o time da Criação, e ninguém da Revisão via que
+ * havia algo esperando.
+ *
+ * Quem creditar pela entrega é pergunta DIFERENTE, e mora noutro lugar:
+ * `registrarEntregaDoCard` (`lib/kanban-deliveries.ts`) recebe os
+ * responsáveis de ANTES desta função rodar — antes de "chegar na fase"
+ * reatribuir o card —, e é esse crédito que fica gravado (`Delivery`),
+ * intacto mesmo depois de o card seguir viagem e o dono visível mudar de
+ * novo.
  */
 export function resolveMoveAssignees(
   destino: StageOwnership,
   mudouDeFase: boolean,
   atuais: string[],
-  mover: string | null | undefined,
-  /** A etapa de destino é de conclusão? Ver o parágrafo acima. */
-  destinoConclui: boolean = false
+  mover: string | null | undefined
 ): string[] {
-  if (destinoConclui) return atuais;
-
   const equipe = parseAssignees(destino.assignees);
   const quemMoveu = normalizePerson(mover);
 
