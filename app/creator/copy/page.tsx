@@ -197,6 +197,15 @@ export default function CopyPage() {
          */
         setGroupId(res.target?.groupId ?? times[0]?.id ?? null);
         setAiConfigured(res.aiConfigured !== false);
+        /*
+         * O que este quadro pergunta, já na abertura da tela — não só depois
+         * de uma primeira tentativa de "Enviar ao Board" recusada. A rota
+         * devolve a mesma lista que usaria pra recusar o envio; aqui ela só
+         * chega mais cedo.
+         */
+        if (Array.isArray(res.missingFields) && res.missingFields.length) {
+          setCamposFaltando(res.missingFields);
+        }
       })
       .catch(() => setTarget(null));
   }, [loadProducts, loadAudiences]);
@@ -448,8 +457,8 @@ export default function CopyPage() {
           dueDate: dueDate || null,
           attachments,
           groupId,
-          // Só tem conteúdo depois que a rota já pediu (ver `missingFields`
-          // abaixo) — na primeira tentativa vai vazio, e tudo bem.
+          // O que a tela pediu a mais (ver `camposFaltando`, preenchido já
+          // na abertura) — vazio para quem não tem nenhum campo extra.
           extraRespostas: respostasExtras,
         }),
       });
@@ -1059,9 +1068,12 @@ export default function CopyPage() {
                 </div>
 
                 {/*
-                  Só aparece depois que "Enviar ao quadro" já foi tentado uma
-                  vez e a rota devolveu quais campos obrigatórios faltam — o
-                  gerador não sabe de antemão quais são (varia por quadro).
+                  Chega preenchida já na abertura da tela (ver o `GET` no
+                  `useEffect` acima) — o que este quadro pergunta não depende
+                  de nada que a pessoa ainda vá escolher, então não há motivo
+                  para esperar uma primeira tentativa de envio recusada pra
+                  mostrar. Continua vazio em branco para quadros que não têm
+                  nenhum campo extra obrigatório.
                 */}
                 {camposFaltando.length > 0 && (
                   <div style={block}>
