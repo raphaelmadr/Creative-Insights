@@ -104,6 +104,9 @@ export async function PUT(request: Request) {
       isDone,
       isProduction,
       wipLimit,
+      notifySlackOnEnter,
+      slackChannelId,
+      slackMessageTemplate,
     } = body;
     if (!id) return NextResponse.json({ error: "ID da coluna é obrigatório." }, { status: 400 });
 
@@ -168,6 +171,11 @@ export async function PUT(request: Request) {
         ...(isProduction !== undefined ? { isProduction: !!isProduction } : {}),
         ...(wipLimit !== undefined
           ? { wipLimit: wipLimit === null || wipLimit === "" ? null : Number(wipLimit) }
+          : {}),
+        ...(notifySlackOnEnter !== undefined ? { notifySlackOnEnter: !!notifySlackOnEnter } : {}),
+        ...(slackChannelId !== undefined ? { slackChannelId: String(slackChannelId ?? "").trim() || null } : {}),
+        ...(slackMessageTemplate !== undefined
+          ? { slackMessageTemplate: String(slackMessageTemplate ?? "").trim() || null }
           : {}),
       },
     });
