@@ -1,6 +1,41 @@
 # Changelog: Creative Insights (Fase 1)
 Data: 31 de Agosto de 2026
 
+## 🚧 Uma Etapa Só Libera o Envio (Setembro 2026)
+O painel "Entrega de criativos" aparecia em todo card, em qualquer etapa do fluxo — a única condição era o Google Drive estar configurado. Nada impedia alguém de subir os arquivos finais com a peça ainda em briefing, ou numa etapa de revisão que nem devia ter arquivo nenhum ainda.
+
+* **Nova marca de coluna, `BoardColumn.isProduction`.** Igual a `isDone`, não é exclusiva — um quadro pode ter mais de uma etapa de produção — e se configura no mesmo lugar de Entrada/Entrega, em Preferências › Etapas.
+* **O painel não some, explica.** Fora de uma etapa de produção, a seção continua visível com o motivo escrito — "Esta demanda ainda não está numa etapa de produção — mova o card para lá antes de enviar os arquivos da entrega" — no mesmo espírito de "Drive não configurado": quem abre o card precisa entender por que não pode enviar ainda, não só notar a ausência do botão.
+* **Lido na hora, não guardado no card.** `CardDialog` resolve a etapa atual pelo `columnId` contra a lista de colunas do quadro a cada renderização — inclusive logo depois de um arrasto — em vez de guardar a marca dentro do próprio card, que ficaria desatualizada até a próxima recarga.
+* **Nenhuma etapa nasceu marcada.** É configuração deliberada, não migração automática — inclusive a "Em produção" do quadro real precisa ser marcada à mão.
+
+## 🏆 O Crédito da Entrega ia para Quem Arrastava o Card (Setembro 2026)
+Uma demanda produzida pela Criação, sem etapa de conclusão própria, e entregue direto numa coluna de conclusão de outro grupo (Revisão, por exemplo) não contava para quem a fez — contava para quem clicou o arrasto, que podia ser qualquer pessoa do grupo de destino.
+
+* **A causa era `resolveMoveAssignees` reatribuindo a demanda ANTES de perguntar quem credita.** Chegar numa etapa nova sempre pôs a demanda na fila do time inteiro do grupo de destino — regra certa para uma etapa de trabalho, errada para uma etapa de CONCLUSÃO, que é o fim do trabalho, não o começo de outro. `registrarEntregaDoCard` então creditava quem moveu o card, porque era o único dado disponível depois da reatribuição já ter apagado quem produziu a peça.
+* **A regra nova: chegar numa etapa de conclusão preserva quem já estava com a demanda.** Vale para os dois caminhos que mudam a etapa de um card — arrastar e editar pelo painel — e o crédito passou a seguir esse responsável preservado, com quem moveu o card como reserva só quando não há um responsável único e claro.
+* **O dash de equipe virou espelho do quadro, não soma de um histórico gravado.** `/api/deliveries` e `/api/reports/creators` somavam a tabela `Delivery`, que só crescia: um card reaberto depois de entregue continuava contando pra sempre, porque nada nunca apagava ou corrigia a entrega registrada. A nova `pecasEntreguesPorCriador` (`lib/kanban-deliveries.ts`) lê direto do card — `completedAt` dentro do mês e responsável atual —, e como `completedAt` é apagado no instante em que o card sai de uma coluna de conclusão, um card reaberto some do dash sozinho, sem limpeza nenhuma. Meses já fechados em `CreatorMonthlyReport` continuam congelados como sempre foram.
+
+## 📣 Aviso de Entrega no Slack, Refeito (Setembro 2026)
+A primeira versão avisava ao chegar em QUALQUER coluna de conclusão — inclusive uma revisão interna que não entrega nada para fora do grupo. E "Entrada" era uma marca só por quadro inteiro, então não dava para marcar o ponto de chegada de um handoff entre grupos sem desmarcar a entrada de demanda nova do quadro.
+
+* **O gatilho agora é a passagem de bastão: sair de uma etapa de Entrega e cair numa etapa de Entrada — de qualquer grupo para qualquer grupo.** Uma etapa de conclusão que não entrega para lugar nenhum (porque a próxima etapa não é uma Entrada) fica muda, como devia.
+* **"Entrada" deixou de ser exclusiva do quadro e passou a ser exclusiva por GRUPO.** Cada grupo pode ter a sua — o mais cedo do quadro continua recebendo demanda nova do formulário e do gerador de copy (`intakeColumnId` não mudou), e qualquer outro grupo agora pode marcar onde a passagem de bastão de outro grupo pousa, sem tirar a demanda nova do lugar certo.
+* **Mensagem nova, sem emoji nem contagem de peças:** "A tarefa MKT-42 foi entregue por Fulano. Link do Google Drive: ..." e uma linha marcando o time do grupo pra onde a tarefa entrou (`donos`, resolvido pela mesma regra de ownership do card) — não mais um nome fixo de reserva nem uma escolha manual a cada entrega.
+* **O código da tarefa virou link.** Aponta direto pra plataforma, com o card já aberto (`/creator/kanban?board=...&card=...`) — quem recebe o aviso clica e cai exatamente na demanda, sem procurar. A URL pública é resolvida no servidor (`resolveCronBaseUrl`, reaproveitado do disparador de cron), nunca um endereço local.
+* **Quem entregou é quem estava com a demanda antes da transição, não quem arrastou o card** — mesma correção de responsável do item de crédito acima, agora também na mensagem.
+* **Precisa de um escopo novo no bot:** `users:read.email`, para achar o Slack de cada responsável pelo e-mail cadastrado (`users.lookupByEmail`). Sem ele, a busca simplesmente não acha ninguém e a mensagem sai sem marcação — não quebra o aviso.
+
+## 📦 Entrega de Criativos Integrada ao Quadro (Setembro 2026)
+A ferramenta de nomear e subir criativos vivia fora do Creative Insights — cada campo do nome do arquivo (quantidade de peças, frente, responsável, ID da demanda) era digitado à mão, porque a ferramenta não sabia nada sobre o card de onde a entrega vinha.
+
+* **Os campos vêm do próprio card.** Quantidade de peças, frente e responsável são lidos das respostas do formulário e dos responsáveis atuais — a nomenclatura final segue exatamente a convenção já em uso (`lib/delivery-naming.ts`, porta direta da ferramenta original), só que sem digitar nada de novo.
+* **Lote inteiro de uma vez, casado por proporção.** Solta-se todas as imagens/vídeos juntos e o sistema casa cada arquivo com a posição certa (Feed/Story) pela proporção — 0,8 para Feed, 0,5625 para Story —, com correção manual por peça quando o casamento automático erra.
+* **Upload em pedaços, relaiado pelo servidor.** A API do Drive não aceita upload direto do navegador (falta CORS para essa chamada) — cada pedaço de até 4 MiB passa pelo servidor, que nunca segura o arquivo inteiro na memória, importante numa conta de 1 núcleo e 2 GB.
+* **Pasta única por card,** em `Ano/Mês/Formato/MKT-XXXX`, com Feed/Story como subpastas quando o formato tem posição. `linkUrl` do card é preenchido sozinho ao terminar — o campo virou "Link da Entrega" na frente do card.
+* **Erro de configuração encontrado e corrigido:** a pasta raiz configurada apontava para a pasta "2026" em vez da pasta-mãe dela, e cada entrega criava um "2026" duplicado dentro da pasta certa. Corrigido no banco; a árvore duplicada de teste ficou pendente de limpeza manual (é uma exclusão, e este ambiente não a executa sozinho).
+* **O gerador de copy passou a perguntar o que falta.** Uma demanda aberta por lá não tinha como responder "Frente" — campo que a entrega de criativos precisa —, e o card ficava sem essa resposta pra sempre. Agora, ao faltar, a tela pergunta antes de criar o card (`camposObrigatoriosFaltando`, escopado só a "Frente", não a qualquer campo obrigatório do quadro).
+
 ## 🔓 O Disparador Perdeu a Credencial, de Propósito (Setembro 2026)
 O segredo do cron rendeu mais incidente do que proteção. Cada vez que alguém clicava em "Gerar nova chave" — inclusive durante a recuperação de um banco que tinha perdido credenciais —, o comando já cadastrado no cPanel ficava com a chave velha, e o disparador passava a receber 401 em silêncio até alguém notar e copiar o comando de novo. A pergunta certa não era "como tornar a rotação mais segura", era "o que essa credencial protege, de verdade".
 

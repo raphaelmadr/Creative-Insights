@@ -177,8 +177,7 @@ export async function PUT(request: Request) {
         target.group ?? {},
         mudouDeFase,
         atuais,
-        quemMoveu,
-        target.isDone
+        quemMoveu
       );
 
       const mudou =
@@ -482,7 +481,6 @@ export async function PUT(request: Request) {
         select: {
           name: true,
           groupId: true,
-          isDone: true,
           group: { select: { assignees: true, defaultAssignee: true } },
         },
       });
@@ -505,8 +503,7 @@ export async function PUT(request: Request) {
           destino?.group ?? {},
           mudouDeFase,
           parseAssignees(current.assignees),
-          quemMoveu,
-          destino?.isDone ?? false
+          quemMoveu
         );
       }
     }
