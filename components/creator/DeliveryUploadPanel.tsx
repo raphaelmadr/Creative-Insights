@@ -21,7 +21,7 @@
  */
 
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import { UploadCloud, X, Loader2, CheckCircle2, ImageIcon, Video } from "lucide-react";
+import { UploadCloud, X, Loader2, CheckCircle2, ImageIcon, Video, PackageOpen } from "lucide-react";
 import type { FieldDefinition } from "./FieldInput";
 import type { PersonOption } from "./DemandDialog";
 import { formatCardCode, parseAssignees, campoVolumetria } from "@/lib/kanban";
@@ -39,8 +39,9 @@ import {
 
 const FORMATOS: { key: DeliveryFormat; label: string; icone: typeof ImageIcon }[] = [
   { key: "estatico", label: "Estático", icone: ImageIcon },
-  { key: "animacao", label: "Animação", icone: Video },
   { key: "video", label: "Vídeo", icone: Video },
+  { key: "animacao", label: "Animação", icone: Video },
+  { key: "unboxing", label: "Unboxing", icone: PackageOpen },
 ];
 
 const EXTENSOES_IMAGEM = /\.(png|jpe?g|webp)$/i;

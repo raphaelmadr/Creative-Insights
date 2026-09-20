@@ -15,7 +15,7 @@ import { formatCardCode } from "@/lib/kanban";
 import { criarDriveFolders } from "@/lib/drive-delivery";
 import type { DeliveryFormat } from "@/lib/delivery-naming";
 
-const FORMATOS: DeliveryFormat[] = ["estatico", "video", "animacao"];
+const FORMATOS: DeliveryFormat[] = ["estatico", "video", "animacao", "unboxing"];
 
 export async function POST(request: Request) {
   const user = await getCurrentCreator();
