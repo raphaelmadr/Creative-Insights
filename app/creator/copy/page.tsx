@@ -8,6 +8,7 @@ import SearchSelect, { type SearchSelectOption } from "@/components/creator/Sear
 import VariationCard from "@/components/creator/VariationCard";
 import AttachmentField from "@/components/creator/AttachmentField";
 import DatePicker from "@/components/DatePicker";
+import FieldInput, { type FieldDefinition } from "@/components/creator/FieldInput";
 import {
   parseCopyVariations,
   serializeCopyVariations,
@@ -127,6 +128,15 @@ export default function CopyPage() {
   const [sent, setSent] = useState<{ board: string } | null>(null);
   const [copied, setCopied] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  /*
+   * Campos obrigatórios do quadro que o gerador não sabe preencher sozinho
+   * (canal/formato/quantidade, ele já sabe — o resto, não). Preenchidos aqui
+   * antes de mandar ao quadro, e não a cada geração: a maioria dos quadros
+   * não tem nenhum, então perguntar isso cedo demais seria atrito por nada.
+   */
+  const [camposFaltando, setCamposFaltando] = useState<FieldDefinition[]>([]);
+  const [respostasExtras, setRespostasExtras] = useState<Record<string, unknown>>({});
 
   const [target, setTarget] = useState<Target | null>(null);
   const [groups, setGroups] = useState<GroupOption[]>([]);
@@ -438,15 +448,30 @@ export default function CopyPage() {
           dueDate: dueDate || null,
           attachments,
           groupId,
+          // Só tem conteúdo depois que a rota já pediu (ver `missingFields`
+          // abaixo) — na primeira tentativa vai vazio, e tudo bem.
+          extraRespostas: respostasExtras,
         }),
       });
       const data = await res.json();
 
       if (!res.ok) {
+        /*
+         * A rota devolve a lista inteira de campos obrigatórios que faltam
+         * (não um de cada vez) — mostra o formulário pra essa lista em vez
+         * do erro genérico, pra resolver tudo numa passada só.
+         */
+        if (Array.isArray(data.missingFields) && data.missingFields.length) {
+          setCamposFaltando(data.missingFields);
+          setError(data.error || "Responda os campos obrigatórios antes de enviar ao quadro.");
+          return;
+        }
         setError(data.error || "Não foi possível enviar ao quadro.");
         return;
       }
 
+      setCamposFaltando([]);
+      setRespostasExtras({});
       setSent({ board: data.board?.name ?? "" });
     } catch {
       setError("Falha de conexão ao enviar ao quadro.");
@@ -1032,6 +1057,28 @@ export default function CopyPage() {
                     Vira o prazo do card no quadro. Em branco, a demanda entra sem prazo.
                   </span>
                 </div>
+
+                {/*
+                  Só aparece depois que "Enviar ao quadro" já foi tentado uma
+                  vez e a rota devolveu quais campos obrigatórios faltam — o
+                  gerador não sabe de antemão quais são (varia por quadro).
+                */}
+                {camposFaltando.length > 0 && (
+                  <div style={block}>
+                    <span className="field-label" style={{ marginBottom: "0.5rem", display: "block" }}>
+                      Este quadro também pergunta:
+                    </span>
+                    {camposFaltando.map((campo) => (
+                      <FieldInput
+                        key={campo.key}
+                        field={campo}
+                        value={respostasExtras[campo.key]}
+                        values={respostasExtras}
+                        onChange={(v) => setRespostasExtras((atual) => ({ ...atual, [campo.key]: v }))}
+                      />
+                    ))}
+                  </div>
+                )}
 
                 <div style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap" }}>
                   <button

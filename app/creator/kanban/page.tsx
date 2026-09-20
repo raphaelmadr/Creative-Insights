@@ -69,6 +69,14 @@ export default function KanbanPage() {
   const [openCard, setOpenCard] = useState<CardData | null>(null);
 
   /**
+   * O link direto de um card (`?board=...&card=...`, montado pelo aviso do
+   * Slack — ver `lib/slack-delivery.ts`) só se aplica uma vez. Sem a marca,
+   * fechar o card reaberto por link e voltar a arrastar cards reabriria o
+   * mesmo painel a cada nova leitura de `cards`.
+   */
+  const linkDireto = useRef(false);
+
+  /**
    * A impressão digital do quadro na última leitura — a base de comparação da
    * conferência periódica. Vive numa ref, e não no estado, porque mudá-la não
    * deve redesenhar nada: ela existe para decidir se vale a pena redesenhar.
@@ -121,7 +129,11 @@ export default function KanbanPage() {
   );
 
   useEffect(() => {
-    load();
+    // O board do link direto (`?board=...&card=...`) precisa ser o carregado
+    // de início — o card do aviso do Slack pode não estar no último quadro
+    // que esta pessoa deixou aberto.
+    const paramsDeAbertura = new URLSearchParams(window.location.search);
+    load(paramsDeAbertura.get("board") || undefined);
 
     /*
      * São TODOS os usuários cadastrados, não só os criadores.
@@ -146,6 +158,32 @@ export default function KanbanPage() {
     const fresh = cards.find((c) => c.id === openCard.id);
     if (fresh && fresh !== openCard) setOpenCard(fresh);
   }, [cards, openCard]);
+
+  /**
+   * Abre sozinho o card do link direto, assim que o quadro certo terminar de
+   * carregar. Só tenta uma vez: sem achar (card arquivado, ou já entregue e
+   * fora da lista carregada), desiste em silêncio — a pessoa ainda está no
+   * quadro, só sem o painel aberto.
+   */
+  useEffect(() => {
+    if (linkDireto.current || loading) return;
+
+    const params = new URLSearchParams(window.location.search);
+    const cardId = params.get("card");
+    if (!cardId) {
+      linkDireto.current = true;
+      return;
+    }
+
+    const alvo = cards.find((c) => c.id === cardId);
+    if (alvo) setOpenCard(alvo);
+    linkDireto.current = true;
+
+    const url = new URL(window.location.href);
+    url.searchParams.delete("card");
+    url.searchParams.delete("board");
+    window.history.replaceState({}, "", url.toString());
+  }, [cards, loading]);
 
   /**
    * Os grupos que têm para onde receber uma demanda.

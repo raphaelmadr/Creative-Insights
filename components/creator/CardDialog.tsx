@@ -226,6 +226,16 @@ export default function CardDialog({
   };
 
   /*
+   * A etapa ATUAL do card é de produção? Não é resposta de formulário — é
+   * uma marca da etapa, lida na coluna que a demanda ocupa agora. `card` só
+   * carrega o `columnId`; a marca vem de `columns`, que o quadro já entrega
+   * como prop própria — buscar aqui, na hora de desenhar, fica sempre certo
+   * mesmo logo depois de um arrasto, sem precisar duplicar a informação no
+   * card.
+   */
+  const emProducao = columns.find((c) => c.id === card.columnId)?.isProduction === true;
+
+  /*
    * Os dois lados do bloco de briefing, cada um com o seu interruptor.
    *
    * Um só fazia os dois trabalhos, e desligá-lo levava junto todas as respostas
@@ -381,7 +391,7 @@ export default function CardDialog({
               .join(" · ")
           : undefined
       }
-      width="min(760px, 100%)"
+      width="min(980px, 100%)"
       footer={
         <>
           {arquivado ? (
@@ -426,6 +436,16 @@ export default function CardDialog({
         </>
       }
     >
+      {/*
+        Duas colunas: o que muda o tempo todo (etapa, briefing, entrega) à
+        esquerda, e "Acompanhamento" fixo à direita — é a aba de onde se
+        segue tudo que acontece com a demanda, e misturada na sequência
+        vertical ficava fácil de confundir com o resto do conteúdo, que é
+        sobre A DEMANDA em si, não sobre seu histórico. Empilha numa coluna só
+        em tela estreita.
+      */}
+      <div className="cd-grid">
+      <div className="cd-main">
       {/* Etapa, prioridade e responsável: o que muda com mais frequência fica
           no topo, editável sem abrir outra tela.
 
@@ -570,26 +590,11 @@ export default function CardDialog({
         <CardLinkField
           key={card.id}
           id="card-link"
+          label="Link da Entrega"
           value={card.linkUrl}
           busy={travado}
-          hint="A pasta do Drive onde as imagens desta demanda estão."
+          hint="A pasta do Drive onde os arquivos desta entrega estão."
           onSave={(url) => patch({ id: card.id, linkUrl: url })}
-        />
-      )}
-
-      {/* Logo abaixo do link que ela mesma preenche: quem sobe a entrega vê o
-          resultado (o link) surgir ali em cima assim que termina, sem precisar
-          rolar a tela pra confirmar que funcionou. */}
-      {mostra("delivery") && (
-        <DeliveryUploadPanel
-          key={card.id}
-          cardId={card.id}
-          code={card.code}
-          assignees={card.assignees}
-          values={values}
-          fields={fields}
-          people={people}
-          onUploaded={onChanged}
         />
       )}
 
@@ -778,7 +783,9 @@ export default function CardDialog({
           )}
         </div>
       )}
+      </div>
 
+      <div className="cd-side">
       {mostra("activity") && (
       <div className="field">
         <span className="field-label" style={{ display: "flex", alignItems: "center", gap: "0.4rem" }}>
@@ -842,6 +849,26 @@ export default function CardDialog({
           )}
         </div>
       </div>
+      )}
+      </div>
+      </div>
+
+      {/* Fora da grade de duas colunas, de propósito: largura cheia, por ser
+          a última etapa antes de a demanda seguir pra revisão e subida dos
+          anúncios — um destaque de "fim de linha", não mais um campo entre
+          outros dentro da coluna principal. */}
+      {mostra("delivery") && (
+        <DeliveryUploadPanel
+          key={card.id}
+          cardId={card.id}
+          code={card.code}
+          assignees={card.assignees}
+          values={values}
+          fields={fields}
+          people={people}
+          emProducao={emProducao}
+          onUploaded={onChanged}
+        />
       )}
 
       {error && (

@@ -20,7 +20,7 @@ import {
 } from "@/lib/creator-copy";
 import { copyTargetBoard, groupIntake, topPosition, logActivity } from "@/lib/kanban-store";
 import { isPriority, matchOption, optionsFor, parseDueDate, serializeAssignees,
-  criarCardComCodigo,
+  criarCardComCodigo, validateValues, camposObrigatoriosFaltando,
 } from "@/lib/kanban";
 import {
   buildCopyCardTitle,
@@ -386,6 +386,58 @@ export async function POST(request: Request) {
     const campoPecas =
       camposDoQuadro.find((f) => f.type === "RANGE" || f.type === "NUMBER") ?? null;
     if (campoPecas) respostas[campoPecas.key] = pecas;
+
+    /*
+     * O que o gerador NÃO sabe preencher sozinho, e a tela já perguntou.
+     *
+     * Canal/formato/peças vêm do que o gerador já coleta pra escrever a
+     * copy — o resto (uma "Frente", por exemplo) não tem de onde vir daqui.
+     * `extraRespostas` é o valor que a tela manda depois de perguntar isso
+     * numa segunda rodada (ver `missingFields` abaixo). Só entra chave que é
+     * campo de verdade deste quadro — o resto seria a tela mandando qualquer
+     * coisa pra um card que ela não deveria conseguir escrever.
+     */
+    if (body.extraRespostas && typeof body.extraRespostas === "object") {
+      for (const [chave, valor] of Object.entries(body.extraRespostas)) {
+        if (camposDoQuadro.some((f) => f.key === chave)) respostas[chave] = valor;
+      }
+    }
+
+    /*
+     * "Frente" é a única pergunta extra que o gerador faz por conta própria.
+     *
+     * O quadro pode ter outros campos obrigatórios, mas esses são problema do
+     * formulário manual — o gerador de copy só sabe perguntar o que é dele
+     * (canal/formato/peças, acima) mais este, porque é o que a entrega de
+     * criativos (`DeliveryUploadPanel`) precisa para montar o nome do arquivo.
+     */
+    const campoFrente = acharCampo("frente");
+    const faltando = campoFrente
+      ? camposObrigatoriosFaltando(camposDoQuadro, respostas).filter(
+          (f) => f.key === campoFrente.key
+        )
+      : [];
+    if (faltando.length) {
+      return NextResponse.json(
+        {
+          error: `Responda "${faltando[0].label}" antes de enviar ao quadro.`,
+          missingFields: faltando,
+        },
+        { status: 400 }
+      );
+    }
+
+    /*
+     * Validação de verdade — a mesma que o formulário manual e o link público
+     * já confiam (`lib/kanban.ts`): confere opção válida, `dependsOn`, etc.
+     * `faltando` acima só via "vazio ou não"; isto pega o resto (uma opção
+     * que não existe mais no campo, por exemplo).
+     */
+    const validado = validateValues(camposDoQuadro, respostas);
+    if (!validado.ok) {
+      return NextResponse.json({ error: validado.error }, { status: 400 });
+    }
+    Object.assign(respostas, validado.values);
 
     const destino = await groupIntake(target.board.id, { groupId: body.groupId });
     if (!destino) {

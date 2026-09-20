@@ -447,7 +447,7 @@ export default function SistemaPage() {
               placeholder="xoxb-..."
               value={settings.slackBotToken}
               onChange={v => setSettings({ ...settings, slackBotToken: v })}
-              hint="Escopos: chat:write (postar o aviso) e channels:read + users:read (listar quem marcar). O bot precisa estar convidado no canal."
+              hint="Escopos: chat:write (postar o aviso), channels:read + users:read (listar quem marcar) e users:read.email (achar o Slack de cada responsável pelo e-mail cadastrado). O bot precisa estar convidado no canal."
             />
             <SettingsField
               label="Channel ID"

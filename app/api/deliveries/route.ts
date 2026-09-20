@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import prisma from "@/lib/prisma";
+import { pecasEntreguesPorCriador } from "@/lib/kanban-deliveries";
 
 export async function GET(req: Request) {
   try {
@@ -24,20 +25,12 @@ export async function GET(req: Request) {
       orderBy: { name: 'asc' }
     });
 
-    const deliveries = await prisma.delivery.findMany({
-      where: {
-        date: {
-          gte: startDate,
-          lte: endDate,
-        }
-      },
-      include: {
-        creator: true
-      },
-      orderBy: {
-        date: 'desc'
-      }
-    });
+    /*
+     * Espelho do quadro, não soma de um histórico gravado: um card reaberto
+     * some daqui sozinho, sem precisar de nenhuma limpeza. Ver
+     * `pecasEntreguesPorCriador` em `lib/kanban-deliveries.ts`.
+     */
+    const pecasPorCriador = await pecasEntreguesPorCriador(startDate, endDate);
 
     // Construir mapa com TODOS os criadores zerados inicialmente
     const rankingMap: Record<string, any> = {};
@@ -46,15 +39,8 @@ export async function GET(req: Request) {
         creatorId: c.id,
         name: c.name,
         acronym: c.acronym,
-        totalPieces: 0
+        totalPieces: pecasPorCriador.get(c.id) ?? 0
       };
-    });
-    
-    // Somar as entregas reais
-    deliveries.forEach((d: any) => {
-      if (rankingMap[d.creatorId]) {
-        rankingMap[d.creatorId].totalPieces += d.pieces;
-      }
     });
 
     const ranking = Object.values(rankingMap).sort((a: any, b: any) => {
@@ -63,7 +49,7 @@ export async function GET(req: Request) {
       return b.totalPieces - a.totalPieces;
     });
 
-    return NextResponse.json({ success: true, deliveries, ranking, teamCreativeGoal });
+    return NextResponse.json({ success: true, ranking, teamCreativeGoal });
   } catch (error: any) {
     console.error("Error fetching deliveries:", error);
     return NextResponse.json({ success: false, error: error.message }, { status: 500 });

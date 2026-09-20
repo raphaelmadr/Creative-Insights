@@ -24,17 +24,15 @@ import {
   parseAssignees,
   serializeAssignees,
   resolveMoveAssignees,
+  formatCardCode,
   PRIORITY_LABEL,
   type Priority,
 } from "@/lib/kanban";
 import { intakeColumnId, topPosition, logActivity } from "@/lib/kanban-store";
-import {
-  atualizarVolumetriaEntregue,
-  registrarEntregaDoCard,
-  volumetriaDoCard,
-} from "@/lib/kanban-deliveries";
+import { atualizarVolumetriaEntregue, registrarEntregaDoCard } from "@/lib/kanban-deliveries";
 import { normalizeCardLink } from "@/lib/card-link";
-import { enviarMensagemSlack, montarMensagemEntrega } from "@/lib/slack-delivery";
+import { enviarMensagemSlack, montarMensagemEntrega, buscarIdsSlackPorEmails } from "@/lib/slack-delivery";
+import { resolveCronBaseUrl } from "@/lib/cron-url";
 import { logWarning } from "@/lib/logger";
 
 /**
@@ -134,6 +132,7 @@ export async function PUT(request: Request) {
       const card = await prisma.boardCard.findUnique({
         where: { id: cardId },
         select: {
+          code: true,
           columnId: true,
           boardId: true,
           title: true,
@@ -143,7 +142,8 @@ export async function PUT(request: Request) {
           // A fase de ORIGEM: é a comparação com a de destino que diz se o card
           // mudou de time ou só andou dentro do mesmo. `isDone` entra para que
           // a entrega seja contada na CHEGADA à conclusão, e não a cada arrasto
-          // dentro dela — ver `registrarEntregaDoCard`.
+          // dentro dela — ver `registrarEntregaDoCard`. Também é metade do
+          // gatilho do aviso no Slack: ver mais abaixo.
           column: { select: { groupId: true, isDone: true } },
         },
       });
@@ -154,6 +154,7 @@ export async function PUT(request: Request) {
         select: {
           name: true,
           isDone: true,
+          isIntake: true,
           groupId: true,
           // A equipe mora na FASE. Ver `ownershipOf` em `lib/kanban.ts`.
           group: { select: { assignees: true, defaultAssignee: true } },
@@ -176,7 +177,8 @@ export async function PUT(request: Request) {
         target.group ?? {},
         mudouDeFase,
         atuais,
-        quemMoveu
+        quemMoveu,
+        target.isDone
       );
 
       const mudou =
@@ -248,30 +250,61 @@ export async function PUT(request: Request) {
         values: card.values,
         destinoConclui: target.isDone,
         origemConcluia: card.column?.isDone ?? false,
+        responsaveis: atuais,
         movidoPor: quemMoveu,
       });
 
       /*
-       * O aviso de entrega no Slack, na mesma transição pra coluna de
-       * conclusão que credita a volumetria — mas é um gatilho À PARTE, não
-       * uma consequência de `registrarEntregaDoCard`: aquela função conta
-       * entrega mesmo sem link nenhum (card movido sem passar pelo painel de
-       * upload), e avisar o Slack sem link nenhum pra mostrar não faz
-       * sentido. A condição de quando avisar mora aqui.
+       * O aviso de entrega no Slack é sobre a PASSAGEM DE BASTÃO entre dois
+       * grupos — não sobre chegar numa coluna de conclusão qualquer. Uma
+       * etapa de revisão interna também pode ser `isDone` sem que a demanda
+       * saia do grupo, e isso não é entrega pra ninguém de fora. O gatilho
+       * certo é sair de uma etapa de ENTREGA e cair numa etapa de ENTRADA —
+       * independente de quais grupos são.
        *
        * Sem `card.linkUrl`: não é erro, é o caminho normal de quem move o
        * card sem ter subido nada pelo painel novo ainda (ou nunca vai usar
        * essa forma de entrega) — vira aviso em Logs, não uma falha que
        * desfaria o movimento.
        */
-      if (target.isDone && !(card.column?.isDone ?? false)) {
+      if ((card.column?.isDone ?? false) && target.isIntake) {
         if (card.linkUrl) {
           try {
-            const pecas = await volumetriaDoCard(card.boardId, card.values, card.title);
+            /*
+             * Quem entregou: os responsáveis ANTES desta transição — quem
+             * estava com a demanda enquanto ela era produzida. `donos` já foi
+             * reatribuído acima para o time do grupo novo (pra onde a tarefa
+             * está indo AGORA), então não serve pra dizer quem a entregou.
+             */
+            const emailsDeQuemEntregou = atuais.length ? atuais : quemMoveu ? [quemMoveu] : [];
+            const pessoasDeQuemEntregou = emailsDeQuemEntregou.length
+              ? await prisma.user.findMany({
+                  where: { email: { in: emailsDeQuemEntregou } },
+                  select: { name: true, email: true },
+                })
+              : [];
+            const nomeDeQuemEntregou = emailsDeQuemEntregou.length
+              ? emailsDeQuemEntregou
+                  .map((email) => pessoasDeQuemEntregou.find((p) => p.email === email)?.name?.trim() || email)
+                  .join(", ")
+              : "alguém";
+
+            const { baseUrl, reachableExternally } = await resolveCronBaseUrl(request);
+            const cardUrl =
+              reachableExternally && baseUrl
+                ? `${baseUrl}/creator/kanban?board=${card.boardId}&card=${cardId}`
+                : null;
+
+            // Quem marcar: o time do grupo pra onde a tarefa ACABOU de
+            // entrar — os PRÓXIMOS responsáveis, já resolvido em `donos`.
+            const mencoes = await buscarIdsSlackPorEmails(donos);
+
             const mensagem = montarMensagemEntrega({
-              nome: user.name || user.email,
-              pecas,
-              conteudo: `<${card.linkUrl}|${card.title}>`,
+              codigo: formatCardCode(card.code) || card.title,
+              cardUrl,
+              responsavel: nomeDeQuemEntregou,
+              driveUrl: card.linkUrl,
+              mencoes,
             });
             await enviarMensagemSlack(mensagem);
           } catch (err) {
@@ -284,7 +317,7 @@ export async function PUT(request: Request) {
         } else {
           await logWarning(
             "ENTREGAS",
-            `"${card.title}" chegou à coluna de conclusão sem link de entrega (ninguém subiu arquivos pelo painel) — aviso do Slack não foi enviado.`,
+            `"${card.title}" saiu da entrega para "${target.name}" sem link de entrega (ninguém subiu arquivos pelo painel) — aviso do Slack não foi enviado.`,
             "app/api/creator/cards/route.ts"
           );
         }
@@ -449,6 +482,7 @@ export async function PUT(request: Request) {
         select: {
           name: true,
           groupId: true,
+          isDone: true,
           group: { select: { assignees: true, defaultAssignee: true } },
         },
       });
@@ -471,7 +505,8 @@ export async function PUT(request: Request) {
           destino?.group ?? {},
           mudouDeFase,
           parseAssignees(current.assignees),
-          quemMoveu
+          quemMoveu,
+          destino?.isDone ?? false
         );
       }
     }

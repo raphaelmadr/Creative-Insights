@@ -114,6 +114,60 @@ export function isFieldType(value: unknown): value is FieldType {
   return typeof value === "string" && (FIELD_TYPES as readonly string[]).includes(value);
 }
 
+/**
+ * As chaves que costumam guardar a volumetria, em ordem de preferência.
+ *
+ * Fonte única: `volumetriaDoCard` (`lib/kanban-deliveries.ts`, que consulta o
+ * banco) e `campoVolumetria` abaixo (puro, para quem já tem os campos em mãos
+ * — ex. um componente de cliente que não pode importar Prisma) usam a MESMA
+ * lista, pra nunca divergir sobre qual campo é a quantidade de peças.
+ */
+export const CHAVES_DE_VOLUMETRIA = ["numero_de_pecas", "pecas", "volumetria", "quantidade"];
+
+/**
+ * Qual campo do quadro responde por "quantidade de peças", sem ir ao banco.
+ *
+ * Mesma regra de `volumetriaDoCard`: nome reconhecido primeiro, e só quando
+ * há UM campo numérico só, ele vale por eliminação. Com dois ou mais e nenhum
+ * nome batendo, devolve `null` — quem chama decide o padrão (`volumetriaDoCard`
+ * loga o aviso; um componente de cliente, sem acesso a Logs, normalmente só
+ * assume 1).
+ */
+export function campoVolumetria(fields: { key: string; type: string }[]): string | null {
+  const numericos = fields.filter((f) => f.type === "NUMBER" || f.type === "RANGE");
+  return (
+    CHAVES_DE_VOLUMETRIA.find((c) => numericos.some((f) => f.key === c)) ??
+    (numericos.length === 1 ? numericos[0].key : null)
+  );
+}
+
+/**
+ * Quais campos obrigatórios do quadro ainda não têm resposta em `values`.
+ *
+ * Existe porque nem todo caminho de criação de card passa pelo formulário
+ * (que já barra o envio sem resposta obrigatória): o gerador de copy cria o
+ * card direto, preenchendo só canal/formato/quantidade — qualquer OUTRO
+ * campo obrigatório que o quadro tenha (ex.: "Frente") nunca era perguntado,
+ * e o card nascia com uma resposta faltando sem ninguém perceber até uma
+ * feature que dependesse dela (a nomenclatura de entrega, por exemplo) parar
+ * de funcionar.
+ *
+ * Mesma noção de "vazio" de `validateValues`, sem os efeitos colaterais dele
+ * (não corrige RANGE, não valida opção) — é uma pergunta mais simples: falta
+ * ou não falta, pra decidir se pergunta antes de criar o card.
+ */
+export function camposObrigatoriosFaltando<T extends { key: string; required: boolean; type: string }>(
+  fields: T[],
+  values: Record<string, unknown>
+): T[] {
+  return fields.filter((f) => {
+    if (!f.required) return false;
+    if ((f.type as FieldType) === "RANGE") return false; // nunca vazio — ver validateValues
+    const raw = values[f.key];
+    return raw === undefined || raw === null || raw === "" || (Array.isArray(raw) && raw.length === 0);
+  });
+}
+
 export const PRIORITIES = ["BAIXA", "MEDIA", "ALTA", "URGENTE"] as const;
 export type Priority = (typeof PRIORITIES)[number];
 
@@ -936,8 +990,8 @@ export const CARD_PANEL_SECTIONS = [
   },
   {
     key: "link",
-    label: "Link das artes",
-    hint: "A pasta do Drive da demanda, no topo do painel.",
+    label: "Link da Entrega",
+    hint: "A pasta do Drive da entrega, no topo do painel.",
     fonte: "linkUrl",
     default: true,
     edita: true,
@@ -990,14 +1044,16 @@ export const CARD_PANEL_SECTIONS = [
   {
     /*
      * Sem `fonte`, mesmo motivo de "attachments": não é resposta de pergunta
-     * nenhuma. Some sozinho quando o Drive não está configurado (ver
-     * `DeliveryUploadPanel`) — "não configurado" aparece dentro da seção, não
-     * como a seção inteira faltando, porque quem abre o card precisa entender
-     * por que não tem onde subir a entrega, não só notar a ausência.
+     * nenhuma. A seção continua aparecendo mesmo sem poder enviar ainda —
+     * "Drive não configurado" e "demanda fora de uma etapa de produção" (ver
+     * `BoardColumn.isProduction`) aparecem como texto DENTRO dela (ver
+     * `DeliveryUploadPanel`), não como a seção inteira faltando, porque quem
+     * abre o card precisa entender por que não tem onde subir a entrega, não
+     * só notar a ausência.
      */
     key: "delivery",
     label: "Entrega de criativos",
-    hint: "Solta o lote de arquivos de uma vez — nomeia, organiza no Drive e libera o link sozinho.",
+    hint: "Solta o lote de arquivos de uma vez — nomeia, organiza no Drive e libera o link sozinho. Só habilitado numa etapa marcada como Produção.",
     default: true,
   },
   {
@@ -1489,13 +1545,28 @@ export function resolveMoveAssignee(
  *
  * A atribuição manual sobrevive a tudo isto: ela acontece pelo painel do card,
  * por outro caminho, e não passa por aqui.
+ *
+ * TERCEIRA situação, e ela vem antes das outras duas: **chegar numa etapa de
+ * conclusão**. Isso não é "há trabalho novo na fila do time" nem "alguém
+ * pegou" — é o fim do trabalho, não o começo de outro. Reatribuir para o time
+ * inteiro do grupo de destino (a regra de "chegar numa fase") credita a
+ * entrega a quem vai TRABALHAR na próxima etapa, não a quem produziu esta —
+ * era assim que uma demanda da Criação, entregue direto numa etapa de
+ * conclusão de outro grupo, deixava de contar pra quem a fez. O dono
+ * continua sendo quem já estava com ela, e é essa pessoa que o dash de
+ * equipe credita (ver `lib/kanban-deliveries.ts`) e que o aviso de entrega no
+ * Slack nomeia como quem entregou (ver `lib/slack-delivery.ts`).
  */
 export function resolveMoveAssignees(
   destino: StageOwnership,
   mudouDeFase: boolean,
   atuais: string[],
-  mover: string | null | undefined
+  mover: string | null | undefined,
+  /** A etapa de destino é de conclusão? Ver o parágrafo acima. */
+  destinoConclui: boolean = false
 ): string[] {
+  if (destinoConclui) return atuais;
+
   const equipe = parseAssignees(destino.assignees);
   const quemMoveu = normalizePerson(mover);
 

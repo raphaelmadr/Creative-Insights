@@ -966,6 +966,56 @@ button.filter-control:hover {
   gap: 0.9rem;
 }
 
+/*
+ * O card aberto (CardDialog): conteúdo da demanda à esquerda, Acompanhamento
+ * fixo à direita — ver o comentário em CardDialog.tsx. `.cd-main`/`.cd-side`
+ * repetem o mesmo flex-column + gap que `.modal-body` já dava a cada campo
+ * como filho direto; um nível de aninhamento a mais não pode encolher o
+ * espaçamento entre eles.
+ */
+.cd-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 260px;
+  gap: 1.2rem;
+  align-items: start;
+}
+.cd-main {
+  display: flex;
+  flex-direction: column;
+  gap: 0.9rem;
+  min-width: 0;
+}
+.cd-side {
+  display: flex;
+  flex-direction: column;
+  gap: 0.9rem;
+  min-width: 0;
+  padding-left: 1.2rem;
+  border-left: 1px solid var(--card-border);
+  /* Gruda no topo do próprio scroll do modal-body: a coluna principal pode
+     ser bem mais longa que o histórico, e sem isto o Acompanhamento sumiria
+     lá embaixo assim que a pessoa rolasse a tela — o oposto do pedido, que é
+     conseguir acompanhar tudo sem perder de vista. */
+  position: sticky;
+  top: 0;
+  max-height: calc(90vh - 160px);
+  overflow-y: auto;
+}
+@media (max-width: 720px) {
+  .cd-grid {
+    grid-template-columns: 1fr;
+  }
+  .cd-side {
+    padding-left: 0;
+    padding-top: 1.2rem;
+    border-left: none;
+    border-top: 1px solid var(--card-border);
+    position: static;
+    max-height: none;
+    overflow-y: visible;
+  }
+}
+
 .modal-footer {
   display: flex;
   gap: 0.6rem;

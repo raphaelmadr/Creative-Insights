@@ -12,7 +12,11 @@
       "Read(//tmp/**)",
       "Bash(curl -sS --max-time 15 \"http://localhost:3000/api/db-ads?days=30\" -o /tmp/dbads2.json -w \"HTTP %{http_code} in %{time_total}s\\\\n\")",
       "Bash(curl -sS --max-time 180 -X POST \"http://localhost:3000/api/sync-meta\" -o /tmp/sync9.json -w \"HTTP %{http_code} in %{time_total}s\\\\n\")",
-      "Bash(curl -sS --max-time 10 \"http://localhost:3000/\" -o /dev/null -w \"HTTP %{http_code}\\\\n\")"
+      "Bash(curl -sS --max-time 10 \"http://localhost:3000/\" -o /dev/null -w \"HTTP %{http_code}\\\\n\")",
+      "Bash(grep -n \"google-auth-library\\\\|googleapis\" ~/Downloads/ad-naming-tool-handoff/package.json)",
+      "Read(//Users/raphael/Downloads/ad-naming-tool-handoff/**)",
+      "Bash(tail -40 /tmp/creative-insights-dev.log)",
+      "Read(//private/tmp/**)"
     ]
   }
 }
