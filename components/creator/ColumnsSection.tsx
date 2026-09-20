@@ -18,6 +18,8 @@ export interface ColumnDefinition {
   groupId: string | null;
   isIntake: boolean;
   isDone: boolean;
+  /** Libera o painel "Entrega de criativos" dentro do card. Ver `CardDialog`. */
+  isProduction: boolean;
   wipLimit: number | null;
   position: number;
 }
@@ -25,11 +27,20 @@ export interface ColumnDefinition {
 /**
  * As etapas do quadro.
  *
- * Duas marcas importam e são exclusivas dentro do quadro: a coluna de
- * **entrada**, onde toda demanda nova aparece, e a de **entrega**, que carimba
- * a conclusão do card. Sem elas explícitas, a primeira e a última coluna
- * passariam a ter significado só pela posição — e reordenar o quadro mudaria,
- * sem aviso, onde as demandas caem.
+ * Três marcas importam: a coluna de **entrada**, onde chega o que é novo pra
+ * um grupo, a de **entrega**, que carimba a conclusão do card, e a de
+ * **produção**, que libera o painel de subir os arquivos da entrega. Sem elas
+ * explícitas, a primeira e a última coluna passariam a ter significado só
+ * pela posição — e reordenar o quadro mudaria, sem aviso, onde as demandas
+ * caem.
+ *
+ * Entrada é exclusiva dentro do GRUPO, não do quadro inteiro: cada grupo pode
+ * ter a sua. A do grupo mais cedo do quadro é quem recebe demanda nova do
+ * formulário e do gerador de copy (`intakeColumnId`); a de qualquer outro
+ * grupo marca onde uma passagem de bastão de outro grupo pousa — é a metade
+ * "chegada" do aviso de entrega no Slack (ver `lib/slack-delivery.ts`).
+ * Entrega e produção não são exclusivas nem aqui nem lá: um quadro pode ter
+ * mais de uma etapa de conclusão, e mais de uma etapa de produção.
  */
 
 /** As cores possíveis para o topo de uma coluna — todas do design system. */
@@ -75,18 +86,28 @@ const ColumnsSection = React.forwardRef<
     return data;
   };
 
-  const mexer = (id: string, mudanca: Partial<ColumnDefinition>) =>
+  const mexer = (id: string, mudanca: Partial<ColumnDefinition>) => {
+    // O grupo da etapa mexida — o novo, se está mudando nesta mesma tacada,
+    // senão o que ela já tinha. É contra ELE que a exclusividade se mede.
+    const alvo = draft.find((d) => d.id === id);
+    const grupoDoAlvo = mudanca.groupId !== undefined ? mudanca.groupId : alvo?.groupId ?? null;
+
     setDraft(
       draft.map((c) => {
         if (c.id === id) return { ...c, ...mudanca };
         /*
-         * Entrada é exclusiva no quadro — o servidor desmarca as demais ao
-         * gravar. O rascunho faz o mesmo na hora, senão a tela mostraria duas
-         * entradas marcadas até alguém salvar e descobrir qual das duas venceu.
+         * Entrada é exclusiva DENTRO DO GRUPO — o servidor desmarca as demais
+         * do mesmo grupo ao gravar. O rascunho faz o mesmo na hora, senão a
+         * tela mostraria duas entradas marcadas no mesmo grupo até alguém
+         * salvar e descobrir qual das duas venceu.
          */
-        return mudanca.isIntake === true ? { ...c, isIntake: false } : c;
+        if (mudanca.isIntake === true && c.groupId === grupoDoAlvo) {
+          return { ...c, isIntake: false };
+        }
+        return c;
       })
     );
+  };
 
   /** Um PUT por etapa alterada, com todas as edições dela juntas. */
   const salvar = async (): Promise<boolean> => {
@@ -114,6 +135,7 @@ const ColumnsSection = React.forwardRef<
           groupId: c.groupId,
           isIntake: c.isIntake,
           isDone: c.isDone,
+          isProduction: c.isProduction,
           wipLimit: c.wipLimit,
         });
       }
@@ -334,7 +356,7 @@ const ColumnsSection = React.forwardRef<
               type="button"
               className="btn btn-toggle"
               aria-pressed={column.isIntake}
-              title="Toda demanda nova entra por esta etapa"
+              title="Entrada do grupo desta etapa — no primeiro grupo do quadro, também recebe demanda nova"
               style={{ padding: "0.35rem 0.7rem", fontSize: "var(--text-caption)" }}
               onClick={() => mexer(column.id, { isIntake: !column.isIntake })}
             >
@@ -350,6 +372,17 @@ const ColumnsSection = React.forwardRef<
               onClick={() => mexer(column.id, { isDone: !column.isDone })}
             >
               Entrega
+            </button>
+
+            <button
+              type="button"
+              className="btn btn-toggle"
+              aria-pressed={column.isProduction}
+              title="Libera o envio de arquivos de entrega dentro do card, só a partir daqui"
+              style={{ padding: "0.35rem 0.7rem", fontSize: "var(--text-caption)" }}
+              onClick={() => mexer(column.id, { isProduction: !column.isProduction })}
+            >
+              Produção
             </button>
 
             <input

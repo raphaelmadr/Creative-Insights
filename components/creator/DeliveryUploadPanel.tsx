@@ -11,19 +11,20 @@
  * (vídeo e animação usam a mesma extensão, não dá pra adivinhar) e quantas
  * peças têm.
  *
- * "Quantidade" aqui é local ao envio, não o valor do campo de volumetria do
- * quadro — são perguntas parecidas, mas não a mesma: a volumetria mede
- * entregas pro ranking do time (`lib/kanban-deliveries.ts`), enquanto esta
- * conta quantas peças o CASAMENTO de arquivos deste envio precisa preencher.
- * Concordam na prática, mas fazê-las a mesma coisa exigiria expor a lógica de
- * `volumetriaDoCard` (que consulta o banco) pro navegador.
+ * "Quantidade" parte da mesma resposta que já conta pro ranking de entregas
+ * (`campoVolumetria`, a versão sem banco de `volumetriaDoCard` em
+ * `lib/kanban-deliveries.ts`) — é o que já foi definido na abertura da
+ * demanda, então pedir de novo aqui seria a mesma pergunta duas vezes. Fica
+ * editável porque a quantidade real pode mudar entre a abertura e a entrega
+ * (o card aberto já permite essa correção há um tempo), não porque as duas
+ * perguntas sejam independentes.
  */
 
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { UploadCloud, X, Loader2, CheckCircle2, ImageIcon, Video } from "lucide-react";
 import type { FieldDefinition } from "./FieldInput";
 import type { PersonOption } from "./DemandDialog";
-import { formatCardCode, parseAssignees } from "@/lib/kanban";
+import { formatCardCode, parseAssignees, campoVolumetria } from "@/lib/kanban";
 import {
   type DeliveryFormat,
   type ArquivoParaCasar,
@@ -132,6 +133,7 @@ export default function DeliveryUploadPanel({
   values,
   fields,
   people,
+  emProducao,
   onUploaded,
 }: {
   cardId: string;
@@ -141,12 +143,27 @@ export default function DeliveryUploadPanel({
   fields: FieldDefinition[];
   /** Pra resolver a sigla do responsável (`rm`, `ez`...) — mesma lista que o seletor de responsável já usa. */
   people: PersonOption[];
+  /** A etapa ATUAL do card é de produção? Ver `BoardColumn.isProduction`. */
+  emProducao: boolean;
   onUploaded: () => void;
 }) {
   const [driveOk, setDriveOk] = useState<boolean | null>(null);
   const [formato, setFormato] = useState<DeliveryFormat>("estatico");
-  const [quantidade, setQuantidade] = useState(1);
+  /*
+   * Parte da resposta real de quantidade de peças, não de 1 fixo — o
+   * componente inteiro remonta a cada card (`key={card.id}` em
+   * `CardDialog`), então o inicializador do `useState` roda de novo pra cada
+   * demanda aberta.
+   */
+  const [quantidade, setQuantidade] = useState(() => {
+    const chave = campoVolumetria(fields);
+    const bruto = chave ? values[chave] : undefined;
+    const n = typeof bruto === "number" ? bruto : Number(String(bruto ?? "").trim());
+    return Number.isFinite(n) && n > 0 ? Math.floor(n) : 1;
+  });
   const [pool, setPool] = useState<ArquivoLocal[]>([]);
+  /** Escolha manual por posição (`"0:feed"`, `"1:video"`...), por cima da sugestão automática. */
+  const [overrides, setOverrides] = useState<Record<string, number>>({});
   const [enviando, setEnviando] = useState(false);
   const [progresso, setProgresso] = useState<Record<number, number>>({});
   const [erro, setErro] = useState<string | null>(null);
@@ -181,6 +198,20 @@ export default function DeliveryUploadPanel({
       ? [String(frentesResposta)]
       : [];
   const validacaoFrentes = frenteField ? validarFrentes(frentes) : { ok: true as const };
+  /*
+   * Mensagem específica pro caso mais comum: card sem resposta de "frente"
+   * ainda (de antes do campo existir, ou aberto sem responder). A mensagem
+   * genérica de `validarFrentes` ("escolha ao menos uma") não diz ONDE — quem
+   * não sabe que "frente" é uma pergunta do formulário fica sem pista do que
+   * fazer. Usada tanto no aviso passivo quanto no bloqueio de `enviarTudo`,
+   * pra não dizer uma coisa na tela e outra no clique.
+   */
+  const mensagemFrenteInvalida =
+    frentes.length === 0
+      ? 'Este card não tem resposta para "Frente" — responda essa pergunta em "Respostas do formulário", no topo do card, e salve antes de enviar a entrega.'
+      : validacaoFrentes.ok
+        ? null
+        : validacaoFrentes.erro || "Frente inválida.";
 
   /*
    * A sigla do responsável — mesma convenção do Pedro (`rm`, `ez`, `pp`...),
@@ -213,9 +244,62 @@ export default function DeliveryUploadPanel({
     });
   }, [pool, quantidade, formato, frentes, responsavel, idCard]);
 
+  /*
+   * O casamento automático é sugestão, não decisão — cada posição (Feed,
+   * Story, ou o arquivo único do vídeo) é clicável na tela e aceita escolha
+   * manual, que vence a sugestão. Sem isto, uma proporção mal medida ou um
+   * lote fora do padrão não tinha como ser corrigido: a peça simplesmente
+   * ficava "sem arquivo" e não existia jeito de apontar qual era.
+   */
+  const casamentoFinal: CasamentoPeca[] = useMemo(() => {
+    return Array.from({ length: quantidade }, (_, indice) => {
+      const auto = casamento[indice] ?? { confiancas: {} };
+      const feed = overrides[`${indice}:feed`] ?? auto.feed;
+      const story = overrides[`${indice}:story`] ?? auto.story;
+      const video = overrides[`${indice}:video`] ?? auto.video;
+      return {
+        feed,
+        story,
+        video,
+        confiancas: {
+          ...auto.confiancas,
+          ...(overrides[`${indice}:feed`] != null ? { feed: true } : {}),
+          ...(overrides[`${indice}:story`] != null ? { story: true } : {}),
+          ...(overrides[`${indice}:video`] != null ? { video: true } : {}),
+        },
+      };
+    });
+  }, [casamento, overrides, quantidade]);
+
+  /** Mede o arquivo escolhido na hora, adiciona ao lote e amarra à posição clicada. */
+  const escolherManual = async (indice: number, slot: "feed" | "story" | "video", file: File) => {
+    const { ratio } = await medirArquivo(file);
+    const dot = file.name.lastIndexOf(".");
+    const poolIndex = proximoIndice.current++;
+    const novo: ArquivoLocal = {
+      poolIndex,
+      base: dot > -1 ? file.name.slice(0, dot) : file.name,
+      extensao: dot > -1 ? file.name.slice(dot + 1) : "",
+      ratio,
+      file,
+    };
+    setPool((atual) => [...atual, novo]);
+    setOverrides((atual) => ({ ...atual, [`${indice}:${slot}`]: poolIndex }));
+    setConcluido(null);
+  };
+
+  /** Volta a posição pra sugestão automática (ou pra "sem arquivo", se não houver sugestão). */
+  const limparPosicao = (indice: number, slot: "feed" | "story" | "video") => {
+    setOverrides((atual) => {
+      const { [`${indice}:${slot}`]: _removido, ...resto } = atual;
+      return resto;
+    });
+  };
+
   const trocarFormato = (novo: DeliveryFormat) => {
     setFormato(novo);
     setPool([]);
+    setOverrides({});
     setErro(null);
     setConcluido(null);
   };
@@ -245,6 +329,7 @@ export default function DeliveryUploadPanel({
 
   const limpar = () => {
     setPool([]);
+    setOverrides({});
     proximoIndice.current = 0;
     setErro(null);
     setConcluido(null);
@@ -255,8 +340,8 @@ export default function DeliveryUploadPanel({
       setErro("Este card não tem um código (MKT-XXXX) — não é possível nomear a entrega.");
       return;
     }
-    if (!validacaoFrentes.ok) {
-      setErro(validacaoFrentes.erro || "Frente inválida.");
+    if (mensagemFrenteInvalida) {
+      setErro(mensagemFrenteInvalida);
       return;
     }
 
@@ -277,7 +362,7 @@ export default function DeliveryUploadPanel({
       const temPosicoes = formatoTemPosicoes(formato);
 
       for (let indice = 0; indice < quantidade; indice++) {
-        const peca = casamento[indice];
+        const peca = casamentoFinal[indice];
         if (!peca) continue;
 
         const slots: { chave: "feed" | "story" | "video"; poolIndex: number | null | undefined; parentId: string }[] = temPosicoes
@@ -334,6 +419,26 @@ export default function DeliveryUploadPanel({
 
   if (driveOk === null) return null; // carregando — evita o "não configurado" piscar antes da resposta
 
+  /*
+   * Sem a etapa certa, sem envio — de propósito. É a garantia pedida: ninguém
+   * sobe arquivo de entrega antes de a demanda estar numa etapa de produção
+   * (`BoardColumn.isProduction`, marcada em Preferências › Etapas). A seção
+   * continua visível, com o motivo escrito, em vez de simplesmente sumir —
+   * quem abre o card precisa entender por que não pode enviar ainda, não só
+   * notar a ausência do botão.
+   */
+  if (!emProducao) {
+    return (
+      <div className="field">
+        <span className="field-label">Entrega de criativos</span>
+        <span className="field-hint">
+          Esta demanda ainda não está numa etapa de produção — mova o card para lá antes de
+          enviar os arquivos da entrega.
+        </span>
+      </div>
+    );
+  }
+
   if (!driveOk) {
     return (
       <div className="field">
@@ -346,7 +451,7 @@ export default function DeliveryUploadPanel({
     );
   }
 
-  const totalSlots = casamento.reduce(
+  const totalSlots = casamentoFinal.reduce(
     (acc, peca) => acc + (formatoTemPosicoes(formato) ? (peca.feed != null ? 1 : 0) + (peca.story != null ? 1 : 0) : peca.video != null ? 1 : 0),
     0
   );
@@ -394,9 +499,9 @@ export default function DeliveryUploadPanel({
           Este quadro não tem o campo "frente" — a entrega sai sem essa parte no nome.
         </span>
       )}
-      {frenteField && !validacaoFrentes.ok && (
+      {frenteField && mensagemFrenteInvalida && (
         <span className="field-hint" role="alert" style={{ color: "var(--danger)" }}>
-          {validacaoFrentes.erro}
+          {mensagemFrenteInvalida}
         </span>
       )}
 
@@ -435,44 +540,85 @@ export default function DeliveryUploadPanel({
         />
       </div>
 
-      {pool.length > 0 && (
+      {/*
+        As posições aparecem sempre, mesmo sem nenhum arquivo ainda — cada
+        uma é clicável e abre um seletor pra ESSA posição específica. Antes
+        elas só existiam depois de soltar algo na caixa de cima, e mesmo
+        assim eram só texto: mostravam o casamento automático sem nenhum
+        jeito de escolher ou corrigir manualmente qual arquivo ia em qual
+        posição.
+      */}
+      {idCard && (
         <>
           <div style={{ display: "flex", flexDirection: "column", gap: "0.4rem" }}>
             {Array.from({ length: quantidade }, (_, indice) => {
-              const peca = casamento[indice];
+              const peca = casamentoFinal[indice];
               const temPosicoes = formatoTemPosicoes(formato);
-              const linhas = temPosicoes
+              const slots = temPosicoes
                 ? ([
-                    ["Feed", peca?.feed, peca?.confiancas.feed],
-                    ["Story", peca?.story, peca?.confiancas.story],
-                  ] as const)
-                : ([["Arquivo", peca?.video, peca?.confiancas.video]] as const);
+                    ["Feed", "feed", peca?.feed, peca?.confiancas.feed] as const,
+                    ["Story", "story", peca?.story, peca?.confiancas.story] as const,
+                  ])
+                : ([["Arquivo", "video", peca?.video, peca?.confiancas.video] as const]);
 
               return (
                 <div
                   key={indice}
                   style={{
-                    display: "flex", flexDirection: "column", gap: "0.2rem",
+                    display: "flex", flexDirection: "column", gap: "0.3rem",
                     padding: "0.6rem 0.8rem", borderRadius: "8px",
                     border: "1px solid var(--card-border)", fontSize: "var(--text-caption)",
                   }}
                 >
                   <strong>Peça {indice + 1}</strong>
-                  {linhas.map(([rotulo, poolIndex, autoDetectado]) => {
+                  {slots.map(([rotulo, slotKey, poolIndex, autoDetectado]) => {
                     const arquivo = poolIndex != null ? pool.find((p) => p.poolIndex === poolIndex) : null;
                     return (
-                      <div key={rotulo} style={{ display: "flex", justifyContent: "space-between", gap: "0.5rem" }}>
-                        <span style={{ color: "var(--muted)" }}>{rotulo}:</span>
-                        {arquivo ? (
-                          <span>
-                            {arquivo.base}.{arquivo.extensao}
-                            {autoDetectado === false && (
-                              <em style={{ opacity: 0.7 }}> (por proporção — confira)</em>
+                      <div key={rotulo} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "0.5rem" }}>
+                        <span style={{ color: "var(--muted)", flexShrink: 0 }}>{rotulo}:</span>
+                        <label
+                          style={{
+                            flex: 1, minWidth: 0, cursor: enviando ? "default" : "pointer",
+                            display: "flex", alignItems: "center", justifyContent: "flex-end", gap: "0.4rem",
+                            padding: "0.2rem 0.4rem", borderRadius: "6px",
+                            border: `1px dashed ${arquivo ? "transparent" : "var(--card-border)"}`,
+                            color: arquivo ? "var(--foreground)" : "var(--muted)",
+                          }}
+                          title={arquivo ? "Clique pra trocar o arquivo desta posição" : "Clique pra escolher o arquivo desta posição"}
+                        >
+                          <input
+                            type="file"
+                            accept={formato === "estatico" ? "image/png,image/jpeg,image/webp" : "video/mp4,video/quicktime,video/webm,image/png,image/jpeg,image/webp"}
+                            hidden
+                            disabled={enviando}
+                            onChange={(e) => {
+                              const escolhido = e.target.files?.[0];
+                              if (escolhido) escolherManual(indice, slotKey, escolhido);
+                              e.target.value = "";
+                            }}
+                          />
+                          <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                            {arquivo ? (
+                              <>
+                                {arquivo.base}.{arquivo.extensao}
+                                {autoDetectado === false && <em style={{ opacity: 0.7 }}> (por proporção — confira)</em>}
+                                {progresso[arquivo.poolIndex] != null && enviando && ` — ${progresso[arquivo.poolIndex]}%`}
+                              </>
+                            ) : (
+                              "clique pra escolher"
                             )}
-                            {progresso[arquivo.poolIndex] != null && enviando && ` — ${progresso[arquivo.poolIndex]}%`}
                           </span>
-                        ) : (
-                          <span style={{ opacity: 0.6 }}>sem arquivo</span>
+                        </label>
+                        {arquivo && !enviando && (
+                          <button
+                            type="button"
+                            className="btn btn-icon"
+                            title="Voltar pra sugestão automática"
+                            onClick={() => limparPosicao(indice, slotKey)}
+                            style={{ flexShrink: 0, width: "1.4rem", height: "1.4rem" }}
+                          >
+                            <X size={11} />
+                          </button>
                         )}
                       </div>
                     );
@@ -482,15 +628,17 @@ export default function DeliveryUploadPanel({
             })}
           </div>
 
-          <div style={{ display: "flex", gap: "0.5rem", alignItems: "center" }}>
-            <button type="button" className="btn btn-primary" disabled={enviando} onClick={enviarTudo}>
+          <div style={{ display: "flex", gap: "0.5rem", alignItems: "center", flexWrap: "wrap" }}>
+            <button type="button" className="btn btn-primary" disabled={enviando || totalSlots === 0} onClick={enviarTudo}>
               {enviando ? <Loader2 size={14} className="spin" /> : <UploadCloud size={14} />}
               {enviando ? "Enviando…" : "Enviar entrega"}
             </button>
-            <button type="button" className="btn btn-secondary" disabled={enviando} onClick={limpar}>
-              <X size={14} />
-              Limpar
-            </button>
+            {(pool.length > 0 || Object.keys(overrides).length > 0) && (
+              <button type="button" className="btn btn-secondary" disabled={enviando} onClick={limpar}>
+                <X size={14} />
+                Limpar
+              </button>
+            )}
             <span style={{ fontSize: "var(--text-caption)", color: "var(--muted)" }}>
               {totalSlots} de {totalEsperado} posições identificadas
             </span>

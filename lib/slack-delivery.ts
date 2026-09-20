@@ -30,26 +30,36 @@ export async function lerCredenciaisSlack(): Promise<SlackCredentials | null> {
   return { botToken: settings.slackBotToken, channelId: settings.slackChannelId };
 }
 
-/** Monta a mensagem no mesmo formato do Pedro (`lib/slack.js:29-35`). */
+/**
+ * Monta o aviso de handoff: a demanda saiu de uma etapa de Entrega e entrou
+ * numa etapa de Entrada de outro grupo — é essa transição, e só ela, que
+ * dispara a mensagem (ver o gatilho em `app/api/creator/cards/route.ts`).
+ *
+ * Formato exato pedido pela Raphael, sem emoji nem contagem de peças (o
+ * antigo "📦 N peças 📦" saiu — a mensagem é sobre QUEM entregou e QUEM é o
+ * próximo, não sobre volumetria, que já tem o próprio lugar no dash de
+ * equipe).
+ */
 export function montarMensagemEntrega(params: {
-  nome: string;
-  pecas: number;
-  /** Texto já linkado, ex.: `<https://drive.google.com/...|MKT-42 · nome-do-lote>`. */
-  conteudo: string;
-  /** IDs do Slack (`U0123...`) de quem marcar. Vazio usa o padrão do time. */
-  mencoes?: string[];
+  /** "MKT-42", já formatado — ver `formatCardCode`. */
+  codigo: string;
+  /** Link do card já aberto na plataforma. `null` quando o domínio público não pôde ser resolvido — entra sem link, nunca com um endereço local inútil pra quem lê no Slack. */
+  cardUrl: string | null;
+  /** Nome de quem tinha a demanda antes desta transição — quem a entregou. */
+  responsavel: string;
+  driveUrl: string;
+  /** IDs do Slack (`U0123...`) do time do grupo pra onde a tarefa entrou. */
+  mencoes: string[];
 }): string {
-  const n = Number(params.pecas);
-  const qtdTxt = n > 0 ? `${n} peça${n === 1 ? "" : "s"}` : "";
-  const marcacoes = (params.mencoes?.length ? params.mencoes : []).map((id) => `<@${id}>`).join(" ");
-  const linhaFinal = marcacoes || null;
+  const idTexto = params.cardUrl ? `<${params.cardUrl}|${params.codigo}>` : params.codigo;
+  const marcacoes = params.mencoes.map((id) => `<@${id}>`).join(" ");
 
-  return [
-    `📦Nova demanda entregue por ${params.nome}!${qtdTxt ? " " + qtdTxt : ""} 📦`,
-    "",
-    params.conteudo,
-    ...(linhaFinal ? ["", linhaFinal] : []),
-  ].join("\n");
+  const linhas = [
+    `A tarefa ${idTexto} foi entregue por ${params.responsavel}.`,
+    `Link do Google Drive: ${params.driveUrl}`,
+  ];
+  if (marcacoes) linhas.push("", marcacoes);
+  return linhas.join("\n");
 }
 
 /**
@@ -73,6 +83,40 @@ export async function enviarMensagemSlack(texto: string): Promise<void> {
   if (!res.ok || !json.ok) {
     throw new Error(`Slack recusou a mensagem: ${json.error || res.status}`);
   }
+}
+
+/**
+ * Slack de cada responsável, a partir do e-mail corporativo (`Creator.userEmail`
+ * / `BoardGroup.assignees`) — é assim que a mensagem marca quem o QUADRO já diz
+ * ser responsável pela demanda, em vez de exigir escolher de novo a cada
+ * entrega (o que o ad-naming-tool do Pedro fazia, com um único nome fixo de
+ * reserva quando ninguém escolhia). Usa `users.lookupByEmail`, um escopo a
+ * mais (`users:read.email`) além dos que já lêem o canal.
+ *
+ * Quem não tem conta no workspace com esse e-mail — ou o escopo não foi dado —
+ * simplesmente não aparece na lista; a mensagem sai do mesmo jeito, só sem
+ * marcar essa pessoa. Uma falha de busca não pode impedir o aviso de sair.
+ */
+export async function buscarIdsSlackPorEmails(emails: string[]): Promise<string[]> {
+  const creds = await lerCredenciaisSlack();
+  const unicos = [...new Set(emails.filter(Boolean))];
+  if (!creds || !unicos.length) return [];
+
+  const ids = await Promise.all(
+    unicos.map(async (email) => {
+      try {
+        const res = await fetch(`${SLACK_API}/users.lookupByEmail?email=${encodeURIComponent(email)}`, {
+          headers: { Authorization: `Bearer ${creds.botToken}` },
+        });
+        const json = await res.json();
+        return json.ok && json.user ? (json.user.id as string) : null;
+      } catch {
+        return null;
+      }
+    })
+  );
+
+  return ids.filter((id): id is string => !!id);
 }
 
 export interface MembroSlack {

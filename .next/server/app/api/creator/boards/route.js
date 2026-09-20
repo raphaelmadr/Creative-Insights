@@ -1,6 +1,6 @@
 var R=require("../../../../chunks/[turbopack]_runtime.js")("server/app/api/creator/boards/route.js")
 R.c("server/chunks/[root-of-the-server]__0x7zqj9._.js")
-R.c("server/chunks/[root-of-the-server]__0hxsg16._.js")
+R.c("server/chunks/[root-of-the-server]__0x93pa2._.js")
 R.c("server/chunks/node_modules_next_dist_esm_build_templates_app-route_0mo0ego.js")
 R.c("server/chunks/lib_kanban_ts_1s0jppd._.js")
 R.c("server/chunks/[root-of-the-server]__15bjnu5._.js")

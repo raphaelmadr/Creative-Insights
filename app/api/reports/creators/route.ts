@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import prisma from "@/lib/prisma";
 import { isActiveStatus } from "@/lib/ad-status";
 import { splitAcronyms } from "@/lib/designer-match";
+import { pecasEntreguesPorCriador } from "@/lib/kanban-deliveries";
 
 export async function GET(request: Request) {
   try {
@@ -81,14 +82,14 @@ export async function GET(request: Request) {
       }
     });
 
-    const deliveries = await prisma.delivery.findMany({
-      where: {
-        date: {
-          gte: startDate,
-          lte: endDate
-        }
-      }
-    });
+    /*
+     * Espelho do quadro, não soma de um histórico gravado — ver
+     * `pecasEntreguesPorCriador` em `lib/kanban-deliveries.ts`. Pro mês
+     * corrente isso é recalculado a cada leitura; pra um mês passado, só
+     * nesta primeira vez, antes de congelar em `CreatorMonthlyReport` mais
+     * abaixo.
+     */
+    const pecasPorCriador = await pecasEntreguesPorCriador(startDate, endDate);
 
     const creators = await prisma.creator.findMany({
       where: { active: true }
@@ -171,10 +172,10 @@ export async function GET(request: Request) {
       }
     });
 
-    deliveries.forEach(delivery => {
-      const stats = creatorStats[delivery.creatorId];
+    pecasPorCriador.forEach((pecas, creatorId) => {
+      const stats = creatorStats[creatorId];
       if (stats) {
-        stats.deliveredPieces += delivery.pieces;
+        stats.deliveredPieces += pecas;
       }
     });
 

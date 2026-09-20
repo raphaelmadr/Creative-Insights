@@ -10,7 +10,6 @@ import { NextResponse } from "next/server";
 import prisma from "@/lib/prisma";
 import { getCurrentCreator } from "@/lib/auth";
 import { CREATOR_ONLY_ERROR } from "@/lib/roles";
-import { intakeColumnId } from "@/lib/kanban-store";
 
 export async function POST(request: Request) {
   const user = await getCurrentCreator();
@@ -103,13 +102,14 @@ export async function PUT(request: Request) {
       groupId,
       isIntake,
       isDone,
+      isProduction,
       wipLimit,
     } = body;
     if (!id) return NextResponse.json({ error: "ID da coluna é obrigatório." }, { status: 400 });
 
     const current = await prisma.boardColumn.findUnique({
       where: { id },
-      select: { boardId: true },
+      select: { boardId: true, groupId: true },
     });
     if (!current) return NextResponse.json({ error: "Coluna não encontrada." }, { status: 404 });
 
@@ -134,11 +134,21 @@ export async function PUT(request: Request) {
      * assumir é da fase, se aqui pode entrar sem ninguém é do ponto do fluxo.
      */
 
-    // Uma entrada por quadro: com duas, a demanda nova cairia na que a
-    // ordenação devolvesse primeiro, que não é uma escolha de ninguém.
+    /*
+     * Uma entrada por GRUPO, não por quadro: com duas no mesmo grupo, a
+     * demanda cairia na que a ordenação devolvesse primeiro, que não é uma
+     * escolha de ninguém. Grupos diferentes têm cada um a sua — é o que deixa
+     * o grupo mais cedo do quadro recebendo demanda nova (ver
+     * `intakeColumnId`) e, ao mesmo tempo, qualquer outro grupo marcando onde
+     * uma passagem de bastão pousa (ver o gatilho do aviso no Slack).
+     *
+     * `groupId` pode estar mudando NESTA mesma gravação — usa o valor novo
+     * quando veio, senão o que a etapa já tinha.
+     */
     if (isIntake === true) {
+      const grupoAlvo = groupId !== undefined ? groupId || null : current.groupId;
       await prisma.boardColumn.updateMany({
-        where: { boardId: current.boardId, isIntake: true, NOT: { id } },
+        where: { boardId: current.boardId, groupId: grupoAlvo, isIntake: true, NOT: { id } },
         data: { isIntake: false },
       });
     }
@@ -155,6 +165,7 @@ export async function PUT(request: Request) {
         ...(groupId !== undefined ? { groupId: groupId || null } : {}),
         ...(isIntake !== undefined ? { isIntake: !!isIntake } : {}),
         ...(isDone !== undefined ? { isDone: !!isDone } : {}),
+        ...(isProduction !== undefined ? { isProduction: !!isProduction } : {}),
         ...(wipLimit !== undefined
           ? { wipLimit: wipLimit === null || wipLimit === "" ? null : Number(wipLimit) }
           : {}),
@@ -177,7 +188,7 @@ export async function DELETE(request: Request) {
 
     const column = await prisma.boardColumn.findUnique({
       where: { id },
-      select: { boardId: true, _count: { select: { cards: true } } },
+      select: { boardId: true, groupId: true, isIntake: true, _count: { select: { cards: true } } },
     });
     if (!column) return NextResponse.json({ error: "Coluna não encontrada." }, { status: 404 });
 
@@ -205,14 +216,25 @@ export async function DELETE(request: Request) {
 
     await prisma.boardColumn.delete({ where: { id } });
 
-    // A coluna apagada podia ser a entrada; sem outra marcada, a demanda nova
-    // passa a depender do recuo de "a primeira da ordem".
-    const stillHasIntake = await prisma.boardColumn.count({
-      where: { boardId: column.boardId, isIntake: true },
-    });
-    if (stillHasIntake === 0) {
-      const first = await intakeColumnId(column.boardId);
-      if (first) await prisma.boardColumn.update({ where: { id: first }, data: { isIntake: true } });
+    /*
+     * A coluna apagada podia ser a entrada do GRUPO dela; sem outra marcada
+     * ali, esse grupo fica sem destino certo pra quem chegar nele. Só importa
+     * se a apagada ERA a entrada — apagar qualquer outra etapa não muda nada
+     * pra esse grupo. E só faz sentido promover outra do MESMO grupo: uma
+     * entrada de "Growth" não é resposta pra "Criação" ter ficado sem a sua.
+     */
+    if (column.isIntake) {
+      const stillHasIntake = await prisma.boardColumn.count({
+        where: { boardId: column.boardId, groupId: column.groupId, isIntake: true },
+      });
+      if (stillHasIntake === 0) {
+        const first = await prisma.boardColumn.findFirst({
+          where: { boardId: column.boardId, groupId: column.groupId },
+          orderBy: { position: "asc" },
+          select: { id: true },
+        });
+        if (first) await prisma.boardColumn.update({ where: { id: first.id }, data: { isIntake: true } });
+      }
     }
 
     return NextResponse.json({ success: true });

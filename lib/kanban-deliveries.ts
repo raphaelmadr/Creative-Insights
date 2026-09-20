@@ -12,18 +12,8 @@
  */
 
 import prisma from "./prisma";
-import { parseValues } from "./kanban";
+import { parseValues, parseAssignees, CHAVES_DE_VOLUMETRIA, campoVolumetria } from "./kanban";
 import { logWarning } from "./logger";
-
-/**
- * As chaves que costumam guardar a volumetria, em ordem de preferência.
- *
- * O campo é configurável por quadro, então não há um nome garantido. Quando
- * nenhuma delas existe, vale o único campo numérico do quadro — e "único" é a
- * parte que importa: com dois, adivinhar qual é a volumetria seria inventar uma
- * regra que ninguém escreveu, e a contagem volta a ser 1 por card.
- */
-const CHAVES_DE_VOLUMETRIA = ["numero_de_pecas", "pecas", "volumetria", "quantidade"];
 
 /**
  * Quantas peças esta demanda entregou.
@@ -45,12 +35,10 @@ export async function volumetriaDoCard(
     // `NUMBER` faria toda entrega passar a contar 1.
     where: { boardId, type: { in: ["NUMBER", "RANGE"] } },
     orderBy: { position: "asc" },
-    select: { key: true },
+    select: { key: true, type: true },
   });
 
-  const chave =
-    CHAVES_DE_VOLUMETRIA.find((c) => numericos.some((f) => f.key === c)) ??
-    (numericos.length === 1 ? numericos[0].key : null);
+  const chave = campoVolumetria(numericos);
 
   /*
    * Não saber qual campo é a volumetria não pode ser silencioso.
@@ -88,16 +76,27 @@ export async function volumetriaDoCard(
 /**
  * Registra a entrega de um card que acabou de chegar à coluna de conclusão.
  *
- * O crédito vai para QUEM MOVEU o card, que é a decisão do quadro: mover para
- * entregue é o ato de declarar a entrega.
+ * O crédito vai para QUEM ESTAVA COM A DEMANDA — os responsáveis de antes
+ * desta transição, os mesmos que a frente do card mostra em "Responsável".
+ * Não é mais quem arrastou: um card da Criação entregue direto numa coluna de
+ * conclusão de outro grupo (Revisão, Growth...) deixava de contar pra quem
+ * produziu a peça, porque o crédito ia pra quem clicou o arrasto — que podia
+ * ser qualquer um do grupo de destino. `resolveMoveAssignees` já preserva os
+ * responsáveis ao chegar numa coluna de conclusão (ver `lib/kanban.ts`), então
+ * aqui só se lê o que sobrou.
+ *
+ * `movidoPor` é reserva, não regra: só entra quando não há UM responsável
+ * claro (card sem ninguém atribuído, ou atribuído a um grupo inteiro que ainda
+ * não foi individualmente assumido) — nesses casos, quem declarou a entrega ao
+ * arrastar o card é o melhor crédito disponível.
  *
  * Silenciosa em três casos, todos deliberados:
  *
  * - O card não mudou para uma coluna de conclusão. Nada aconteceu.
- * - Quem moveu não tem ficha de criador ligada ao e-mail. O ranking é por
- *   criador, e não há a quem creditar — vira aviso no painel de logs, e não
- *   exceção, porque derrubar o arrasto do card por causa disso seria
- *   desproporcional: o movimento é legítimo, só não é contabilizável.
+ * - Nem os responsáveis nem quem moveu têm ficha de criador ligada ao e-mail.
+ *   O ranking é por criador, e não há a quem creditar — vira aviso no painel
+ *   de logs, e não exceção, porque derrubar o arrasto do card por causa disso
+ *   seria desproporcional: o movimento é legítimo, só não é contabilizável.
  * - O card já foi entregue antes. `sourceKey` é único por card, então voltar à
  *   revisão e avançar de novo não conta duas vezes.
  */
@@ -150,29 +149,34 @@ export async function registrarEntregaDoCard(params: {
   destinoConclui: boolean;
   /** A coluna de origem já concluía? Então não houve entrega nova. */
   origemConcluia: boolean;
-  /** E-mail de quem arrastou o card. */
+  /** Quem estava com a demanda antes desta transição — quem a credita. */
+  responsaveis: string[];
+  /** E-mail de quem arrastou o card — reserva, ver o comentário acima. */
   movidoPor: string | null;
 }): Promise<void> {
   if (!params.destinoConclui || params.origemConcluia) return;
 
-  if (!params.movidoPor) {
+  const emailParaCreditar =
+    params.responsaveis.length === 1 ? params.responsaveis[0] : params.movidoPor;
+
+  if (!emailParaCreditar) {
     await logWarning(
       "ENTREGAS",
-      `Card "${params.title}" chegou à coluna de entrega sem sessão identificada — não foi possível creditar a volumetria.`,
+      `Card "${params.title}" chegou à coluna de entrega sem responsável identificável — não foi possível creditar a volumetria.`,
       "lib/kanban-deliveries.ts"
     );
     return;
   }
 
   const creator = await prisma.creator.findUnique({
-    where: { userEmail: params.movidoPor },
+    where: { userEmail: emailParaCreditar },
     select: { id: true },
   });
 
   if (!creator) {
     await logWarning(
       "ENTREGAS",
-      `${params.movidoPor} entregou "${params.title}", mas não há criador com esse e-mail vinculado — a volumetria não entrou no ranking. Vincule a conta em Configurações › Equipe.`,
+      `${emailParaCreditar} entregou "${params.title}", mas não há criador com esse e-mail vinculado — a volumetria não entrou no ranking. Vincule a conta em Configurações › Equipe.`,
       "lib/kanban-deliveries.ts"
     );
     return;
@@ -196,4 +200,57 @@ export async function registrarEntregaDoCard(params: {
     // avança de novo, e é exatamente o que a chave única existe para impedir.
     if ((error as { code?: string })?.code !== "P2002") throw error;
   }
+}
+
+/**
+ * Peças entregues por criador, direto do estado ATUAL do quadro — não de um
+ * histórico gravado em `Delivery`.
+ *
+ * É o que faz o dash de equipe ser espelho, e não uma contagem que só cresce:
+ * um card reaberto (arrastado pra fora de uma coluna de conclusão) tem
+ * `completedAt` apagado na hora do movimento — ver `target.isDone ? new
+ * Date() : null` em `app/api/creator/cards/route.ts` — e some daqui na
+ * próxima leitura, sem nenhuma limpeza manual. Se o responsável do card mudar
+ * enquanto ele continua concluído, o crédito muda junto. Card arquivado
+ * continua entrando: arquivar é arrumação do quadro, não desfazer a entrega.
+ *
+ * Só credita quando há UM responsável claro — mesma regra de
+ * `registrarEntregaDoCard`. Sem ninguém, ou com a demanda ainda do time
+ * inteiro (fila não assumida por uma pessoa), não há como ratear sem inventar
+ * uma regra que ninguém pediu, então o card fica de fora da soma.
+ */
+export async function pecasEntreguesPorCriador(
+  startDate: Date,
+  endDate: Date
+): Promise<Map<string, number>> {
+  const cards = await prisma.boardCard.findMany({
+    where: { completedAt: { gte: startDate, lte: endDate } },
+    select: { boardId: true, title: true, values: true, assignees: true },
+  });
+  if (!cards.length) return new Map();
+
+  const emails = new Set<string>();
+  for (const card of cards) {
+    const responsaveis = parseAssignees(card.assignees);
+    if (responsaveis.length === 1) emails.add(responsaveis[0]);
+  }
+
+  const creators = await prisma.creator.findMany({
+    where: { userEmail: { in: [...emails] } },
+    select: { id: true, userEmail: true },
+  });
+  const creatorIdPorEmail = new Map(creators.map((c) => [c.userEmail!, c.id]));
+
+  const porCriador = new Map<string, number>();
+  for (const card of cards) {
+    const responsaveis = parseAssignees(card.assignees);
+    if (responsaveis.length !== 1) continue;
+    const creatorId = creatorIdPorEmail.get(responsaveis[0]);
+    if (!creatorId) continue;
+
+    const pecas = await volumetriaDoCard(card.boardId, card.values, card.title);
+    porCriador.set(creatorId, (porCriador.get(creatorId) ?? 0) + pecas);
+  }
+
+  return porCriador;
 }
