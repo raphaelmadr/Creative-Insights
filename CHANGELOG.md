@@ -1,6 +1,17 @@
 # Changelog: Creative Insights (Fase 1)
 Data: 31 de Agosto de 2026
 
+## 📦 Formato "Unboxing" na Entrega de Criativos (Setembro 2026)
+* **Quarto formato no seletor:** Estático / Vídeo / Animação / Unboxing. Sem par Feed/Story — os slots seguem direto a quantidade de peças respondida na abertura da demanda, mesmo comportamento que Vídeo já tinha. Pasta própria no Drive (`Unboxing`), extensão `.mp4`, e o nome final da peça vem do próprio arquivo enviado, no mesmo padrão de Animação.
+* **A regra de combinação de "Frente" foi suspensa.** "Duas frentes só se combinam quando uma delas é Unboxing" — herdada do ad-naming-tool — travava entregas reais (ex.: Influenciadores + Embaixadores) com uma mensagem que não dizia onde corrigir. Fica só a exigência mínima, escolher ao menos uma frente, até o time alinhar quais combinações valem. A nomenclatura do arquivo não dependia dessa regra — ela concatena os códigos de quantas frentes vierem — então nada muda na entrega já gerada sem ela.
+
+## 🩹 Correções no Fluxo entre Grupos (Setembro 2026)
+Duas correções desta semana colidiram: resolver o crédito da entrega (quem produziu a peça) quebrou a marcação de responsável que o time de Revisão depende para saber que há algo novo pra olhar.
+
+* **"Responsável" voltava a mostrar o time errado ao chegar em "Entregue para revisão".** A correção anterior fazia o card PRESERVAR o responsável de antes ao chegar numa etapa de conclusão, pra creditar certo quem produziu a peça — mas isso também impedia a Revisão de assumir a demanda: a frente do card continuava mostrando o time da Criação, e ninguém em Revisão via que havia algo esperando. `resolveMoveAssignees` (`lib/kanban.ts`) voltou a reatribuir para o time do grupo de destino ao chegar em qualquer etapa, conclusão inclusive — como sempre foi.
+* **O crédito da entrega não depende mais de quem está atribuído agora.** Pra não reabrir o bug de crédito ao desfazer o item acima, o dash de equipe passou a ler QUEM foi creditado do registro gravado na hora da entrega (`Delivery.creatorId`, escrito por `registrarEntregaDoCard` com o responsável de ANTES da reatribuição) — não mais de `BoardCard.assignees`, que muda quando o card segue viagem. O QUANDO continua vindo do quadro, ao vivo: `completedAt` no mês certo, apagado assim que o card sai de uma etapa de conclusão — um card reaberto ainda some do dash na hora, sem limpeza manual.
+* **O aviso de handoff no Slack ainda depende de configuração manual.** "Handoff Growth" precisa estar marcada como Entrada (Preferências › Etapas) pra dar o gatilho quando um card sai de "Entregue para revisão" — sem essa marca, a transição Revisão → Growth fica muda porque não há coluna de Entrada nenhuma pra ela pousar.
+
 ## 🚧 Uma Etapa Só Libera o Envio (Setembro 2026)
 O painel "Entrega de criativos" aparecia em todo card, em qualquer etapa do fluxo — a única condição era o Google Drive estar configurado. Nada impedia alguém de subir os arquivos finais com a peça ainda em briefing, ou numa etapa de revisão que nem devia ter arquivo nenhum ainda.
 

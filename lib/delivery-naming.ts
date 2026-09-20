@@ -15,10 +15,10 @@
  * precisam concordar sobre a mesma regra, sem duplicá-la.
  */
 
-export type DeliveryFormat = "estatico" | "video" | "animacao";
+export type DeliveryFormat = "estatico" | "video" | "animacao" | "unboxing";
 
 export interface FormatoRegra {
-  /** Formato tem "nome da peça" no arquivo final? Só vídeo e animação. */
+  /** Formato tem "nome da peça" no arquivo final? Só vídeo, animação e unboxing. */
   nome: boolean;
   /** Nome do LOTE (não por peça) — só vídeo. */
   nomeLote: boolean;
@@ -32,6 +32,15 @@ export const REGRA: Record<DeliveryFormat, FormatoRegra> = {
   estatico: { nome: false, nomeLote: false, prefixoPasta: "Estáticos", ext: "png" },
   video: { nome: true, nomeLote: true, prefixoPasta: "Vídeos", ext: "mp4" },
   animacao: { nome: true, nomeLote: false, prefixoPasta: "Animações", ext: "mp4" },
+  /*
+   * Novo formato, sem equivalente na ferramenta do Pedro. Sem posição
+   * (Feed/Story) — ver `formatoTemPosicoes` — porque não é peça de anúncio
+   * pareada, é o vídeo do unboxing em si: um slot por peça, na mesma proporção
+   * da quantidade respondida no card, exatamente como vídeo já funciona.
+   * `nome: true` segue o padrão de animação — o nome vem do próprio arquivo
+   * enviado (`arquivo.base`), sem pedir um "nome do lote" à parte.
+   */
+  unboxing: { nome: true, nomeLote: false, prefixoPasta: "Unboxing", ext: "mp4" },
 };
 
 /**
@@ -50,9 +59,6 @@ export const FRENTE_CODIGOS: Record<string, string> = {
   Unboxing: "unb",
 };
 
-/** A única frente combinável, e só com uma outra — regra de `toggleFrente` (`index.html:800-808`). */
-const FRENTE_COMBINAVEL = "Unboxing";
-
 export interface ValidacaoFrentes {
   ok: boolean;
   erro?: string;
@@ -61,19 +67,20 @@ export interface ValidacaoFrentes {
 /**
  * Confere a combinação de frentes escolhida no card.
  *
- * A regra do Pedro: no máximo duas frentes, e a segunda só é permitida se uma
- * delas for "Unboxing" — as outras (Interno/Externo/Influenciadores/
- * Embaixadores) não se combinam entre si.
+ * A regra do Pedro (`toggleFrente`, `index.html:800-808`) — no máximo duas
+ * frentes, e a segunda só permitida se uma delas fosse "Unboxing" — está
+ * SUSPENSA por decisão da Raphael: a validação travava entregas reais com
+ * mensagem que não explicava onde corrigir, e o time ainda vai alinhar quais
+ * combinações valem antes de qualquer restrição voltar. `montarNomeArquivo`
+ * não depende desta regra — ele concatena os códigos de quantas frentes
+ * vierem, na ordem escolhida, então religar a checagem aqui não muda nada na
+ * nomenclatura já gerada sem ela.
+ *
+ * Só o mínimo continua valendo: sem nenhuma frente escolhida não há o que
+ * nomear.
  */
 export function validarFrentes(frentes: string[]): ValidacaoFrentes {
   if (frentes.length === 0) return { ok: false, erro: "Escolha ao menos uma frente." };
-  if (frentes.length === 1) return { ok: true };
-  if (frentes.length > 2) {
-    return { ok: false, erro: "No máximo duas frentes — e só combinam quando uma delas é Unboxing." };
-  }
-  if (!frentes.includes(FRENTE_COMBINAVEL)) {
-    return { ok: false, erro: `Duas frentes só se combinam quando uma delas é "${FRENTE_COMBINAVEL}".` };
-  }
   return { ok: true };
 }
 
@@ -156,7 +163,7 @@ export type Posicao = "feed" | "story";
 export const POSICAO_RATIO: Record<Posicao, number> = { feed: 0.8, story: 0.5625 };
 const TOLERANCIA_RATIO = 0.07;
 
-/** Estático e animação esperam o par Feed+Story; vídeo é peça avulsa (sem posição). */
+/** Estático e animação esperam o par Feed+Story; vídeo e unboxing são peça avulsa (sem posição). */
 export function formatoTemPosicoes(formato: DeliveryFormat): boolean {
   return formato === "estatico" || formato === "animacao";
 }
