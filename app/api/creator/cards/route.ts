@@ -158,6 +158,10 @@ export async function PUT(request: Request) {
           groupId: true,
           // A equipe mora na FASE. Ver `ownershipOf` em `lib/kanban.ts`.
           group: { select: { assignees: true, defaultAssignee: true } },
+          // Gatilho e overrides do aviso no Slack — ver mais abaixo.
+          notifySlackOnEnter: true,
+          slackChannelId: true,
+          slackMessageTemplate: true,
         },
       });
       if (!target) return NextResponse.json({ error: "Coluna não encontrada." }, { status: 404 });
@@ -254,20 +258,23 @@ export async function PUT(request: Request) {
       });
 
       /*
-       * O aviso de entrega no Slack é sobre a PASSAGEM DE BASTÃO entre dois
-       * grupos — não sobre chegar numa coluna de conclusão qualquer. Uma
-       * etapa de revisão interna também pode ser `isDone` sem que a demanda
-       * saia do grupo, e isso não é entrega pra ninguém de fora. O gatilho
-       * certo é sair de uma etapa de ENTREGA e cair numa etapa de ENTRADA —
-       * independente de quais grupos são.
+       * O aviso de entrega no Slack é por ETAPA, não mais fixo em "saiu de
+       * Entrega, entrou em Entrada" — cada coluna liga ou desliga o próprio
+       * aviso (`notifySlackOnEnter`, editável no painel de etapas do
+       * Kanban). `isDone`/`isIntake` continuam existindo pra outras coisas
+       * (conclusão do card, roteamento de demanda nova), só deixaram de ser
+       * o motivo do Slack.
        *
-       * Sem `card.linkUrl`: não é erro, é o caminho normal de quem move o
-       * card sem ter subido nada pelo painel novo ainda (ou nunca vai usar
-       * essa forma de entrega) — vira aviso em Logs, não uma falha que
-       * desfaria o movimento.
+       * Sem `card.linkUrl` E sem template customizado: não é erro, é o
+       * caminho normal de quem move o card sem ter subido nada pelo painel
+       * novo ainda — o texto padrão cita o link do Drive, então sem ele não
+       * há o que enviar. Vira aviso em Logs, não uma falha que desfaria o
+       * movimento. Com template próprio, a etapa decide se usa `{{drive}}` —
+       * o envio segue mesmo sem link.
        */
-      if ((card.column?.isDone ?? false) && target.isIntake) {
-        if (card.linkUrl) {
+      if (target.notifySlackOnEnter) {
+        const temTemplatePersonalizado = !!target.slackMessageTemplate?.trim();
+        if (card.linkUrl || temTemplatePersonalizado) {
           try {
             /*
              * Quem entregou: os responsáveis ANTES desta transição — quem
@@ -304,8 +311,9 @@ export async function PUT(request: Request) {
               responsavel: nomeDeQuemEntregou,
               driveUrl: card.linkUrl,
               mencoes,
+              template: target.slackMessageTemplate,
             });
-            await enviarMensagemSlack(mensagem);
+            await enviarMensagemSlack(mensagem, target.slackChannelId);
           } catch (err) {
             await logWarning(
               "ENTREGAS",
@@ -316,7 +324,7 @@ export async function PUT(request: Request) {
         } else {
           await logWarning(
             "ENTREGAS",
-            `"${card.title}" saiu da entrega para "${target.name}" sem link de entrega (ninguém subiu arquivos pelo painel) — aviso do Slack não foi enviado.`,
+            `"${card.title}" entrou em "${target.name}" sem link de entrega (ninguém subiu arquivos pelo painel) — aviso do Slack não foi enviado.`,
             "app/api/creator/cards/route.ts"
           );
         }

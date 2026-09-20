@@ -8,7 +8,8 @@ import { useSession } from "next-auth/react";
 import { useTheme } from "./ThemeProvider";
 import { hasCreatorAccess } from "@/lib/roles";
 import { useNotifications } from "./NotificationProvider";
-import { SyncStatusView } from "./SyncStatusView";
+import { SyncStatusView, summarizeSyncStatus } from "./SyncStatusView";
+import { useNow } from "@/hooks/useNow";
 import OnlineUsers from "./OnlineUsers";
 import NovaDemandaButton from "./creator/NovaDemandaButton";
 import UserMenu from "./UserMenu";
@@ -141,6 +142,15 @@ export default function TopBar() {
   const syncTitle = syncStatus?.running
     ? `${syncStatus.running.by} está sincronizando. Só uma execução roda por vez.`
     : "Sincroniza Meta e TikTok no mês corrente";
+  /*
+   * O estado (saudável, atrasado, desligado...) mora DENTRO do ícone agora —
+   * uma bolinha na cor da saúde, sem o rótulo por extenso flutuando embaixo do
+   * botão (que só fazia sentido quando o botão tinha texto ao lado, e sobrava
+   * largura para ele). O texto por extenso continua existindo, só que no
+   * `title` — ver o botão desktop mais abaixo.
+   */
+  const now = useNow();
+  const syncSummary = summarizeSyncStatus(syncStatus, now, isSyncingAll);
   const [isNotificationsOpen, setIsNotificationsOpen] = useState(false);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   /*
@@ -425,18 +435,41 @@ export default function TopBar() {
           </div>
 
           <div className={styles.desktopSync} style={{ position: 'relative', marginRight: '1rem' }}>
-            <button onClick={() => syncAll()} disabled={syncBloqueado} title={syncTitle} className="btn btn-secondary" style={{ color: syncBloqueado ? 'var(--muted)' : 'var(--foreground)' }} >
+            {/* Só o ícone aqui — mesmo padrão circular dos outros botões da
+                barra (Sino, etc.), em vez do botão-pílula com texto. O estado
+                (saudável, atrasado, desligado...) mora dentro do próprio
+                ícone: a bolinha no canto carrega a cor, e o resumo por
+                extenso vai para o title — em vez do rótulo flutuando embaixo
+                do botão, que só cabia bem quando havia texto do lado. Por
+                escrito, sem abreviar, continua na versão do menu mobile
+                abaixo, onde o botão tem a largura toda pra si. */}
+            <button
+              onClick={() => syncAll()}
+              disabled={syncBloqueado}
+              title={syncSummary ? `${syncTitle}\n${syncSummary.resumo}` : syncTitle}
+              aria-label={syncSummary ? `${syncTitle}. ${syncSummary.resumo}` : syncTitle}
+              className={styles.iconButton}
+              style={{ color: syncBloqueado ? 'var(--muted)' : 'var(--foreground)' }}
+            >
               <RefreshCw size={16} className={syncBloqueado ? "spin" : ""} style={{ animation: syncBloqueado ? "spin 2s linear infinite" : "none" }} />
-              {syncBloqueado ? "Sincronizando..." : "Sincronizar Redes"}
+              {/* Escondida enquanto gira: o ícone girando já diz "em
+                  andamento", e a bolinha por cima só competiria com ele. */}
+              {syncSummary && !syncSummary.emCurso && (
+                <span
+                  aria-hidden="true"
+                  style={{
+                    position: 'absolute',
+                    bottom: 4,
+                    right: 4,
+                    width: 8,
+                    height: 8,
+                    borderRadius: '50%',
+                    background: syncSummary.color,
+                    border: '1.5px solid var(--card-bg)',
+                  }}
+                />
+              )}
             </button>
-            {/* O estado fica sob o botão, e é o MESMO componente da tela de
-                configurações — mesma conta, mesmas palavras, contagem viva. */}
-            {/* Centrado no botão e livre para ser um pouco mais largo que ele:
-                como está fora do fluxo, passar da largura não empurra nada, e é
-                o que permite a linha inteira caber sem quebrar. */}
-            <div style={{ position: 'absolute', top: '100%', left: '50%', transform: 'translateX(-50%)', marginTop: '0.3rem', display: 'flex', justifyContent: 'center', width: 'max-content', maxWidth: '17rem' }}>
-              <SyncStatusView status={syncStatus} running={isSyncingAll} />
-            </div>
           </div>
 
           <div style={{ position: "relative" }}>

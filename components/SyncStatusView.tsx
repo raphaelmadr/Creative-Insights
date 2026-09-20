@@ -71,6 +71,38 @@ function complementoCurto(status: SyncStatus, now: Date): string | null {
   return `próxima ${formatRelative(status.nextEligibleAt, now)}`;
 }
 
+/**
+ * O resumo compacto ("Atualizado há 3 min · próxima em 10 min",
+ * "Sincronizando…") e a cor que ele carrega — extraído para fora do
+ * componente porque o botão de sincronizar do cabeçalho (`TopBar.tsx`) precisa
+ * dos dois sem desenhar o rótulo por extenso ao lado: a bolinha no ícone é a
+ * cor, e o `title` é o texto. Mesma conta do variant `compact` abaixo, uma vez
+ * só.
+ */
+export function summarizeSyncStatus(
+  status: SyncStatus | null,
+  now: Date,
+  running = false
+): { color: string; Icon: typeof CheckCircle2; emCurso: boolean; resumo: string } | null {
+  if (!status) return null;
+
+  const emCurso = running || !!status.running;
+  const tone = TONE[status.health];
+  const Icon = emCurso ? RefreshCw : tone.Icon;
+  const color = emCurso ? "var(--primary)" : tone.color;
+
+  const ultima = formatRelative(status.lastSyncAt, now);
+  const complemento = complementoCurto(status, now);
+  const resumo = emCurso
+    ? status.running && !running
+      // Não fui eu: dizer de quem se está esperando evita o "o botão travou".
+      ? `${status.running.by} está sincronizando…`
+      : "Sincronizando…"
+    : [ultima ? `Atualizado ${ultima}` : "Nunca sincronizado", complemento].filter(Boolean).join(" · ");
+
+  return { color, Icon, emCurso, resumo };
+}
+
 export function SyncStatusView({ status, variant = "compact", running = false }: Props) {
   const now = useNow();
 
@@ -95,20 +127,14 @@ export function SyncStatusView({ status, variant = "compact", running = false }:
     /*
      * Uma linha, e curta.
      *
-     * Este rótulo vive sob o botão "Sincronizar Redes", numa coluna estreita: a
-     * frase inteira quebrava em três linhas e escapava do menu. O que fica à
-     * vista é o mínimo que responde "está atualizado?"; a frase completa, com o
-     * que fazer, está no `title` e na tela de Configurações › Sistema.
+     * Este rótulo vive no menu mobile, numa coluna estreita: a frase inteira
+     * quebrava em três linhas e escapava do menu. O que fica à vista é o
+     * mínimo que responde "está atualizado?"; a frase completa, com o que
+     * fazer, está no `title` e na tela de Configurações › Sistema. No
+     * cabeçalho desktop, este mesmo resumo mora dentro do ícone de
+     * sincronizar — ver `summarizeSyncStatus`, em `TopBar.tsx`.
      */
-    const complemento = complementoCurto(status, now);
-    const resumo = emCurso
-      ? status.running && !running
-        // Não fui eu: dizer de quem se está esperando evita o "o botão travou".
-        ? `${status.running.by} está sincronizando…`
-        : "Sincronizando…"
-      : [ultima ? `Atualizado ${ultima}` : "Nunca sincronizado", complemento]
-          .filter(Boolean)
-          .join(" · ");
+    const { Icon, resumo } = summarizeSyncStatus(status, now, running)!;
 
     return (
       <div
