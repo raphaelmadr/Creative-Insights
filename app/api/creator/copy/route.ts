@@ -38,6 +38,38 @@ import { parseCopyVariations } from "@/lib/copy-parse";
 import { findAlluProduct, describePricing } from "@/lib/allu-catalog";
 import { findMetaAudience } from "@/lib/meta-audiences";
 
+type CampoQuadro = { key: string; label: string; type: string; required: boolean };
+
+/**
+ * Os campos obrigatórios deste quadro que o gerador NÃO sabe preencher por
+ * conta própria — tudo, menos canal, formato e o campo de peças, que ele já
+ * deduz do briefing (ver `respostas` no POST, abaixo).
+ *
+ * Usada nos dois lados: no GET, pra anunciar de antemão TUDO que falta
+ * perguntar, antes de qualquer tentativa de envio (a tela pedia isso só
+ * depois de um primeiro clique recusado); no POST, pra checar o que ainda
+ * ficou em branco depois que a tela já perguntou. Antes disto, só "Frente"
+ * entrava nessa checagem — um quadro com outro campo obrigatório qualquer
+ * travava o envio com um erro genérico e nenhum jeito de responder pelo
+ * próprio gerador.
+ */
+function camposExtrasDoGerador(camposDoQuadro: CampoQuadro[]): CampoQuadro[] {
+  const acharPorNome = (nome: string) =>
+    camposDoQuadro.find((f) => f.key === nome || f.label.trim().toLowerCase() === nome) ?? null;
+
+  const autoPreenchidos = new Set(
+    [
+      acharPorNome("canal"),
+      acharPorNome("formato"),
+      camposDoQuadro.find((f) => f.type === "RANGE" || f.type === "NUMBER") ?? null,
+    ]
+      .filter((f): f is CampoQuadro => !!f)
+      .map((f) => f.key)
+  );
+
+  return camposDoQuadro.filter((f) => f.required && !autoPreenchidos.has(f.key));
+}
+
 /** Onde a copy vai cair, para a tela poder dizer isso antes de gerar. */
 export async function GET() {
   const user = await getCurrentCreator();
@@ -88,9 +120,24 @@ export async function GET() {
           .filter((g) => g.columnName)
       : [];
 
+    /*
+     * O que este quadro pergunta, e o gerador não sabe responder por conta
+     * própria — anunciado já na abertura da tela, e não só depois de uma
+     * primeira tentativa de envio recusada. Ver `camposExtrasDoGerador`.
+     */
+    const missingFields = target
+      ? camposExtrasDoGerador(
+          await prisma.boardField.findMany({
+            where: { boardId: target.board.id },
+            orderBy: { position: "asc" },
+          })
+        )
+      : [];
+
     return NextResponse.json({
       success: true,
       aiConfigured: await isAiConfigured(),
+      missingFields,
       groups,
       target: target
         ? {
@@ -247,8 +294,17 @@ export async function POST(request: Request) {
       }
     }
 
+    /*
+     * Só gera quando é PRA revisar — não quando já foi revisado.
+     *
+     * `sendToBoard` chega com `editedCopy`: o texto que a pessoa já leu e
+     * aprovou na tela. Gerar de novo aqui é chamar o modelo (segundos) para
+     * um resultado que `finalText`, embaixo, joga fora em favor do que veio
+     * editado — era essa chamada inteira, descartada, que fazia "Enviar ao
+     * Board" demorar no modo IA.
+     */
     const { text, winners } =
-      mode === "ai"
+      mode === "ai" && !body.sendToBoard
         ? await generateCopy(brief)
         : { text: "", winners: [] as Awaited<ReturnType<typeof generateCopy>>["winners"] };
 
@@ -293,6 +349,17 @@ export async function POST(request: Request) {
     if (mode === "manual" && !finalText) {
       return NextResponse.json(
         { error: "Escreva ao menos uma peça antes de enviar ao quadro." },
+        { status: 400 }
+      );
+    }
+    /*
+     * Na IA, o texto de reserva era a própria geração — que parou de rodar
+     * aqui (ver acima). Sem ela, enviar sem ter gerado (ou com o campo de
+     * edição zerado) criaria um card vazio em silêncio, em vez de avisar.
+     */
+    if (mode === "ai" && !finalText) {
+      return NextResponse.json(
+        { error: "Gere a copy e revise o texto antes de enviar ao quadro." },
         { status: 400 }
       );
     }
@@ -404,19 +471,15 @@ export async function POST(request: Request) {
     }
 
     /*
-     * "Frente" é a única pergunta extra que o gerador faz por conta própria.
-     *
-     * O quadro pode ter outros campos obrigatórios, mas esses são problema do
-     * formulário manual — o gerador de copy só sabe perguntar o que é dele
-     * (canal/formato/peças, acima) mais este, porque é o que a entrega de
-     * criativos (`DeliveryUploadPanel`) precisa para montar o nome do arquivo.
+     * O que sobrou obrigatório depois de canal/formato/peças (acima) e do que
+     * a tela já perguntou em `extraRespostas` — "Frente" é o exemplo mais
+     * comum, mas qualquer outro campo obrigatório do quadro entra aqui
+     * também. Antes, só "Frente" era checado: um quadro com outro campo
+     * obrigatório travava o envio com "O campo X é obrigatório" (erro
+     * genérico do `validateValues`, mais abaixo) e nenhum jeito de responder
+     * pelo próprio gerador — a demanda simplesmente não chegava no quadro.
      */
-    const campoFrente = acharCampo("frente");
-    const faltando = campoFrente
-      ? camposObrigatoriosFaltando(camposDoQuadro, respostas).filter(
-          (f) => f.key === campoFrente.key
-        )
-      : [];
+    const faltando = camposObrigatoriosFaltando(camposExtrasDoGerador(camposDoQuadro), respostas);
     if (faltando.length) {
       return NextResponse.json(
         {
