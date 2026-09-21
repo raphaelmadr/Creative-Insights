@@ -654,9 +654,19 @@ export default function DeliveryUploadPanel({
       )}
 
       {concluido && (
-        <span className="field-hint" style={{ display: "flex", alignItems: "center", gap: "0.4rem", color: "var(--success, #16a34a)" }}>
+        <span className="field-hint" style={{ display: "flex", alignItems: "center", gap: "0.4rem", flexWrap: "wrap", color: "var(--success, #16a34a)" }}>
           <CheckCircle2 size={14} />
           Entrega enviada — {concluido.trilha}. O link já está no card.
+          {/* O caminho mais curto até conferir o que subiu: quem acabou de
+              enviar quer ver a pasta, não procurar o selo no quadro. */}
+          <a
+            href={`https://drive.google.com/drive/folders/${concluido.folderId}`}
+            target="_blank"
+            rel="noreferrer"
+            style={{ fontWeight: 600, color: "var(--primary)" }}
+          >
+            Abrir a pasta
+          </a>
         </span>
       )}
     </div>

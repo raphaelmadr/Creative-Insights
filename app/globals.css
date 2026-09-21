@@ -151,6 +151,16 @@ p {
 [data-theme='dark'] ::-webkit-scrollbar-thumb { background: #374151; }
 ::-webkit-scrollbar-thumb:hover { background: #9CA3AF; }
 
+/* A marca, nas duas versões.
+ *
+ * São dois arquivos porque o logo é PNG e PNG não acompanha a cor do texto: a
+ * versão escura sumia no fundo do modo escuro. A troca é aqui, e não por
+ * estado do React, porque `data-theme` já está no `<html>` na primeira pintura
+ * — trocando por estado, a marca piscaria na versão errada até hidratar. */
+.logo-dark { display: none; }
+[data-theme='dark'] .logo-light { display: none; }
+[data-theme='dark'] .logo-dark { display: inline-block; }
+
 /* Utilities for premium design */
 .glass-panel {
   background: var(--card-bg);
@@ -331,6 +341,11 @@ button.filter-control:hover {
    primeira dobra era espaço vazio entre blocos. */
 .dashboard-container {
   padding: 1.25rem;
+  /* Embaixo o respiro é maior: o botão flutuante ocupa o canto inferior
+     direito, e sem esta folga a última linha do painel terminava debaixo
+     dele. O `.board-shell` redefine `padding-block` e fica de fora — lá não
+     há flutuante. */
+  padding-bottom: 5.5rem;
   display: flex;
   gap: 1.25rem;
   flex: 1;
@@ -383,6 +398,9 @@ button.filter-control:hover {
 @media (max-width: 768px) {
   .dashboard-container {
     padding: 1rem;
+    /* Depois do atalho `padding`, que apaga o respiro de baixo declarado na
+       regra base — e é justamente embaixo que o flutuante fica. */
+    padding-bottom: 5.5rem;
     flex-direction: column;
   }
   .mobile-only-overlay {
@@ -907,6 +925,53 @@ button.filter-control:hover {
 .btn-toggle[aria-disabled="true"] {
   opacity: 1;
   cursor: default;
+}
+
+/* ---------------------------------------------------------------------------
+   Botão flutuante
+
+   A ação primária da tela, ancorada no canto inferior direito em vez de
+   disputar largura na barra do topo. Em tela estreita a barra já carregava
+   logo, navegação, integrações e meia dúzia de ícones antes de chegar nela —
+   e este era o único botão com texto, o primeiro a apertar tudo.
+
+   Modificador do `.btn`, e não um botão à parte: cor, raio, altura e peso da
+   fonte continuam vindo do design system. Aqui entra só o que é da âncora.
+   --------------------------------------------------------------------------- */
+.btn-fab {
+  position: fixed;
+  right: 1.5rem;
+  /* `env()` é a faixa de gestos do iPhone: sem ela o botão encosta na barra de
+     baixo e o toque vira arrastar a tela. Vale zero em todo o resto. */
+  bottom: calc(1.5rem + env(safe-area-inset-bottom, 0px));
+  /* Abaixo da barra do topo (100), do menu do celular (101) e do diálogo
+     (200): o flutuante é conteúdo, não camada — quando um formulário abre por
+     cima, ele fica embaixo. */
+  z-index: 90;
+  padding: 0.75rem 1.25rem;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.18);
+  /* A lista repete a do `.btn` de propósito: `transition` aqui SUBSTITUI a de
+     lá — mesma especificidade, e esta regra vem depois. Sem repetir, a cor
+     deixaria de animar no hover. */
+  transition: background-color 0.2s ease, border-color 0.2s ease, color 0.2s ease,
+    opacity 0.2s ease, box-shadow 0.2s ease;
+}
+
+[data-theme='dark'] .btn-fab {
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.45);
+}
+
+.btn-fab:hover:not(:disabled) {
+  box-shadow: 0 10px 26px rgba(0, 0, 0, 0.24);
+}
+
+/* No celular o botão chega mais perto do canto: a tela é estreita e cada
+   16px de margem é conteúdo coberto. */
+@media (max-width: 640px) {
+  .btn-fab {
+    right: 1rem;
+    bottom: calc(1rem + env(safe-area-inset-bottom, 0px));
+  }
 }
 
 /* ---------------------------------------------------------------------------

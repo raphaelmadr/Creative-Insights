@@ -328,7 +328,8 @@ export default function TopBar() {
           </button>
 
           <Link href="/" className={styles.logo} style={{ textDecoration: "none", display: "flex", alignItems: "center" }}>
-            <img src="/logo.png" alt="allu.mkt creative insights" style={{ height: "32px", width: "auto" }} />
+            <img src="/logo.png" alt="allu.mkt creative insights" className="logo-light" style={{ height: "32px", width: "auto" }} />
+            <img src="/logo-dark.png" alt="allu.mkt creative insights" className="logo-dark" style={{ height: "32px", width: "auto" }} />
           </Link>
 
           {viewSwitcher && (
@@ -390,11 +391,6 @@ export default function TopBar() {
             </div>
             
             <div style={{ borderTop: "1px solid var(--sidebar-border)", paddingTop: "1rem", marginTop: "0.5rem", display: "flex", flexDirection: "column", gap: "1rem" }}>
-              <NovaDemandaButton
-                style={{ width: '100%', justifyContent: 'center' }}
-                onOpen={() => setIsMobileMenuOpen(false)}
-              />
-
               <div style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem', width: '100%' }}>
                 {/* Mesmo botão e mesmo comportamento do desktop: sincronização
                     profunda de todas as redes, sempre no mês corrente. */}
@@ -411,18 +407,6 @@ export default function TopBar() {
           </>
         )}
         <div className={styles.actions} style={{ display: 'flex', alignItems: 'center', gap: '1rem', marginLeft: 'auto' }}>
-          {/*
-            Pedir uma peça é de qualquer pessoa autenticada, e por isso mora na
-            barra do topo: quem não produz não tem o board para clicar em "Nova
-            demanda", e sem este botão a plataforma teria fechado a porta junto
-            com o módulo. Aparece para todo mundo de propósito — abrir demanda
-            do painel de performance é o caminho mais curto de quem viu um
-            número cair e quer pedir criativo novo.
-          */}
-          <div className={styles.desktopOnly}>
-            <NovaDemandaButton style={{ padding: '0.45rem 0.9rem', fontSize: 'var(--text-caption)' }} />
-          </div>
-
           {/* Quem está com o painel aberto agora. Some sozinho quando não há
               ninguém — ver OnlineUsers. */}
           <div className={styles.desktopOnly} style={{ marginRight: '0.25rem', paddingRight: '1rem', borderRight: '1px solid var(--sidebar-border)' }}>
@@ -515,6 +499,25 @@ export default function TopBar() {
           <UserMenu />
         </div>
       </header>
+
+      {/*
+        A porta de entrada de demandas, em toda tela e em toda largura.
+
+        Pedir uma peça é de qualquer pessoa autenticada: quem não produz não
+        tem o board para clicar em "Nova demanda", e sem esta porta a
+        plataforma teria fechado o módulo e a entrada junto.
+
+        Flutuante, e não na barra do topo, onde morava: era o único botão com
+        texto de uma linha que já carregava logo, navegação, integrações e
+        seis ícones — o primeiro a apertar tudo em tela estreita.
+
+        Fora do `<header>` por obrigação, não por arrumação: a barra tem
+        `backdrop-filter`, e filtro cria bloco de contenção — um `position:
+        fixed` ali dentro passa a se ancorar na barra, e não na janela. O
+        botão ficaria preso no topo. É o mesmo motivo que já tirou daqui os
+        popups do celular, logo abaixo.
+      */}
+      <NovaDemandaButton className="btn btn-primary btn-fab" />
 
       {/* Mobile popups rendered outside of the sticky header to bypass iOS Safari fixed positioning bugs */}
       

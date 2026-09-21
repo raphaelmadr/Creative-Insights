@@ -31,6 +31,6 @@ export const config = {
      * aberto de abertura de demandas. Quem protege ali é o token do quadro, na
      * própria rota; ver `app/api/public/demanda/[token]/route.ts`.
      */
-    "/((?!api/auth|api/cron|api/public|demanda|_next/static|_next/image|favicon.ico|logo.png|login).*)",
+    "/((?!api/auth|api/cron|api/public|demanda|_next/static|_next/image|favicon.ico|logo.png|logo-dark.png|login).*)",
   ],
 };

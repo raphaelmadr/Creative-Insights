@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useCallback, useEffect, useState } from "react";
-import { Archive, ArchiveRestore, Wand2, Paperclip, Link2, Clock, Trash2 } from "lucide-react";
+import { Archive, ArchiveRestore, Wand2, Paperclip, Link2, Clock, Trash2, PackageCheck } from "lucide-react";
 import Modal from "@/components/Modal";
 import { Skeleton } from "@/components/Skeleton";
 import { type CardData } from "./CardDialog";
@@ -286,6 +286,16 @@ export default function ArchiveDialog({
                     <span className="card-badge">
                       <Link2 size={10} />
                       {link.isDrive ? "Drive" : link.label}
+                    </span>
+                  )}
+
+                  {/* Demanda arquivada é justamente onde se procura arte
+                      antiga: dizer que ela tem pasta de entrega poupa abrir
+                      o card para descobrir. */}
+                  {card.deliveryUrl && (
+                    <span className="card-badge" style={{ color: "var(--primary)", fontWeight: 600 }} title="Tem pasta de entrega no Drive">
+                      <PackageCheck size={10} />
+                      entrega
                     </span>
                   )}
 

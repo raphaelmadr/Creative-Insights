@@ -2,7 +2,7 @@
 
 import React, { useEffect, useState } from "react";
 import ReactMarkdown from "react-markdown";
-import { Trash2, Send, History, Copy as CopyIcon, Check, ChevronsDownUp, ChevronsUpDown, ArchiveRestore, Archive } from "lucide-react";
+import { Trash2, Send, History, Copy as CopyIcon, Check, ChevronsDownUp, ChevronsUpDown, ArchiveRestore, Archive, PackageCheck } from "lucide-react";
 import Modal from "@/components/Modal";
 import { Avatar } from "@/components/Avatar";
 import FieldInput, { type FieldDefinition, formatFieldValue } from "./FieldInput";
@@ -52,8 +52,11 @@ export interface CardData {
   copyText: string | null;
   /** JSON dos anexos — cru, como está no banco. Ver `parseAttachments`. */
   attachments: string | null;
-  /** O link das artes — a pasta do Drive. Ver `lib/card-link.ts`. */
+  /** O link de referência — o material de apoio do pedido. Ver `lib/card-link.ts`. */
   linkUrl: string | null;
+  /** A pasta do Drive com as artes entregues, escrita pela automação de
+   *  entrega. Nula enquanto nada foi entregue. Ver `BoardCard.deliveryUrl`. */
+  deliveryUrl: string | null;
   /** Fora do quadro: arquivada à mão ou pela regra de fim de mês. */
   archived: boolean;
   completedAt: string | null;
@@ -586,14 +589,57 @@ export default function CardDialog({
         A `key` amarra o estado do campo ao card: sem ela, abrir outro card
         reaproveitaria o rascunho do anterior, já que o diálogo é o mesmo.
       */}
+      {/*
+        A pasta que a AUTOMAÇÃO criou, quando existe.
+
+        Só de leitura, e por isso não é um `CardLinkField`: este endereço não
+        se digita — ele nasce do upload e some junto com ele. Um campo editável
+        aqui convidaria a colar outra coisa por cima do que a automação gravou.
+
+        Seção própria nas preferências (`deliveryLink`), e não dentro da do
+        link de referência: aquela depende da pergunta do formulário, e num
+        quadro que não pede link a pasta da entrega desaparecia junto. Aqui
+        quem decide é só o interruptor — a pasta não é resposta de ninguém.
+
+        Independente do painel de upload, que só aparece nas etapas de
+        produção: uma demanda que já passou delas ficaria sem nenhum caminho
+        até os próprios arquivos. Onde estão as artes é o que mais se procura
+        ao abrir um card entregue, e na passagem de bastão é o que a próxima
+        pessoa precisa antes de qualquer outra coisa.
+      */}
+      {mostra("deliveryLink") && card.deliveryUrl && (
+        <div style={{ ...block, display: "flex", alignItems: "center", gap: "0.6rem", flexWrap: "wrap" }}>
+          <span style={{ display: "flex", alignItems: "center", gap: "0.4rem", color: "var(--primary)", fontWeight: 600, fontSize: "var(--text-control)" }}>
+            <PackageCheck size={15} />
+            Pasta da entrega
+          </span>
+          <a
+            href={card.deliveryUrl}
+            target="_blank"
+            rel="noreferrer"
+            className="btn btn-secondary"
+            style={{ marginLeft: "auto", padding: "0.35rem 0.7rem", fontSize: "var(--text-caption)", textDecoration: "none" }}
+          >
+            Abrir no Drive
+          </a>
+          <span className="field-hint" style={{ flexBasis: "100%" }}>
+            As artes que subiram pela automação. O endereço é gravado sozinho ao
+            fim do envio e não se edita à mão.
+          </span>
+        </div>
+      )}
+
       {mostra("link") && (
         <CardLinkField
           key={card.id}
           id="card-link"
-          label="Link da Entrega"
+          /* Era "Link da Entrega", nome que passou a mentir quando a entrega
+             ganhou campo próprio: este aqui é o que veio COM o pedido, e o
+             mesmo nome que o quadro usa no selo. */
+          label="Link de referência"
           value={card.linkUrl}
           busy={travado}
-          hint="A pasta do Drive onde os arquivos desta entrega estão."
+          hint="O material de apoio do pedido — a pasta ou o arquivo que veio junto com a demanda."
           onSave={(url) => patch({ id: card.id, linkUrl: url })}
         />
       )}

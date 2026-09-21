@@ -50,12 +50,27 @@ export default function OnlineUsers() {
 
   return (
     <div ref={containerRef} style={{ position: "relative", display: "flex", alignItems: "center" }}>
-      <button onClick={() => setIsOpen(!isOpen)} title={`${users.length} ${users.length === 1 ? "pessoa online" : "pessoas online"}`} className="btn btn-ghost" >
+      {/*
+        Só os rostos, sem uma palavra.
+
+        O gatilho trazia o contador por extenso ao lado ("7 online") e um
+        `title` em cada avatar — texto que aparecia no hover, atravessado por
+        cima do cabeçalho, para dizer o que o popup já diz melhor. `aria-label`
+        no lugar do `title`: dá o mesmo nome ao botão para quem usa leitor de
+        tela, e não desenha nada na tela de ninguém.
+      */}
+      <button
+        onClick={() => setIsOpen(!isOpen)}
+        className="btn btn-ghost"
+        aria-haspopup="true"
+        aria-expanded={isOpen}
+        aria-label={`${users.length} ${users.length === 1 ? "pessoa online" : "pessoas online"}. Ver quem está.`}
+        style={{ padding: "0.25rem 0.35rem", gap: 0 }}
+      >
         <div style={{ display: "flex", alignItems: "center" }}>
           {visible.map((user, index) => (
             <div
               key={user.id}
-              title={displayName(user)}
               style={{
                 marginLeft: index === 0 ? 0 : "-10px",
                 // O primeiro da pilha fica por cima do seguinte, e assim por diante.
@@ -92,28 +107,6 @@ export default function OnlineUsers() {
             </div>
           )}
         </div>
-
-        <span
-          style={{
-            display: "flex",
-            alignItems: "center",
-            gap: "0.35rem",
-            fontSize: "var(--text-caption)",
-            color: "var(--muted)",
-            whiteSpace: "nowrap",
-          }}
-        >
-          <span
-            style={{
-              width: "6px",
-              height: "6px",
-              borderRadius: "50%",
-              background: "var(--primary)",
-              display: "inline-block",
-            }}
-          />
-          {users.length} online
-        </span>
       </button>
 
       {isOpen && (
@@ -131,15 +124,34 @@ export default function OnlineUsers() {
             zIndex: 200,
           }}
         >
+          {/* O contador que saiu do cabeçalho reaparece aqui: a informação
+              não se perdeu, mudou de lugar — é o que se lê ao abrir, e não o
+              que fica ocupando a barra o tempo todo. */}
           <div
             style={{
               padding: "0.75rem 1rem",
               borderBottom: "1px solid var(--card-border)",
               fontSize: "var(--text-control)",
               fontWeight: 600,
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "space-between",
+              gap: "0.5rem",
             }}
           >
-            Online agora
+            <span style={{ display: "flex", alignItems: "center", gap: "0.4rem" }}>
+              <span
+                style={{
+                  width: "6px",
+                  height: "6px",
+                  borderRadius: "50%",
+                  background: "var(--primary)",
+                  display: "inline-block",
+                }}
+              />
+              Online agora
+            </span>
+            <span style={{ color: "var(--muted)", fontWeight: 600 }}>{users.length}</span>
           </div>
 
           <div style={{ maxHeight: "300px", overflowY: "auto" }}>
