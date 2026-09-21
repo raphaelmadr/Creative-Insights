@@ -290,10 +290,10 @@ export default function ArchiveDialog({
                   )}
 
                   {/* Demanda arquivada é justamente onde se procura arte
-                      antiga: dizer que ela tem pasta de entrega poupa abrir
+                      antiga: dizer que ela já tem entrega poupa abrir
                       o card para descobrir. */}
                   {card.deliveryUrl && (
-                    <span className="card-badge" style={{ color: "var(--primary)", fontWeight: 600 }} title="Tem pasta de entrega no Drive">
+                    <span className="card-badge" style={{ color: "var(--primary)", fontWeight: 600 }} title="Esta demanda já tem entrega registrada">
                       <PackageCheck size={10} />
                       entrega
                     </span>

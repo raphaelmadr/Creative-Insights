@@ -351,7 +351,7 @@ export default function CardFace({
         )}
 
         {/*
-          A pasta das artes entregues.
+          O que foi entregue nesta demanda.
 
           Vem depois do link de referência, e verde e não azul, porque a
           leitura do card vai do insumo ao resultado: o azul é o que entrou
@@ -368,7 +368,7 @@ export default function CardFace({
             target="_blank"
             rel="noreferrer"
             className="card-badge"
-            title="Abrir a pasta das artes entregues no Drive"
+            title="Abrir o que foi entregue nesta demanda"
             onClick={(e) => e.stopPropagation()}
             style={{
               fontWeight: 600,

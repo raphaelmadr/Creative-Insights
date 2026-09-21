@@ -248,8 +248,8 @@ function MemberCard({ stat, rank }: { stat: any; rank: number }) {
 
             <GoalBlock
               icon={<Layers size={13} />}
-              label="Peças entregues"
-              hint="Peças dos cards que chegaram à etapa de entrega do quadro."
+              label="Volumetria entregue"
+              hint="Tudo o que esta pessoa entregou e registrou no card — criativo, vídeo, banner, landing page, o que for. Conta no momento do registro da entrega, uma vez por demanda."
               value={stat.totalPieces || 0}
               goal={volumeGoal}
               format={(n: number) => n.toLocaleString("pt-BR")}
@@ -400,10 +400,13 @@ export default function EquipePage() {
                 </div>
               </div>
               <div className="allu-card">
-                <div className="allu-card-label">◇ Entregas realizadas</div>
+                <div className="allu-card-label">◇ Volumetria entregue</div>
                 <div className="allu-card-subtext">
-                  Peças dos cards que chegaram à <strong>etapa de entrega do quadro</strong> nas datas
-                  do mês selecionado. O crédito vai para quem moveu o card.
+                  Tudo o que foi entregue e <strong>registrado no card</strong> nas datas do mês
+                  selecionado — criativo, vídeo, banner, landing page, material hospedado fora.
+                  Não é só peça de anúncio. O crédito vai para <strong>quem registrou a
+                  entrega</strong>, e cada demanda conta uma vez só: mover ou arquivar o card
+                  depois não muda o número.
                 </div>
               </div>
               <div className="allu-card">
@@ -426,7 +429,7 @@ export default function EquipePage() {
             <div className="allu-card" style={{ gap: "0.75rem", borderTop: "3px solid var(--primary)" }}>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", flexWrap: "wrap", gap: "0.75rem" }}>
                 <span className="allu-card-label" style={{ color: "var(--primary)", gap: "0.35rem" }}>
-                  <Target size={13} /> {hasTeamGoal ? "Meta global de peças" : "Peças entregues pela equipe"}
+                  <Target size={13} /> {hasTeamGoal ? "Meta global de volumetria" : "Volumetria entregue pela equipe"}
                 </span>
                 <div style={{ display: "flex", alignItems: "baseline", gap: "0.35rem", fontVariantNumeric: "tabular-nums" }}>
                   <span className="allu-card-value" style={{ color: "var(--primary)" }}>

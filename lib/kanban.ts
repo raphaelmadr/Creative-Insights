@@ -733,8 +733,8 @@ export const CARD_BADGES = [
      * pasta de vista. Ver `parseCardBadges`.
      */
     key: "delivery",
-    label: "Pasta da entrega",
-    hint: "As artes que subiram para o Drive pela automação de entrega — abre a pasta direto do quadro.",
+    label: "Entrega",
+    hint: "O que foi entregue nesta demanda — vídeo, arte, página, o que for. Abre direto do quadro.",
     default: true,
   },
 ] as const;
@@ -1019,7 +1019,7 @@ export const CARD_PANEL_SECTIONS = [
   },
   {
     /*
-     * A pasta das artes entregues — e SEM `fonte`, ao contrário da vizinha.
+     * O endereço do que foi entregue — e SEM `fonte`, ao contrário da vizinha.
      *
      * Era aqui que o link sumia. A pasta do Drive morava na seção acima, que
      * só existe quando o formulário pergunta pelo link de referência. Num
@@ -1033,8 +1033,8 @@ export const CARD_PANEL_SECTIONS = [
      * pergunta. Ver `BoardCard.deliveryUrl`.
      */
     key: "deliveryLink",
-    label: "Pasta da entrega",
-    hint: "O endereço das artes que subiram para o Drive pela automação. Aparece só depois que existe uma entrega.",
+    label: "Entrega registrada",
+    hint: "O endereço do que foi entregue — a pasta criada pela automação ou o link informado à mão. Aparece só depois que existe uma entrega.",
     default: true,
   },
   {
@@ -1093,7 +1093,7 @@ export const CARD_PANEL_SECTIONS = [
      * só notar a ausência.
      */
     key: "delivery",
-    label: "Entrega de criativos",
+    label: "Entrega de demanda",
     hint: "Solta o lote de arquivos de uma vez — nomeia, organiza no Drive e libera o link sozinho. Só habilitado numa etapa marcada como Produção.",
     default: true,
   },

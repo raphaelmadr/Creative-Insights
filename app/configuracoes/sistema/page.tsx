@@ -461,7 +461,7 @@ export default function SistemaPage() {
 
         <SettingsSection
           brand="google"
-          title="Google Drive — entrega de criativos"
+          title="Google Drive — entrega de demanda"
           description="Nomeia, organiza em Ano/Mês/Formato/ID e sobe os arquivos de entrega direto do card. Mesma service account do ad-naming-tool — precisa ter acesso de Editor na pasta raiz configurada abaixo."
           status={!!(settings.driveServiceAccountJson && settings.driveRootFolderId)}
         >

@@ -743,8 +743,13 @@ model BoardCard {
   /// o mostra na frente e ele abre com um clique. Ver `lib/card-link.ts`.
   linkUrl String? @db.Text
 
-  /// A pasta do Drive com as artes ENTREGUES — escrita pela automação de
-  /// entrega, nunca à mão. Ver `app/api/creator/cards/delivery/complete`.
+  /// O endereço do que foi ENTREGUE nesta demanda. Pode ser um vídeo, uma
+  /// arte, um banner, uma landing page — o meio é detalhe do link.
+  ///
+  /// Dois caminhos escrevem aqui, os dois pela mesma rota
+  /// (`app/api/creator/cards/delivery/complete`): a automação, com a pasta que
+  /// ela criou no Drive, e a aba URL do painel, com um endereço informado à
+  /// mão para o que não vira arquivo no Drive.
   ///
   /// Separada de `linkUrl` porque as duas são coisas diferentes com o mesmo
   /// formato. `linkUrl` é o material de apoio que o solicitante colou na

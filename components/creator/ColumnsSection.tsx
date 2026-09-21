@@ -18,7 +18,7 @@ export interface ColumnDefinition {
   groupId: string | null;
   isIntake: boolean;
   isDone: boolean;
-  /** Libera o painel "Entrega de criativos" dentro do card. Ver `CardDialog`. */
+  /** Libera o painel "Entrega de demanda" dentro do card. Ver `CardDialog`. */
   isProduction: boolean;
   wipLimit: number | null;
   /** Avisa no Slack quando um card entra nesta etapa. */

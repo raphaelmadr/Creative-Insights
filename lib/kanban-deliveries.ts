@@ -6,183 +6,70 @@
  * escrito de um jeito que o analisador entendesse — quem entregava e esquecia
  * de postar simplesmente não aparecia no ranking.
  *
- * Agora a entrega é um fato do quadro: o card chega à coluna de conclusão. O
- * trabalho já é organizado ali, então medir ali não pede nenhum passo novo de
- * ninguém.
+ * Agora a entrega é um fato do próprio trabalho: alguém registra o que
+ * entregou no módulo de entrega, dentro do card — subindo os arquivos ou
+ * apontando o endereço —, e é esse ato que conta. Quem registra é quem
+ * produziu, e a quantidade é o que foi de fato entregue.
+ *
+ * Por um tempo o gatilho foi o card CHEGAR à coluna de conclusão, com a
+ * quantidade saindo de um campo do formulário. Dois problemas: creditava
+ * quem arrastou o card, que pode ser do time seguinte, e o número vinha de
+ * uma resposta editável, adivinhada pelo nome do campo.
+ *
+ * O movimento para a conclusão ainda importa, mas só para acender a luz
+ * quando ele acontece sem entrega registrada — ver `avisarEntregaSemRegistro`.
  */
 
 import prisma from "./prisma";
-import { parseValues, CHAVES_DE_VOLUMETRIA, campoVolumetria } from "./kanban";
 import { logWarning } from "./logger";
 
 /**
- * Quantas peças esta demanda entregou.
+ * Credita a entrega a quem a registrou no módulo.
  *
- * Sem campo preenchido, vale 1: um card entregue é uma coisa entregue, e
- * devolver zero faria a entrega desaparecer do relatório justamente por uma
- * pergunta que ficou em branco.
+ * O crédito nasce do ENVIO, e não do movimento do card. Quem sobe as peças —
+ * ou registra o link — é quem as produziu; quem arrasta o card depois pode ser
+ * qualquer pessoa do time seguinte, e creditá-la premiava o gesto errado.
+ *
+ * A quantidade vem do que foi realmente entregue, contada em PEÇAS e não em
+ * arquivos: um estático é feed + story, dois arquivos para uma peça só. Antes
+ * ela saía de um campo numérico do formulário adivinhado pelo nome, que
+ * contava por sorte e podia ser editado depois da entrega.
+ *
+ * Conta UMA VEZ, para sempre. `sourceKey` é único por card, então reenviar o
+ * lote, mover o card, devolvê-lo à etapa anterior ou arquivá-lo no fim do mês
+ * não somam nada — e também não tiram. O registro é um fato datado, não um
+ * espelho do estado atual do quadro.
  */
-export async function volumetriaDoCard(
-  boardId: string,
-  values: string | null,
-  /** Para a frase do aviso dizer de qual demanda se trata. */
-  titulo?: string
-): Promise<number> {
-  const respostas = parseValues(values);
-
-  const numericos = await prisma.boardField.findMany({
-    // `RANGE` junto: a quantidade de peças virou deslizante, e procurar só por
-    // `NUMBER` faria toda entrega passar a contar 1.
-    where: { boardId, type: { in: ["NUMBER", "RANGE"] } },
-    orderBy: { position: "asc" },
-    select: { key: true, type: true },
-  });
-
-  const chave = campoVolumetria(numericos);
-
-  /*
-   * Não saber qual campo é a volumetria não pode ser silencioso.
-   *
-   * Com dois ou mais campos numéricos e nenhum com nome conhecido, a função
-   * desiste e conta 1 por card — que é a decisão certa (adivinhar seria
-   * inventar uma regra que ninguém escreveu), mas era tomada sem deixar
-   * rastro: o ranking passava a somar cards em vez de peças, e ninguém tinha
-   * como descobrir por quê.
-   *
-   * Só avisa no caso AMBÍGUO. Um quadro sem campo numérico nenhum não pergunta
-   * quantidade, e contar 1 por card ali é o comportamento pretendido, não um
-   * defeito a reportar.
-   */
-  if (!chave && numericos.length > 1) {
-    await logWarning(
-      "ENTREGAS",
-      `O quadro tem ${numericos.length} campos numéricos (${numericos
-        .map((f) => f.key)
-        .join(", ")}) e nenhum com nome reconhecido como volumetria, então ` +
-        `${titulo ? `"${titulo}"` : "a entrega"} contou 1 peça. Renomeie o campo ` +
-        `de quantidade para uma destas chaves: ${CHAVES_DE_VOLUMETRIA.join(", ")}.`,
-      "lib/kanban-deliveries.ts"
-    );
-  }
-
-  if (!chave) return 1;
-
-  const bruto = respostas[chave];
-  const numero = typeof bruto === "number" ? bruto : Number(String(bruto ?? "").trim());
-
-  return Number.isFinite(numero) && numero > 0 ? Math.floor(numero) : 1;
-}
-
-/**
- * Registra a entrega de um card que acabou de chegar à coluna de conclusão.
- *
- * O crédito vai para QUEM ESTAVA COM A DEMANDA — os responsáveis de antes
- * desta transição, os mesmos que a frente do card mostra em "Responsável".
- * Não é mais quem arrastou: um card da Criação entregue direto numa coluna de
- * conclusão de outro grupo (Revisão, Growth...) deixava de contar pra quem
- * produziu a peça, porque o crédito ia pra quem clicou o arrasto — que podia
- * ser qualquer um do grupo de destino. `resolveMoveAssignees` já preserva os
- * responsáveis ao chegar numa coluna de conclusão (ver `lib/kanban.ts`), então
- * aqui só se lê o que sobrou.
- *
- * `movidoPor` é reserva, não regra: só entra quando não há UM responsável
- * claro (card sem ninguém atribuído, ou atribuído a um grupo inteiro que ainda
- * não foi individualmente assumido) — nesses casos, quem declarou a entrega ao
- * arrastar o card é o melhor crédito disponível.
- *
- * Silenciosa em três casos, todos deliberados:
- *
- * - O card não mudou para uma coluna de conclusão. Nada aconteceu.
- * - Nem os responsáveis nem quem moveu têm ficha de criador ligada ao e-mail.
- *   O ranking é por criador, e não há a quem creditar — vira aviso no painel
- *   de logs, e não exceção, porque derrubar o arrasto do card por causa disso
- *   seria desproporcional: o movimento é legítimo, só não é contabilizável.
- * - O card já foi entregue antes. `sourceKey` é único por card, então voltar à
- *   revisão e avançar de novo não conta duas vezes.
- */
-/**
- * Acerta a volumetria de uma entrega JÁ registrada, quando a resposta muda.
- *
- * `Delivery.pieces` é uma fotografia: vale o que o card respondia no instante
- * em que chegou à coluna de entrega. Isso bastava enquanto a resposta era
- * imutável depois da abertura — e deixou de bastar quando quem produz a peça
- * passou a poder corrigi-la no painel do card, que é justamente quando o número
- * real aparece. Sem este acerto, o quadro mostrava 3 peças e o ranking contava
- * 1, para sempre, sem nada na tela explicando a diferença.
- *
- * A DATA não se mexe, e é de propósito: a entrega aconteceu no dia em que
- * aconteceu. O que se corrige é quanto foi entregue, não quando — mover a data
- * para hoje tiraria a entrega do mês em que ela foi feita e furaria o
- * fechamento de um mês já contado.
- *
- * Devolve o antes e o depois para quem chamou poder registrar a correção no
- * histórico do card; nulo quando não há entrega ou quando o número não mudou.
- */
-export async function atualizarVolumetriaEntregue(params: {
+export async function creditarEntregaDoModulo(params: {
   cardId: string;
-  boardId: string;
-  values: string | null;
-}): Promise<{ antes: number; depois: number } | null> {
-  const entrega = await prisma.delivery.findUnique({
-    where: { sourceKey: `kanban:${params.cardId}` },
-    select: { id: true, pieces: true },
-  });
-
-  // Card que ainda não foi entregue não tem o que corrigir: a fotografia será
-  // tirada na chegada à coluna de conclusão, já com a resposta de agora.
-  if (!entrega) return null;
-
-  const depois = await volumetriaDoCard(params.boardId, params.values);
-  if (depois === entrega.pieces) return null;
-
-  await prisma.delivery.update({ where: { id: entrega.id }, data: { pieces: depois } });
-
-  return { antes: entrega.pieces, depois };
-}
-
-export async function registrarEntregaDoCard(params: {
-  cardId: string;
-  boardId: string;
   title: string;
-  values: string | null;
-  /** A coluna de destino conclui o fluxo? */
-  destinoConclui: boolean;
-  /** A coluna de origem já concluía? Então não houve entrega nova. */
-  origemConcluia: boolean;
-  /** Quem estava com a demanda antes desta transição — quem a credita. */
-  responsaveis: string[];
-  /** E-mail de quem arrastou o card — reserva, ver o comentário acima. */
-  movidoPor: string | null;
+  /** Peças efetivamente entregues. Um link vale 1. */
+  pieces: number;
+  /** Quem registrou a entrega — o e-mail de quem estava na tela. */
+  email: string | null;
 }): Promise<void> {
-  if (!params.destinoConclui || params.origemConcluia) return;
-
-  const emailParaCreditar =
-    params.responsaveis.length === 1 ? params.responsaveis[0] : params.movidoPor;
-
-  if (!emailParaCreditar) {
+  if (!params.email) {
     await logWarning(
       "ENTREGAS",
-      `Card "${params.title}" chegou à coluna de entrega sem responsável identificável — não foi possível creditar a volumetria.`,
+      `A entrega de "${params.title}" foi registrada sem identificar quem a enviou — a volumetria não entrou no ranking.`,
       "lib/kanban-deliveries.ts"
     );
     return;
   }
 
   const creator = await prisma.creator.findUnique({
-    where: { userEmail: emailParaCreditar },
+    where: { userEmail: params.email },
     select: { id: true },
   });
 
   if (!creator) {
     await logWarning(
       "ENTREGAS",
-      `${emailParaCreditar} entregou "${params.title}", mas não há criador com esse e-mail vinculado — a volumetria não entrou no ranking. Vincule a conta em Configurações › Equipe.`,
+      `${params.email} registrou a entrega de "${params.title}", mas não há criador com esse e-mail vinculado — a volumetria não entrou no ranking. Vincule a conta em Configurações › Equipe.`,
       "lib/kanban-deliveries.ts"
     );
     return;
   }
-
-  const pieces = await volumetriaDoCard(params.boardId, params.values, params.title);
 
   try {
     await prisma.delivery.create({
@@ -190,68 +77,78 @@ export async function registrarEntregaDoCard(params: {
         sourceKey: `kanban:${params.cardId}`,
         cardId: params.cardId,
         creatorId: creator.id,
-        pieces,
+        pieces: Math.max(1, Math.floor(params.pieces) || 1),
         date: new Date(),
         text: params.title,
       },
     });
   } catch (error: unknown) {
-    // P2002 = já existe entrega para este card. É o caso do card que volta e
-    // avança de novo, e é exatamente o que a chave única existe para impedir.
+    // P2002 = já há entrega registrada para este card. É o reenvio, e é
+    // exatamente o que a chave única existe para impedir.
     if ((error as { code?: string })?.code !== "P2002") throw error;
   }
 }
 
 /**
- * Peças entregues por criador — o QUANDO vem do quadro, o QUEM vem do que foi
- * gravado na hora da entrega.
+ * Avisa quando um card conclui sem entrega registrada.
  *
- * Duas fontes, cada uma certa pro que responde:
+ * Não credita nada — só acende a luz. Desde que o crédito passou a nascer do
+ * módulo, um card que chega à conclusão sem ninguém ter registrado a entrega
+ * é volumetria perdida: o trabalho aconteceu e não vai aparecer em ranking
+ * nenhum. Silencioso, isso só seria descoberto no fim do mês, olhando um
+ * número menor do que a equipe esperava.
+ */
+export async function avisarEntregaSemRegistro(params: {
+  cardId: string;
+  title: string;
+  /** A coluna de destino conclui o fluxo? */
+  destinoConclui: boolean;
+  /** A coluna de origem já concluía? Então não é uma conclusão nova. */
+  origemConcluia: boolean;
+}): Promise<void> {
+  if (!params.destinoConclui || params.origemConcluia) return;
+
+  const jaTem = await prisma.delivery.findUnique({
+    where: { sourceKey: `kanban:${params.cardId}` },
+    select: { id: true },
+  });
+  if (jaTem) return;
+
+  await logWarning(
+    "ENTREGAS",
+    `"${params.title}" chegou à etapa de conclusão sem entrega registrada no módulo — a volumetria não foi contada para ninguém.`,
+    "lib/kanban-deliveries.ts"
+  );
+}
+
+/**
+ * Peças entregues por criador, no intervalo.
  *
- * - **`completedAt` diz SE isto ainda conta.** É apagado no instante em que o
- *   card sai de uma coluna de conclusão (`target.isDone ? new Date() : null`
- *   em `app/api/creator/cards/route.ts`) — reaberto ou seguindo viagem pro
- *   próximo grupo, tanto faz. Por isso um card reaberto some daqui sozinho,
- *   sem limpeza manual: é o que faz o dash ser espelho, e não uma contagem
- *   que só cresce.
- * - **`Delivery.creatorId` diz QUEM.** Não é `card.assignees` — esse campo
- *   muda nas etapas seguintes (chegar em "Revisão" reatribui o card ao TIME
- *   de Revisão, de propósito: é essa marca que avisa quem revisa que há algo
- *   novo — ver `resolveMoveAssignees`). Ler `assignees` aqui creditaria a
- *   Revisão pela peça que a Criação produziu, assim que o card avançasse.
- *   `registrarEntregaDoCard` grava o responsável de ANTES dessa
- *   reatribuição, e é esse registro — imutável enquanto o card não é
- *   reaberto e entregue de novo — que fica valendo pro crédito.
+ * A régua é a DATA DO REGISTRO da entrega, e não o `completedAt` do card.
  *
- * Um card com `completedAt` no intervalo mas sem `Delivery` correspondente
- * (chegou na coluna de conclusão sem ninguém identificável pra creditar — ver
- * os avisos em `registrarEntregaDoCard`) fica de fora da soma, no mesmo
- * espírito: sem responsável, sem invenção de regra de rateio.
+ * Era o contrário, e tinha um buraco: `completedAt` é zerado toda vez que o
+ * card sai de uma coluna de conclusão — inclusive quando ele só segue viagem
+ * para o grupo seguinte. A entrega era creditada e, no arrasto seguinte,
+ * sumia da contagem sem ninguém ter desfeito nada. Quem olhasse o ranking
+ * depois do handoff via um número menor do que tinha visto na véspera.
+ *
+ * Com a data do registro, uma entrega contada está contada: mover, devolver,
+ * reabrir ou arquivar não mexem mais nela. É o que a torna um fato, e não uma
+ * fotografia do estado atual do quadro.
+ *
+ * Soma tudo o que está no livro de entregas do período, seja qual for a
+ * origem — o que veio do módulo hoje e o que ficou de registros anteriores.
+ * Uma entrega é uma entrega.
  */
 export async function pecasEntreguesPorCriador(
   startDate: Date,
   endDate: Date
 ): Promise<Map<string, number>> {
-  const cards = await prisma.boardCard.findMany({
-    where: { completedAt: { gte: startDate, lte: endDate } },
-    select: { id: true, boardId: true, title: true, values: true },
+  const linhas = await prisma.delivery.groupBy({
+    by: ["creatorId"],
+    where: { date: { gte: startDate, lte: endDate } },
+    _sum: { pieces: true },
   });
-  if (!cards.length) return new Map();
 
-  const deliveries = await prisma.delivery.findMany({
-    where: { cardId: { in: cards.map((c) => c.id) } },
-    select: { cardId: true, creatorId: true },
-  });
-  const creatorIdPorCard = new Map(deliveries.map((d) => [d.cardId, d.creatorId]));
-
-  const porCriador = new Map<string, number>();
-  for (const card of cards) {
-    const creatorId = creatorIdPorCard.get(card.id);
-    if (!creatorId) continue;
-
-    const pecas = await volumetriaDoCard(card.boardId, card.values, card.title);
-    porCriador.set(creatorId, (porCriador.get(creatorId) ?? 0) + pecas);
-  }
-
-  return porCriador;
+  return new Map(linhas.map((l) => [l.creatorId, l._sum.pieces ?? 0]));
 }

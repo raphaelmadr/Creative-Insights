@@ -2,7 +2,7 @@
 
 import React, { useEffect, useState } from "react";
 import ReactMarkdown from "react-markdown";
-import { Trash2, Send, History, Copy as CopyIcon, Check, ChevronsDownUp, ChevronsUpDown, ArchiveRestore, Archive, PackageCheck } from "lucide-react";
+import { Trash2, Send, History, Copy as CopyIcon, Check, ChevronsDownUp, ChevronsUpDown, ArchiveRestore, Archive, PackageCheck, ChevronDown } from "lucide-react";
 import Modal from "@/components/Modal";
 import { Avatar } from "@/components/Avatar";
 import FieldInput, { type FieldDefinition, formatFieldValue } from "./FieldInput";
@@ -13,6 +13,7 @@ import CardLinkField from "./CardLinkField";
 import DeliveryUploadPanel from "./DeliveryUploadPanel";
 import { parseCopyVariations } from "@/lib/copy-parse";
 import { parseAttachments } from "@/lib/attachments";
+import { describeCardLink } from "@/lib/card-link";
 import type { PersonOption } from "./DemandDialog";
 import {
   PRIORITIES,
@@ -54,8 +55,9 @@ export interface CardData {
   attachments: string | null;
   /** O link de referência — o material de apoio do pedido. Ver `lib/card-link.ts`. */
   linkUrl: string | null;
-  /** A pasta do Drive com as artes entregues, escrita pela automação de
-   *  entrega. Nula enquanto nada foi entregue. Ver `BoardCard.deliveryUrl`. */
+  /** O endereço do que foi entregue: a pasta criada pela automação, ou um
+   *  link informado à mão. Nulo enquanto nada foi entregue. Ver
+   *  `BoardCard.deliveryUrl`. */
   deliveryUrl: string | null;
   /** Fora do quadro: arquivada à mão ou pela regra de fim de mês. */
   archived: boolean;
@@ -122,6 +124,8 @@ export default function CardDialog({
   onChanged: () => void;
 }) {
   const [activities, setActivities] = useState<Activity[]>([]);
+  /** O histórico começa fechado — ver o comentário na seção. */
+  const [historicoAberto, setHistoricoAberto] = useState(false);
   const [comment, setComment] = useState("");
 
   /**
@@ -237,6 +241,18 @@ export default function CardDialog({
    * card.
    */
   const emProducao = columns.find((c) => c.id === card.columnId)?.isProduction === true;
+
+  /*
+   * A entrega já está FECHADA?
+   *
+   * Em produção, o bloco da entrega é informação: o painel de envio está logo
+   * abaixo e o trabalho ainda acontece. Fora dela, a demanda já saiu — e quem
+   * abre o card precisa ver isso antes de ler qualquer outra coisa, em vez de
+   * deduzir pela etapa em que o card está.
+   */
+  const entregaFechada = !!card.deliveryUrl && !emProducao;
+  /** Para onde a entrega aponta — Drive, Figma, um domínio qualquer. */
+  const destinoDaEntrega = card.deliveryUrl ? describeCardLink(card.deliveryUrl) : null;
 
   /*
    * Os dois lados do bloco de briefing, cada um com o seu interruptor.
@@ -440,15 +456,15 @@ export default function CardDialog({
       }
     >
       {/*
-        Duas colunas: o que muda o tempo todo (etapa, briefing, entrega) à
-        esquerda, e "Acompanhamento" fixo à direita — é a aba de onde se
-        segue tudo que acontece com a demanda, e misturada na sequência
-        vertical ficava fácil de confundir com o resto do conteúdo, que é
-        sobre A DEMANDA em si, não sobre seu histórico. Empilha numa coluna só
-        em tela estreita.
+        Uma coluna só, na largura inteira do diálogo.
+
+        Eram duas: a demanda à esquerda e "Acompanhamento" fixo numa faixa de
+        260px à direita. A faixa custava essa largura em TODA demanda — o
+        briefing, as respostas, a copy e o painel de entrega espremidos para
+        manter à vista um histórico que quase nunca se está lendo. O
+        acompanhamento desceu para o fim, recolhido, e o que sobrou de espaço
+        voltou para o conteúdo.
       */}
-      <div className="cd-grid">
-      <div className="cd-main">
       {/* Etapa, prioridade e responsável: o que muda com mais frequência fica
           no topo, editável sem abrir outra tela.
 
@@ -608,11 +624,24 @@ export default function CardDialog({
         pessoa precisa antes de qualquer outra coisa.
       */}
       {mostra("deliveryLink") && card.deliveryUrl && (
-        <div style={{ ...block, display: "flex", alignItems: "center", gap: "0.6rem", flexWrap: "wrap" }}>
-          <span style={{ display: "flex", alignItems: "center", gap: "0.4rem", color: "var(--primary)", fontWeight: 600, fontSize: "var(--text-control)" }}>
-            <PackageCheck size={15} />
-            Pasta da entrega
+        <div className={`cd-entrega${entregaFechada ? " cd-entrega--feita" : ""}`}>
+          <span
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: "0.4rem",
+              color: "var(--primary)",
+              fontWeight: 700,
+              fontSize: "var(--text-control)",
+            }}
+          >
+            <PackageCheck size={16} />
+            {/* "Entrega" e não "artes": o que sai desta demanda pode ser um
+                vídeo, um banner, uma landing page ou um arquivo hospedado
+                fora. O meio é detalhe do link, não do rótulo. */}
+            {entregaFechada ? "Demanda entregue" : "Entrega registrada"}
           </span>
+
           <a
             href={card.deliveryUrl}
             target="_blank"
@@ -620,11 +649,13 @@ export default function CardDialog({
             className="btn btn-secondary"
             style={{ marginLeft: "auto", padding: "0.35rem 0.7rem", fontSize: "var(--text-caption)", textDecoration: "none" }}
           >
-            Abrir no Drive
+            {destinoDaEntrega?.isDrive ? "Abrir no Drive" : "Abrir entrega"}
           </a>
+
           <span className="field-hint" style={{ flexBasis: "100%" }}>
-            As artes que subiram pela automação. O endereço é gravado sozinho ao
-            fim do envio e não se edita à mão.
+            {destinoDaEntrega?.isDrive
+              ? "A pasta foi criada e nomeada pela automação ao fim do envio — o endereço não se edita à mão."
+              : "Endereço registrado na entrega, fora do Drive — uma página, um material hospedado em outro lugar."}
           </span>
         </div>
       )}
@@ -829,16 +860,73 @@ export default function CardDialog({
           )}
         </div>
       )}
-      </div>
 
-      <div className="cd-side">
+
+      {/* Perto do fim e em largura cheia, por ser a última etapa antes de a
+          demanda seguir pra revisão e subida dos anúncios — um destaque de
+          "fim de linha", não mais um campo entre outros. Só o acompanhamento
+          vem depois, e ele é consulta. */}
+      {mostra("delivery") && (
+        <DeliveryUploadPanel
+          key={card.id}
+          cardId={card.id}
+          code={card.code}
+          assignees={card.assignees}
+          values={values}
+          fields={fields}
+          people={people}
+          emProducao={emProducao}
+          onUploaded={onChanged}
+        />
+      )}
+
+      {/*
+        O acompanhamento fecha o card, e recolhido.
+
+        Morava numa coluna fixa à direita, e pagava caro por isso: 260px de
+        largura tirados de TODA a demanda — briefing, respostas, copy e o
+        painel de entrega espremidos a vida inteira para manter à vista um
+        histórico que quase sempre não se está lendo. Agora ele é a última
+        seção, em largura cheia, e quem quer o histórico o abre.
+
+        Recolhido por padrão pelo mesmo motivo: o card aberto é sobre A
+        DEMANDA; o que já aconteceu com ela é consulta, não leitura de todo
+        dia. A contagem no cabeçalho avisa quando há o que ler.
+      */}
       {mostra("activity") && (
-      <div className="field">
-        <span className="field-label" style={{ display: "flex", alignItems: "center", gap: "0.4rem" }}>
+      <div className="field cd-historico">
+        {/*
+          O cabeçalho é um botão de verdade, e não um rótulo com `onClick`:
+          recolher e expandir é uma ação, e como botão ela vem com teclado,
+          foco e o `aria-expanded` que diz a um leitor de tela se o conteúdo
+          está aberto.
+        */}
+        <button
+          type="button"
+          className="cd-historico-toggle"
+          aria-expanded={historicoAberto}
+          onClick={() => setHistoricoAberto((v) => !v)}
+        >
           <History size={14} />
           Acompanhamento
-        </span>
+          {/* A contagem no cabeçalho é o que justifica abrir: recolhido, sem
+              ela, não há como saber se há uma atualização nova ou nenhuma. */}
+          {activities.length > 0 && (
+            <span className="cd-historico-contador">{activities.length}</span>
+          )}
+          <ChevronDown
+            size={14}
+            aria-hidden="true"
+            style={{
+              marginLeft: "auto",
+              transition: "transform 0.2s ease",
+              transform: historicoAberto ? "rotate(180deg)" : "none",
+            }}
+          />
+        </button>
 
+        {historicoAberto && (
+          <>
         <div style={{ display: "flex", gap: "0.5rem" }}>
           <input
             className="field-input"
@@ -894,27 +982,9 @@ export default function CardDialog({
             ))
           )}
         </div>
+          </>
+        )}
       </div>
-      )}
-      </div>
-      </div>
-
-      {/* Fora da grade de duas colunas, de propósito: largura cheia, por ser
-          a última etapa antes de a demanda seguir pra revisão e subida dos
-          anúncios — um destaque de "fim de linha", não mais um campo entre
-          outros dentro da coluna principal. */}
-      {mostra("delivery") && (
-        <DeliveryUploadPanel
-          key={card.id}
-          cardId={card.id}
-          code={card.code}
-          assignees={card.assignees}
-          values={values}
-          fields={fields}
-          people={people}
-          emProducao={emProducao}
-          onUploaded={onChanged}
-        />
       )}
 
       {error && (

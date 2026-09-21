@@ -19,6 +19,12 @@
   --primary: #27AE60;
   --primary-hover: #2ECC71;
   --primary-glow: rgba(39, 174, 96, 0.15);
+
+  /* Superfície de "isto está feito" — o bloco de entrega concluída dentro do
+     card. Par próprio no escuro: o verde é o mesmo, mas sobre um cartão quase
+     preto ele precisa de mais alfa para não sumir. */
+  --success-surface: rgba(39, 174, 96, 0.10);
+  --success-surface-border: rgba(39, 174, 96, 0.35);
   
   --success: #27AE60;
   --danger: #EF4444;
@@ -82,6 +88,9 @@
 
   --surface-sunken: rgba(255, 255, 255, 0.035);
   --surface-sunken-border: rgba(255, 255, 255, 0.08);
+
+  --success-surface: rgba(39, 174, 96, 0.16);
+  --success-surface-border: rgba(39, 174, 96, 0.45);
 }
 
 * {
@@ -1154,54 +1163,77 @@ button.filter-control:hover {
 }
 
 /*
- * O card aberto (CardDialog): conteúdo da demanda à esquerda, Acompanhamento
- * fixo à direita — ver o comentário em CardDialog.tsx. `.cd-main`/`.cd-side`
- * repetem o mesmo flex-column + gap que `.modal-body` já dava a cada campo
- * como filho direto; um nível de aninhamento a mais não pode encolher o
- * espaçamento entre eles.
+ * O card aberto (CardDialog): o acompanhamento, no fim e recolhido.
+ *
+ * Eram duas colunas — a demanda à esquerda e o histórico fixo numa faixa de
+ * 260px à direita. A faixa cobrava caro: briefing, respostas, copy e o painel
+ * de entrega ficavam espremidos em TODA demanda para manter à vista um
+ * histórico que quase sempre não se está lendo. Agora a demanda usa a largura
+ * inteira e o histórico é a última seção, atrás de um clique.
  */
-.cd-grid {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) 260px;
-  gap: 1.2rem;
-  align-items: start;
-}
-.cd-main {
+/*
+ * A entrega, dentro do card aberto.
+ *
+ * Em produção é informação: o painel de envio está logo abaixo e o trabalho
+ * ainda está acontecendo. Fora dela é FATO CONSUMADO — a demanda já foi
+ * entregue —, e é isso que o verde diz de longe para quem abre o card sem
+ * saber em que pé está.
+ */
+.cd-entrega {
   display: flex;
-  flex-direction: column;
-  gap: 0.9rem;
-  min-width: 0;
+  align-items: center;
+  gap: 0.6rem;
+  flex-wrap: wrap;
+  padding: var(--pad-card);
+  border-radius: var(--radius-block);
+  background: var(--surface-sunken);
+  border: 1px solid var(--surface-sunken-border);
 }
-.cd-side {
+
+.cd-entrega--feita {
+  background: var(--success-surface);
+  border-color: var(--success-surface-border);
+}
+
+.cd-historico {
+  /* A linha que separa o histórico do resto: sem ela, recolhido, ele parece
+     mais um campo do formulário em vez do fim do card. */
+  border-top: 1px solid var(--card-border);
+  padding-top: 0.9rem;
+}
+
+.cd-historico-toggle {
   display: flex;
-  flex-direction: column;
-  gap: 0.9rem;
-  min-width: 0;
-  padding-left: 1.2rem;
-  border-left: 1px solid var(--card-border);
-  /* Gruda no topo do próprio scroll do modal-body: a coluna principal pode
-     ser bem mais longa que o histórico, e sem isto o Acompanhamento sumiria
-     lá embaixo assim que a pessoa rolasse a tela — o oposto do pedido, que é
-     conseguir acompanhar tudo sem perder de vista. */
-  position: sticky;
-  top: 0;
-  max-height: calc(90vh - 160px);
-  overflow-y: auto;
+  align-items: center;
+  gap: 0.4rem;
+  width: 100%;
+  padding: 0;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  /* O mesmo desenho de `.field-label`: recolher não muda o que a seção é, e
+     um cabeçalho que muda de cara ao virar botão faria parecer outra coisa. */
+  font-family: inherit;
+  font-size: var(--text-control);
+  font-weight: 600;
+  color: var(--foreground);
+  text-align: left;
 }
-@media (max-width: 720px) {
-  .cd-grid {
-    grid-template-columns: 1fr;
-  }
-  .cd-side {
-    padding-left: 0;
-    padding-top: 1.2rem;
-    border-left: none;
-    border-top: 1px solid var(--card-border);
-    position: static;
-    max-height: none;
-    overflow-y: visible;
-  }
+
+.cd-historico-toggle:hover {
+  color: var(--primary);
 }
+
+.cd-historico-contador {
+  font-size: var(--text-eyebrow);
+  font-weight: 700;
+  padding: 0.05rem 0.4rem;
+  border-radius: var(--radius-pill);
+  background: var(--surface-sunken);
+  border: 1px solid var(--surface-sunken-border);
+  color: var(--muted);
+}
+
 
 .modal-footer {
   display: flex;

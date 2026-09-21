@@ -29,7 +29,7 @@ import {
   type Priority,
 } from "@/lib/kanban";
 import { intakeColumnId, topPosition, logActivity } from "@/lib/kanban-store";
-import { atualizarVolumetriaEntregue, registrarEntregaDoCard } from "@/lib/kanban-deliveries";
+import { avisarEntregaSemRegistro } from "@/lib/kanban-deliveries";
 import { normalizeCardLink } from "@/lib/card-link";
 import { enviarMensagemSlack, montarMensagemEntrega, buscarIdsSlackPorEmails } from "@/lib/slack-delivery";
 import { resolveCronBaseUrl } from "@/lib/cron-url";
@@ -296,23 +296,19 @@ export async function PUT(request: Request) {
       }
 
       /*
-       * A entrega é contada aqui, e só aqui.
+       * O movimento não conta mais a entrega — quem conta é o módulo, na hora
+       * do envio (ver `creditarEntregaDoModulo`). Aqui só se confere: um card
+       * que conclui sem nada registrado é volumetria que ninguém vai receber,
+       * e isso precisa virar aviso em vez de silêncio.
        *
-       * Depois da transação, de propósito: uma falha ao creditar a volumetria
-       * não pode desfazer o movimento do card. O arrasto é o que a pessoa
-       * pediu; a contagem é consequência, e uma consequência que falha vira
-       * aviso no painel de logs, não um card que volta sozinho para a coluna
-       * anterior na tela de quem acabou de movê-lo.
+       * Depois da transação, de propósito: uma falha na conferência não pode
+       * desfazer o movimento do card.
        */
-      await registrarEntregaDoCard({
+      await avisarEntregaSemRegistro({
         cardId,
-        boardId: card.boardId,
         title: card.title,
-        values: card.values,
         destinoConclui: target.isDone,
         origemConcluia: card.column?.isDone ?? false,
-        responsaveis: atuais,
-        movidoPor: quemMoveu,
       });
 
       /*
@@ -662,42 +658,6 @@ export async function PUT(request: Request) {
 
     if (mudancaDeRespostas) {
       await logActivity(id, "UPDATED", mudancaDeRespostas, user);
-    }
-
-    /*
-     * A entrega já contada acompanha a resposta corrigida.
-     *
-     * `Delivery.pieces` é uma fotografia do que o card respondia quando chegou à
-     * coluna de entrega, e isso bastava enquanto a resposta não se editava mais.
-     * Agora se edita — e é depois de entregar que o número real costuma
-     * aparecer. Sem este acerto, o card diria 3 peças e o ranking contaria 1.
-     *
-     * Depois da gravação, e com os valores já validados: é o número que ficou no
-     * banco que precisa ser contado, não o que chegou na requisição.
-     *
-     * Falhar aqui não derruba a edição, pelo mesmo motivo que vale no arrasto: a
-     * correção é consequência, e uma consequência que falha vira aviso no painel
-     * de logs — não uma resposta que a pessoa não consegue salvar.
-     */
-    if (body.values !== undefined) {
-      try {
-        const ajuste = await atualizarVolumetriaEntregue({
-          cardId: id,
-          boardId: current.boardId,
-          values,
-        });
-
-        if (ajuste) {
-          await logActivity(
-            id,
-            "UPDATED",
-            `corrigiu a volumetria entregue: ${ajuste.antes} → ${ajuste.depois}`,
-            user
-          );
-        }
-      } catch (erro) {
-        console.error("[Entregas] Falha ao corrigir a volumetria:", erro);
-      }
     }
 
     return NextResponse.json({ success: true, card });
