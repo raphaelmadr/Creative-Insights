@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Plus, SlidersHorizontal, LayoutGrid, Layers, Archive, Link2 } from "lucide-react";
+import { Plus, SlidersHorizontal, LayoutGrid, Layers, Archive, Link2, Search } from "lucide-react";
 import KanbanBoard from "@/components/creator/KanbanBoard";
 import DemandDialog, { type PersonOption } from "@/components/creator/DemandDialog";
 import { type ColumnDefinition } from "@/components/creator/ColumnsSection";
@@ -9,6 +9,7 @@ import BoardSetupDialog from "@/components/creator/BoardSetupDialog";
 import PublicLinkDialog from "@/components/creator/PublicLinkDialog";
 import GroupsDialog from "@/components/creator/GroupsDialog";
 import ArchiveDialog from "@/components/creator/ArchiveDialog";
+import CardSearchDialog from "@/components/creator/CardSearchDialog";
 import CardDialog, { type CardData } from "@/components/creator/CardDialog";
 import { type FieldDefinition } from "@/components/creator/FieldInput";
 import { Skeleton } from "@/components/Skeleton";
@@ -64,6 +65,7 @@ export default function KanbanPage() {
   const [editLink, setEditLink] = useState(false);
   const [editGroups, setEditGroups] = useState(false);
   const [showArchive, setShowArchive] = useState(false);
+  const [showSearch, setShowSearch] = useState(false);
 
   /** O movimento que parou à espera de um dono. */
   const [openCard, setOpenCard] = useState<CardData | null>(null);
@@ -470,6 +472,25 @@ export default function KanbanPage() {
 
             <span style={{ marginLeft: "auto", display: "flex", gap: "0.5rem", flexWrap: "wrap" }}>
               {/*
+                A primeira das ações, antes das que ajustam o quadro.
+
+                Procurar é o que se faz TODO dia, e com o quadro do jeito que
+                está; Preferências e Grupos são o que se faz de vez em quando,
+                para mudá-lo. O Arquivo fecha a fileira: é para folhear o que
+                saiu, e este é para quem já sabe o que quer e não sabe onde
+                está. Varre quadro e arquivo de uma vez — ver
+                `CardSearchDialog`.
+              */}
+              <button
+                className="btn btn-secondary btn-compact"
+                onClick={() => setShowSearch(true)}
+                disabled={!board}
+                title="Procurar uma demanda pelo título, número, briefing ou responsável — no quadro e no arquivo"
+              >
+                <Search size={14} />
+                Procurar
+              </button>
+              {/*
                 Um botão, e não dois.
                 
                 "Campos" e "Etapas e cards" eram portas separadas para decisões
@@ -635,6 +656,23 @@ export default function KanbanPage() {
             dividiriam o Esc — uma tecla fecharia os dois de uma vez — e o de
             baixo continuaria travando a rolagem do de cima.
           */}
+          {/* Montado só quando abre, e não com um `open` como os vizinhos:
+              é o que faz cada busca começar com o campo em branco — ver o
+              cabeçalho de `CardSearchDialog`.
+
+              Mesma regra do Arquivo: abrir um resultado fecha a busca, para
+              não empilhar dois diálogos disputando o Esc. */}
+          {showSearch && (
+            <CardSearchDialog
+              onClose={() => setShowSearch(false)}
+              boardId={board.id}
+              onOpenCard={(card) => {
+                setShowSearch(false);
+                setOpenCard(card);
+              }}
+            />
+          )}
+
           <ArchiveDialog
             open={showArchive}
             onClose={() => setShowArchive(false)}

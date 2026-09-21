@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useMemo } from "react";
-import { Clock, Link2 } from "lucide-react";
+import { Clock, Link2, PackageCheck } from "lucide-react";
 import { Avatar } from "@/components/Avatar";
 import { type FieldDefinition, formatFieldValue } from "./FieldInput";
 import { type CardData } from "./CardDialog";
@@ -148,6 +148,7 @@ export default function CardFace({
   const anexos = parseAttachments(card.attachments);
   const origem = origemDoCard(card.origin);
   const link = describeCardLink(card.linkUrl);
+  const entrega = describeCardLink(card.deliveryUrl);
 
   return (
     <>
@@ -346,6 +347,38 @@ export default function CardFace({
           >
             <Link2 size={10} />
             {link.isDrive ? "Drive" : link.label}
+          </a>
+        )}
+
+        {/*
+          A pasta das artes entregues.
+
+          Vem depois do link de referência, e verde e não azul, porque a
+          leitura do card vai do insumo ao resultado: o azul é o que entrou
+          com o pedido, o verde é o que saiu do trabalho. Antes os dois
+          disputavam a mesma coluna do banco e o mesmo selo, e a entrega
+          apagava a referência ao ser concluída.
+
+          Âncora de verdade pelo mesmo motivo do vizinho: leva a algum lugar,
+          e o clique não pode abrir o painel do card junto.
+        */}
+        {shows.has("delivery") && entrega && card.deliveryUrl && (
+          <a
+            href={card.deliveryUrl}
+            target="_blank"
+            rel="noreferrer"
+            className="card-badge"
+            title="Abrir a pasta das artes entregues no Drive"
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              fontWeight: 600,
+              color: "var(--primary)",
+              borderColor: "var(--primary)",
+              background: "var(--primary-glow)",
+            }}
+          >
+            <PackageCheck size={10} />
+            Entrega
           </a>
         )}
 

@@ -717,7 +717,24 @@ export const CARD_BADGES = [
   {
     key: "link",
     label: "Link de referência",
-    hint: "A pasta ou o material de apoio, clicável direto do quadro.",
+    hint: "A pasta ou o material de apoio que veio junto com o pedido, clicável direto do quadro.",
+    default: true,
+  },
+  {
+    /*
+     * A pasta que a automação de entrega criou — o resultado, não o insumo.
+     *
+     * Selo próprio e não o mesmo do link de referência: são dois endereços do
+     * Drive com significados opostos, e um selo só obrigava a abrir para
+     * descobrir qual dos dois estava ali. Ver `BoardCard.deliveryUrl`.
+     *
+     * Sem `legacy`, e por isso ligado por padrão mesmo em quadro já
+     * configurado: quem nunca teve a chance de escolher não deveria perder a
+     * pasta de vista. Ver `parseCardBadges`.
+     */
+    key: "delivery",
+    label: "Pasta da entrega",
+    hint: "As artes que subiram para o Drive pela automação de entrega — abre a pasta direto do quadro.",
     default: true,
   },
 ] as const;
@@ -990,11 +1007,35 @@ export const CARD_PANEL_SECTIONS = [
   },
   {
     key: "link",
-    label: "Link da Entrega",
-    hint: "A pasta do Drive da entrega, no topo do painel.",
+    label: "Link de referência",
+    hint: "O material de apoio que veio junto com o pedido, editável no painel.",
+    /* Preso à pergunta de propósito: este campo é RESPOSTA. Sem a pergunta no
+       formulário não há o que mostrar, e a seção some das preferências em vez
+       de virar interruptor sem efeito. A pasta da entrega não segue esta regra
+       — ver `deliveryLink` logo abaixo. */
     fonte: "linkUrl",
     default: true,
     edita: true,
+  },
+  {
+    /*
+     * A pasta das artes entregues — e SEM `fonte`, ao contrário da vizinha.
+     *
+     * Era aqui que o link sumia. A pasta do Drive morava na seção acima, que
+     * só existe quando o formulário pergunta pelo link de referência. Num
+     * quadro que não faz essa pergunta — e não faz sentido pedir ao
+     * solicitante a pasta que ainda não existe —, a seção inteira desaparecia,
+     * levando junto o endereço que a automação tinha escrito. Quem recebia a
+     * demanda na passagem de bastão abria o card e não achava as artes.
+     *
+     * A pasta não é resposta de ninguém: nasce do upload. Por isso ela é
+     * decisão própria, ligada por padrão, e independente do que o formulário
+     * pergunta. Ver `BoardCard.deliveryUrl`.
+     */
+    key: "deliveryLink",
+    label: "Pasta da entrega",
+    hint: "O endereço das artes que subiram para o Drive pela automação. Aparece só depois que existe uma entrega.",
+    default: true,
   },
   {
     key: "attachments",

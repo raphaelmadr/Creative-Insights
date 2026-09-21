@@ -53,6 +53,61 @@ export async function GET(request: Request) {
 
     if (boardId) {
       /*
+       * Busca — no quadro E no arquivo, na mesma resposta.
+       *
+       * Procurar uma demanda pelo nome era possível só com ela à vista: no
+       * quadro, lendo coluna por coluna; no arquivo, rolando as 200 últimas.
+       * Quem lembra do assunto mas não de onde a demanda parou não tinha por
+       * onde começar — e "onde parou" é justamente o que se quer descobrir.
+       *
+       * Vai ao banco em vez de filtrar o que a tela já carregou porque a tela
+       * não tem tudo: o arquivo só chega quando alguém abre o arquivo, e o
+       * texto que se procura muitas vezes está no briefing ou na copy, que o
+       * card não mostra na frente.
+       *
+       * Ativos primeiro, e dentro de cada bloco o mais recente antes: quem
+       * procura quase sempre quer o que ainda está em jogo.
+       */
+      const busca = (params.get("q") || "").trim().slice(0, 120);
+
+      if (busca) {
+        /*
+         * "MKT-42", "mkt 42" e "42" chegam à mesma demanda. O número é o que a
+         * equipe dita no telefone e cola no Slack, e exigir o prefixo exato
+         * faria a busca falhar justamente no caminho mais curto.
+         */
+        const numero = Number(busca.replace(/^\s*MKT\s*-?\s*/i, ""));
+        const porCodigo = Number.isInteger(numero) && numero > 0 ? [{ code: numero }] : [];
+
+        const achados = await prisma.boardCard.findMany({
+          where: {
+            boardId,
+            OR: [
+              { title: { contains: busca } },
+              { description: { contains: busca } },
+              /* A copy gerada e as respostas do formulário entram na varredura:
+                 é onde mora o produto, o público e a oferta — o vocabulário com
+                 que as pessoas realmente procuram. `values` é JSON, e procurar
+                 texto dentro dele é grosseiro, mas acha. */
+              { copyText: { contains: busca } },
+              { values: { contains: busca } },
+              { assignees: { contains: busca } },
+              { requesterName: { contains: busca } },
+              { requesterEmail: { contains: busca } },
+              ...porCodigo,
+            ],
+          },
+          orderBy: [{ archived: "asc" }, { updatedAt: "desc" }],
+          take: 60,
+          /* A etapa vem junto: o resultado precisa dizer ONDE a demanda está,
+             que é metade do que se foi procurar. */
+          include: { column: { select: { id: true, name: true } } },
+        });
+
+        return NextResponse.json({ success: true, cards: achados });
+      }
+
+      /*
        * Ordenado pela última alteração, que para um card arquivado é o momento
        * em que ele saiu do quadro — o que se procura no arquivo quase sempre é
        * o que saiu por último.
@@ -139,6 +194,9 @@ export async function PUT(request: Request) {
           assignees: true,
           values: true,
           linkUrl: true,
+          // A pasta da entrega, para o aviso do Slack levar ao resultado do
+          // trabalho e não ao material de apoio do pedido.
+          deliveryUrl: true,
           // A fase de ORIGEM: é a comparação com a de destino que diz se o card
           // mudou de time ou só andou dentro do mesmo. `isDone` entra para que
           // a entrega seja contada na CHEGADA à conclusão, e não a cada arrasto
@@ -309,7 +367,10 @@ export async function PUT(request: Request) {
               codigo: formatCardCode(card.code) || card.title,
               cardUrl,
               responsavel: nomeDeQuemEntregou,
-              driveUrl: card.linkUrl,
+              /* A pasta da ENTREGA primeiro. `linkUrl` só como reserva, por
+                 causa das entregas anteriores a `deliveryUrl` existir — nelas
+                 a automação gravou a pasta ali, e o aviso continuaria certo. */
+              driveUrl: card.deliveryUrl ?? card.linkUrl,
               mencoes,
               template: target.slackMessageTemplate,
             });
