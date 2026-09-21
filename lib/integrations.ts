@@ -130,7 +130,7 @@ export function buildIntegrationStatuses(settings: SettingsRow): IntegrationStat
     },
     {
       id: "GOOGLE_DRIVE",
-      label: "Google Drive (entrega de criativos)",
+      label: "Google Drive (entrega de demanda)",
       configured: driveInPanel,
       enables: "nomear, organizar em pastas e subir os arquivos de entrega direto do card",
       where: "Configurações › Sistema",

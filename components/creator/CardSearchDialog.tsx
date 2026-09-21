@@ -322,7 +322,7 @@ export default function CardSearchDialog({
                   </span>
                 )}
                 {card.deliveryUrl && (
-                  <span className="card-badge" style={{ color: "var(--primary)", fontWeight: 600 }} title="Tem pasta de entrega no Drive">
+                  <span className="card-badge" style={{ color: "var(--primary)", fontWeight: 600 }} title="Esta demanda já tem entrega registrada">
                     <PackageCheck size={10} />
                     entrega
                   </span>

@@ -115,6 +115,15 @@ function IntegrationChip({
 export default function TopBar() {
   const pathname = usePathname();
   const isCreator = pathname.startsWith("/creator");
+  /*
+   * Configurações é a única tela sem a porta de demanda.
+   *
+   * Lá não se pede peça: ajusta-se credencial, meta, prompt e quem alcança o
+   * quê. O flutuante ficaria pairando sobre um painel administrativo
+   * oferecendo uma ação que não tem nada a ver com o que se foi fazer ali.
+   * Cobre as subpáginas — sistema, usuários, logs, metas e as demais.
+   */
+  const emConfiguracoes = pathname.startsWith("/configuracoes");
   const navLinks = isCreator ? CREATOR_LINKS : DASH_LINKS;
   const { theme, toggleTheme } = useTheme();
   const { data: session } = useSession();
@@ -501,7 +510,7 @@ export default function TopBar() {
       </header>
 
       {/*
-        A porta de entrada de demandas, em toda tela e em toda largura.
+        A porta de entrada de demandas, em toda tela menos Configurações.
 
         Pedir uma peça é de qualquer pessoa autenticada: quem não produz não
         tem o board para clicar em "Nova demanda", e sem esta porta a
@@ -517,7 +526,7 @@ export default function TopBar() {
         botão ficaria preso no topo. É o mesmo motivo que já tirou daqui os
         popups do celular, logo abaixo.
       */}
-      <NovaDemandaButton className="btn btn-primary btn-fab" />
+      {!emConfiguracoes && <NovaDemandaButton className="btn btn-primary btn-fab" />}
 
       {/* Mobile popups rendered outside of the sticky header to bypass iOS Safari fixed positioning bugs */}
       

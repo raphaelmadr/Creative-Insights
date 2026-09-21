@@ -1,7 +1,7 @@
 "use client";
 
 /**
- * Entrega de criativos — solta o lote inteiro, o sistema nomeia, casa por
+ * Entrega de demanda — solta o lote inteiro, o sistema nomeia, casa por
  * proporção (Feed/Story) e sobe pro Drive, sozinho.
  *
  * Porta a experiência do ad-naming-tool (Pedro Pimenta) pra dentro do card:
@@ -21,10 +21,11 @@
  */
 
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import { UploadCloud, X, Loader2, CheckCircle2, ImageIcon, Video, PackageOpen } from "lucide-react";
+import { UploadCloud, X, Loader2, CheckCircle2, ImageIcon, Video, PackageOpen, Link2 } from "lucide-react";
 import type { FieldDefinition } from "./FieldInput";
 import type { PersonOption } from "./DemandDialog";
 import { formatCardCode, parseAssignees, campoVolumetria } from "@/lib/kanban";
+import { normalizeCardLink } from "@/lib/card-link";
 import {
   type DeliveryFormat,
   type ArquivoParaCasar,
@@ -43,6 +44,22 @@ const FORMATOS: { key: DeliveryFormat; label: string; icone: typeof ImageIcon }[
   { key: "animacao", label: "Animação", icone: Video },
   { key: "unboxing", label: "Unboxing", icone: PackageOpen },
 ];
+
+/*
+ * URL é uma ABA, e não um quinto formato.
+ *
+ * Os quatro de cima são formatos de arquivo: cada um carrega regra de
+ * nomenclatura, pasta no Drive e extensão esperada (ver `REGRA` em
+ * `lib/delivery-naming.ts`). Um link não tem nada disso — não se renomeia, não
+ * se organiza em Feed e Story, não tem extensão. Enfiá-lo em `DeliveryFormat`
+ * obrigaria a inventar um prefixo de pasta e uma extensão que nunca seriam
+ * usados, e todo código que percorre os formatos passaria a precisar de uma
+ * exceção para ele.
+ *
+ * Aqui ele é o que é: o outro jeito de entregar. A entrega que já vive em
+ * outro lugar — uma landing page, um material hospedado fora — e que só
+ * precisa ser apontada.
+ */
 
 const EXTENSOES_IMAGEM = /\.(png|jpe?g|webp)$/i;
 const EXTENSOES_VIDEO = /\.(mp4|mov|webm)$/i;
@@ -150,6 +167,10 @@ export default function DeliveryUploadPanel({
 }) {
   const [driveOk, setDriveOk] = useState<boolean | null>(null);
   const [formato, setFormato] = useState<DeliveryFormat>("estatico");
+  /** A aba de URL está aberta? Ver o comentário em `FORMATOS`. */
+  const [modoUrl, setModoUrl] = useState(false);
+  const [urlEntrega, setUrlEntrega] = useState("");
+  const [salvandoUrl, setSalvandoUrl] = useState(false);
   /*
    * Parte da resposta real de quantidade de peças, não de 1 fixo — o
    * componente inteiro remonta a cada card (`key={card.id}` em
@@ -168,7 +189,9 @@ export default function DeliveryUploadPanel({
   const [enviando, setEnviando] = useState(false);
   const [progresso, setProgresso] = useState<Record<number, number>>({});
   const [erro, setErro] = useState<string | null>(null);
-  const [concluido, setConcluido] = useState<{ trilha: string; folderId: string } | null>(null);
+  /* Um formato só para os dois caminhos: o que se diz e para onde se vai. O
+     upload preenche com a trilha de pastas, o link com o próprio endereço. */
+  const [concluido, setConcluido] = useState<{ descricao: string; url: string } | null>(null);
   const input = useRef<HTMLInputElement>(null);
   const proximoIndice = useRef(0);
 
@@ -360,6 +383,15 @@ export default function DeliveryUploadPanel({
       if (!folderRes.ok) throw new Error(pasta.error || "Erro ao resolver a pasta de destino.");
 
       let totalEnviados = 0;
+      /*
+       * PEÇAS, não arquivos — é isto que a volumetria conta.
+       *
+       * Um estático é feed + story: dois arquivos para uma peça só. Mandar a
+       * contagem de arquivos dobraria o número de quem entrega em formato com
+       * posição, e deixaria intacto o de quem entrega vídeo. Conta-se a peça
+       * que recebeu ao menos um arquivo.
+       */
+      let pecasEntregues = 0;
       const temPosicoes = formatoTemPosicoes(formato);
 
       for (let indice = 0; indice < quantidade; indice++) {
@@ -372,6 +404,8 @@ export default function DeliveryUploadPanel({
               { chave: "story", poolIndex: peca.story, parentId: pasta.storyId },
             ]
           : [{ chave: "video", poolIndex: peca.video, parentId: pasta.id }];
+
+        let subiuAlgoNestaPeca = false;
 
         for (const slot of slots) {
           if (slot.poolIndex == null) continue;
@@ -397,24 +431,72 @@ export default function DeliveryUploadPanel({
             onProgresso: (pct) => setProgresso((p) => ({ ...p, [arquivo.poolIndex]: pct })),
           });
           totalEnviados++;
+          subiuAlgoNestaPeca = true;
         }
+
+        if (subiuAlgoNestaPeca) pecasEntregues++;
       }
 
       const completeRes = await fetch("/api/creator/cards/delivery/complete", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ cardId, folderId: pasta.id, totalArquivos: totalEnviados }),
+        body: JSON.stringify({
+          cardId,
+          folderId: pasta.id,
+          totalArquivos: totalEnviados,
+          pecas: pecasEntregues,
+        }),
       });
       const completeData = await completeRes.json();
       if (!completeRes.ok) throw new Error(completeData.error || "Erro ao concluir a entrega.");
 
-      setConcluido({ trilha: pasta.trilha, folderId: pasta.id });
+      setConcluido({
+        descricao: pasta.trilha,
+        url: `https://drive.google.com/drive/folders/${pasta.id}`,
+      });
       setPool([]);
       onUploaded();
     } catch (e) {
       setErro(e instanceof Error ? e.message : "Erro ao enviar a entrega.");
     } finally {
       setEnviando(false);
+    }
+  };
+
+  /*
+   * A entrega por link.
+   *
+   * Passa pela MESMA rota que fecha a entrega de arquivos, e não por uma
+   * gravação direta no card: é lá que o link vira `deliveryUrl` e que o
+   * histórico ganha a linha dizendo que houve entrega. Duas portas para o
+   * mesmo fato dariam dois históricos diferentes para a mesma demanda.
+   */
+  const salvarUrl = async () => {
+    const limpo = normalizeCardLink(urlEntrega);
+    if (!limpo) {
+      setErro("Endereço inválido — precisa começar com http:// ou https://.");
+      return;
+    }
+
+    setSalvandoUrl(true);
+    setErro(null);
+    try {
+      const res = await fetch("/api/creator/cards/delivery/complete", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        // Um link é uma peça. Ver `creditarEntregaDoModulo`.
+        body: JSON.stringify({ cardId, url: limpo, pecas: 1 }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Erro ao registrar o link.");
+
+      setConcluido({ descricao: "link registrado", url: data.deliveryUrl || limpo });
+      setUrlEntrega("");
+      onUploaded();
+    } catch (e) {
+      setErro(e instanceof Error ? e.message : "Erro ao registrar o link.");
+    } finally {
+      setSalvandoUrl(false);
     }
   };
 
@@ -431,22 +513,10 @@ export default function DeliveryUploadPanel({
   if (!emProducao) {
     return (
       <div className="field">
-        <span className="field-label">Entrega de criativos</span>
+        <span className="field-label">Entrega de demanda</span>
         <span className="field-hint">
           Esta demanda ainda não está numa etapa de produção — mova o card para lá antes de
           enviar os arquivos da entrega.
-        </span>
-      </div>
-    );
-  }
-
-  if (!driveOk) {
-    return (
-      <div className="field">
-        <span className="field-label">Entrega de criativos</span>
-        <span className="field-hint">
-          Google Drive não configurado — preencha a Service Account e a pasta raiz em{" "}
-          <strong>Configurações › Sistema</strong> para habilitar o envio direto do card.
         </span>
       </div>
     );
@@ -460,7 +530,7 @@ export default function DeliveryUploadPanel({
 
   return (
     <div className="field" style={{ gap: "0.7rem" }}>
-      <span className="field-label">Entrega de criativos</span>
+      <span className="field-label">Entrega de demanda</span>
 
       <div style={{ display: "flex", gap: "0.4rem", flexWrap: "wrap" }}>
         {FORMATOS.map(({ key, label, icone: Icone }) => (
@@ -469,10 +539,13 @@ export default function DeliveryUploadPanel({
             type="button"
             className="btn btn-secondary"
             disabled={enviando}
-            onClick={() => trocarFormato(key)}
+            onClick={() => {
+              setModoUrl(false);
+              trocarFormato(key);
+            }}
             style={{
-              opacity: formato === key ? 1 : 0.6,
-              borderColor: formato === key ? "var(--primary)" : "var(--card-border)",
+              opacity: !modoUrl && formato === key ? 1 : 0.6,
+              borderColor: !modoUrl && formato === key ? "var(--primary)" : "var(--card-border)",
             }}
           >
             <Icone size={14} />
@@ -480,169 +553,263 @@ export default function DeliveryUploadPanel({
           </button>
         ))}
 
-        <label style={{ display: "flex", alignItems: "center", gap: "0.4rem", marginLeft: "auto", fontSize: "var(--text-control)" }}>
-          Peças
-          <input
-            type="number"
-            min={1}
-            max={30}
-            value={quantidade}
-            disabled={enviando}
-            onChange={(e) => setQuantidade(Math.max(1, Math.min(30, parseInt(e.target.value, 10) || 1)))}
-            className="field-input"
-            style={{ width: "4rem" }}
-          />
-        </label>
-      </div>
-
-      {!frenteField && (
-        <span className="field-hint" style={{ color: "var(--warning, #b45309)" }}>
-          Este quadro não tem o campo "frente" — a entrega sai sem essa parte no nome.
-        </span>
-      )}
-      {frenteField && mensagemFrenteInvalida && (
-        <span className="field-hint" role="alert" style={{ color: "var(--danger)" }}>
-          {mensagemFrenteInvalida}
-        </span>
-      )}
-
-      <div
-        onDragOver={(e) => e.preventDefault()}
-        onDrop={(e) => {
-          e.preventDefault();
-          if (!enviando) adicionarArquivos(e.dataTransfer.files);
-        }}
-        onClick={() => !enviando && input.current?.click()}
-        style={{
-          border: "1px dashed var(--card-border)",
-          borderRadius: "10px",
-          padding: "1.4rem",
-          textAlign: "center",
-          cursor: enviando ? "default" : "pointer",
-          opacity: enviando ? 0.6 : 1,
-          fontSize: "var(--text-control)",
-          color: "var(--muted)",
-        }}
-      >
-        <UploadCloud size={20} style={{ marginBottom: "0.3rem" }} />
-        <div>Solta aqui todo o lote de uma vez, ou clica pra escolher</div>
-        <div style={{ fontSize: "var(--text-caption)", opacity: 0.8 }}>
-          {formato === "estatico" ? "Imagens (.png, .jpg, .webp)" : "Vídeos e/ou imagens do lote"}
-        </div>
-        <input
-          ref={input}
-          type="file"
-          multiple
-          hidden
-          onChange={(e) => {
-            if (e.target.files?.length) adicionarArquivos(e.target.files);
-            if (input.current) input.current.value = "";
+        <button
+          type="button"
+          className="btn btn-secondary"
+          disabled={enviando}
+          onClick={() => {
+            setModoUrl(true);
+            setErro(null);
           }}
-        />
+          title="Entregar apontando um endereço, sem subir arquivo"
+          style={{
+            opacity: modoUrl ? 1 : 0.6,
+            borderColor: modoUrl ? "var(--primary)" : "var(--card-border)",
+          }}
+        >
+          <Link2 size={14} />
+          URL
+        </button>
+
+        {/* Quantidade é conversa de arquivo: um link é um só. */}
+        {!modoUrl && (
+          <label style={{ display: "flex", alignItems: "center", gap: "0.4rem", marginLeft: "auto", fontSize: "var(--text-control)" }}>
+            Peças
+            <input
+              type="number"
+              min={1}
+              max={30}
+              value={quantidade}
+              disabled={enviando}
+              onChange={(e) => setQuantidade(Math.max(1, Math.min(30, parseInt(e.target.value, 10) || 1)))}
+              className="field-input"
+              style={{ width: "4rem" }}
+            />
+          </label>
+        )}
       </div>
 
       {/*
-        As posições aparecem sempre, mesmo sem nenhum arquivo ainda — cada
-        uma é clicável e abre um seletor pra ESSA posição específica. Antes
-        elas só existiam depois de soltar algo na caixa de cima, e mesmo
-        assim eram só texto: mostravam o casamento automático sem nenhum
-        jeito de escolher ou corrigir manualmente qual arquivo ia em qual
-        posição.
+        O aviso do Drive vive AQUI dentro, e não mais barrando o painel
+        inteiro: sem Drive configurado a entrega por link continua possível, e
+        era justamente o caso que o portão antigo impedia.
       */}
-      {idCard && (
-        <>
-          <div style={{ display: "flex", flexDirection: "column", gap: "0.4rem" }}>
-            {Array.from({ length: quantidade }, (_, indice) => {
-              const peca = casamentoFinal[indice];
-              const temPosicoes = formatoTemPosicoes(formato);
-              const slots = temPosicoes
-                ? ([
-                    ["Feed", "feed", peca?.feed, peca?.confiancas.feed] as const,
-                    ["Story", "story", peca?.story, peca?.confiancas.story] as const,
-                  ])
-                : ([["Arquivo", "video", peca?.video, peca?.confiancas.video] as const]);
+      {!modoUrl && !driveOk && (
+        <span className="field-hint" role="alert" style={{ color: "var(--warning, #b45309)" }}>
+          Google Drive não configurado — preencha a Service Account e a pasta raiz em{" "}
+          <strong>Configurações › Sistema</strong> para habilitar o envio de arquivos. A aba
+          URL não depende dele.
+        </span>
+      )}
 
-              return (
-                <div
-                  key={indice}
-                  style={{
-                    display: "flex", flexDirection: "column", gap: "0.3rem",
-                    padding: "0.6rem 0.8rem", borderRadius: "8px",
-                    border: "1px solid var(--card-border)", fontSize: "var(--text-caption)",
-                  }}
-                >
-                  <strong>Peça {indice + 1}</strong>
-                  {slots.map(([rotulo, slotKey, poolIndex, autoDetectado]) => {
-                    const arquivo = poolIndex != null ? pool.find((p) => p.poolIndex === poolIndex) : null;
-                    return (
-                      <div key={rotulo} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "0.5rem" }}>
-                        <span style={{ color: "var(--muted)", flexShrink: 0 }}>{rotulo}:</span>
-                        <label
-                          style={{
-                            flex: 1, minWidth: 0, cursor: enviando ? "default" : "pointer",
-                            display: "flex", alignItems: "center", justifyContent: "flex-end", gap: "0.4rem",
-                            padding: "0.2rem 0.4rem", borderRadius: "6px",
-                            border: `1px dashed ${arquivo ? "transparent" : "var(--card-border)"}`,
-                            color: arquivo ? "var(--foreground)" : "var(--muted)",
-                          }}
-                          title={arquivo ? "Clique pra trocar o arquivo desta posição" : "Clique pra escolher o arquivo desta posição"}
-                        >
-                          <input
-                            type="file"
-                            accept={formato === "estatico" ? "image/png,image/jpeg,image/webp" : "video/mp4,video/quicktime,video/webm,image/png,image/jpeg,image/webp"}
-                            hidden
-                            disabled={enviando}
-                            onChange={(e) => {
-                              const escolhido = e.target.files?.[0];
-                              if (escolhido) escolherManual(indice, slotKey, escolhido);
-                              e.target.value = "";
+      {!modoUrl && driveOk && (
+        <>
+        {!frenteField && (
+          <span className="field-hint" style={{ color: "var(--warning, #b45309)" }}>
+            Este quadro não tem o campo "frente" — a entrega sai sem essa parte no nome.
+          </span>
+        )}
+        {frenteField && mensagemFrenteInvalida && (
+          <span className="field-hint" role="alert" style={{ color: "var(--danger)" }}>
+            {mensagemFrenteInvalida}
+          </span>
+        )}
+
+        <div
+          onDragOver={(e) => e.preventDefault()}
+          onDrop={(e) => {
+            e.preventDefault();
+            if (!enviando) adicionarArquivos(e.dataTransfer.files);
+          }}
+          onClick={() => !enviando && input.current?.click()}
+          style={{
+            border: "1px dashed var(--card-border)",
+            borderRadius: "10px",
+            padding: "1.4rem",
+            textAlign: "center",
+            cursor: enviando ? "default" : "pointer",
+            opacity: enviando ? 0.6 : 1,
+            fontSize: "var(--text-control)",
+            color: "var(--muted)",
+          }}
+        >
+          <UploadCloud size={20} style={{ marginBottom: "0.3rem" }} />
+          <div>Solta aqui todo o lote de uma vez, ou clica pra escolher</div>
+          <div style={{ fontSize: "var(--text-caption)", opacity: 0.8 }}>
+            {formato === "estatico" ? "Imagens (.png, .jpg, .webp)" : "Vídeos e/ou imagens do lote"}
+          </div>
+          <input
+            ref={input}
+            type="file"
+            multiple
+            hidden
+            onChange={(e) => {
+              if (e.target.files?.length) adicionarArquivos(e.target.files);
+              if (input.current) input.current.value = "";
+            }}
+          />
+        </div>
+
+        {/*
+          As posições aparecem sempre, mesmo sem nenhum arquivo ainda — cada
+          uma é clicável e abre um seletor pra ESSA posição específica. Antes
+          elas só existiam depois de soltar algo na caixa de cima, e mesmo
+          assim eram só texto: mostravam o casamento automático sem nenhum
+          jeito de escolher ou corrigir manualmente qual arquivo ia em qual
+          posição.
+        */}
+        {idCard && (
+          <>
+            <div style={{ display: "flex", flexDirection: "column", gap: "0.4rem" }}>
+              {Array.from({ length: quantidade }, (_, indice) => {
+                const peca = casamentoFinal[indice];
+                const temPosicoes = formatoTemPosicoes(formato);
+                const slots = temPosicoes
+                  ? ([
+                      ["Feed", "feed", peca?.feed, peca?.confiancas.feed] as const,
+                      ["Story", "story", peca?.story, peca?.confiancas.story] as const,
+                    ])
+                  : ([["Arquivo", "video", peca?.video, peca?.confiancas.video] as const]);
+
+                return (
+                  <div
+                    key={indice}
+                    style={{
+                      display: "flex", flexDirection: "column", gap: "0.3rem",
+                      padding: "0.6rem 0.8rem", borderRadius: "8px",
+                      border: "1px solid var(--card-border)", fontSize: "var(--text-caption)",
+                    }}
+                  >
+                    <strong>Peça {indice + 1}</strong>
+                    {slots.map(([rotulo, slotKey, poolIndex, autoDetectado]) => {
+                      const arquivo = poolIndex != null ? pool.find((p) => p.poolIndex === poolIndex) : null;
+                      return (
+                        <div key={rotulo} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "0.5rem" }}>
+                          <span style={{ color: "var(--muted)", flexShrink: 0 }}>{rotulo}:</span>
+                          <label
+                            style={{
+                              flex: 1, minWidth: 0, cursor: enviando ? "default" : "pointer",
+                              display: "flex", alignItems: "center", justifyContent: "flex-end", gap: "0.4rem",
+                              padding: "0.2rem 0.4rem", borderRadius: "6px",
+                              border: `1px dashed ${arquivo ? "transparent" : "var(--card-border)"}`,
+                              color: arquivo ? "var(--foreground)" : "var(--muted)",
                             }}
-                          />
-                          <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                            {arquivo ? (
-                              <>
-                                {arquivo.base}.{arquivo.extensao}
-                                {autoDetectado === false && <em style={{ opacity: 0.7 }}> (por proporção — confira)</em>}
-                                {progresso[arquivo.poolIndex] != null && enviando && ` — ${progresso[arquivo.poolIndex]}%`}
-                              </>
-                            ) : (
-                              "clique pra escolher"
-                            )}
-                          </span>
-                        </label>
-                        {arquivo && !enviando && (
-                          <button
-                            type="button"
-                            className="btn btn-icon"
-                            title="Voltar pra sugestão automática"
-                            onClick={() => limparPosicao(indice, slotKey)}
-                            style={{ flexShrink: 0, width: "1.4rem", height: "1.4rem" }}
+                            title={arquivo ? "Clique pra trocar o arquivo desta posição" : "Clique pra escolher o arquivo desta posição"}
                           >
-                            <X size={11} />
-                          </button>
-                        )}
-                      </div>
-                    );
-                  })}
-                </div>
-              );
-            })}
+                            <input
+                              type="file"
+                              accept={formato === "estatico" ? "image/png,image/jpeg,image/webp" : "video/mp4,video/quicktime,video/webm,image/png,image/jpeg,image/webp"}
+                              hidden
+                              disabled={enviando}
+                              onChange={(e) => {
+                                const escolhido = e.target.files?.[0];
+                                if (escolhido) escolherManual(indice, slotKey, escolhido);
+                                e.target.value = "";
+                              }}
+                            />
+                            <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                              {arquivo ? (
+                                <>
+                                  {arquivo.base}.{arquivo.extensao}
+                                  {autoDetectado === false && <em style={{ opacity: 0.7 }}> (por proporção — confira)</em>}
+                                  {progresso[arquivo.poolIndex] != null && enviando && ` — ${progresso[arquivo.poolIndex]}%`}
+                                </>
+                              ) : (
+                                "clique pra escolher"
+                              )}
+                            </span>
+                          </label>
+                          {arquivo && !enviando && (
+                            <button
+                              type="button"
+                              className="btn btn-icon"
+                              title="Voltar pra sugestão automática"
+                              onClick={() => limparPosicao(indice, slotKey)}
+                              style={{ flexShrink: 0, width: "1.4rem", height: "1.4rem" }}
+                            >
+                              <X size={11} />
+                            </button>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                );
+              })}
+            </div>
+
+            <div style={{ display: "flex", gap: "0.5rem", alignItems: "center", flexWrap: "wrap" }}>
+              <button type="button" className="btn btn-primary" disabled={enviando || totalSlots === 0} onClick={enviarTudo}>
+                {enviando ? <Loader2 size={14} className="spin" /> : <UploadCloud size={14} />}
+                {enviando ? "Enviando…" : "Enviar entrega"}
+              </button>
+              {(pool.length > 0 || Object.keys(overrides).length > 0) && (
+                <button type="button" className="btn btn-secondary" disabled={enviando} onClick={limpar}>
+                  <X size={14} />
+                  Limpar
+                </button>
+              )}
+              <span style={{ fontSize: "var(--text-caption)", color: "var(--muted)" }}>
+                {totalSlots} de {totalEsperado} posições identificadas
+              </span>
+            </div>
+          </>
+        )}
+        </>
+      )}
+
+      {/*
+        A entrega que não sobe para o Drive.
+        
+        Uma landing page, um material hospedado fora, um arquivo que já tem
+        endereço. O link vai para o MESMO lugar em que a automação grava a
+        pasta (`BoardCard.deliveryUrl`), então o card mostra o selo de entrega
+        e o aviso do Slack leva até ele, igual a qualquer outra entrega.
+      */}
+      {modoUrl && (
+        <>
+          <div className="field">
+            <label className="field-label" htmlFor="entrega-url">
+              Endereço da entrega
+            </label>
+            <input
+              id="entrega-url"
+              type="url"
+              className="field-input"
+              value={urlEntrega}
+              placeholder="https://…"
+              disabled={salvandoUrl}
+              onChange={(e) => setUrlEntrega(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && !salvandoUrl && urlEntrega.trim()) {
+                  e.preventDefault();
+                  salvarUrl();
+                }
+              }}
+            />
+            <span className="field-hint">
+              Para o que não vira arquivo no Drive — uma landing page, um material
+              hospedado fora, um link que o time já recebeu pronto.
+            </span>
           </div>
 
           <div style={{ display: "flex", gap: "0.5rem", alignItems: "center", flexWrap: "wrap" }}>
-            <button type="button" className="btn btn-primary" disabled={enviando || totalSlots === 0} onClick={enviarTudo}>
-              {enviando ? <Loader2 size={14} className="spin" /> : <UploadCloud size={14} />}
-              {enviando ? "Enviando…" : "Enviar entrega"}
+            <button
+              type="button"
+              className="btn btn-primary"
+              disabled={salvandoUrl || !urlEntrega.trim()}
+              onClick={salvarUrl}
+            >
+              {salvandoUrl ? <Loader2 size={14} className="spin" /> : <Link2 size={14} />}
+              {salvandoUrl ? "Registrando…" : "Registrar entrega"}
             </button>
-            {(pool.length > 0 || Object.keys(overrides).length > 0) && (
-              <button type="button" className="btn btn-secondary" disabled={enviando} onClick={limpar}>
-                <X size={14} />
-                Limpar
-              </button>
+            {/* O que já está gravado, para quem abre o card e quer conferir
+                antes de substituir. */}
+            {!concluido && (
+              <span style={{ fontSize: "var(--text-caption)", color: "var(--muted)" }}>
+                Substitui o endereço da entrega gravado no card.
+              </span>
             )}
-            <span style={{ fontSize: "var(--text-caption)", color: "var(--muted)" }}>
-              {totalSlots} de {totalEsperado} posições identificadas
-            </span>
           </div>
         </>
       )}
@@ -656,16 +823,16 @@ export default function DeliveryUploadPanel({
       {concluido && (
         <span className="field-hint" style={{ display: "flex", alignItems: "center", gap: "0.4rem", flexWrap: "wrap", color: "var(--success, #16a34a)" }}>
           <CheckCircle2 size={14} />
-          Entrega enviada — {concluido.trilha}. O link já está no card.
-          {/* O caminho mais curto até conferir o que subiu: quem acabou de
-              enviar quer ver a pasta, não procurar o selo no quadro. */}
+          Entrega registrada — {concluido.descricao}. O link já está no card.
+          {/* O caminho mais curto até conferir o que foi entregue: quem acabou
+              de enviar quer ver, não procurar o selo no quadro. */}
           <a
-            href={`https://drive.google.com/drive/folders/${concluido.folderId}`}
+            href={concluido.url}
             target="_blank"
             rel="noreferrer"
             style={{ fontWeight: 600, color: "var(--primary)" }}
           >
-            Abrir a pasta
+            Abrir
           </a>
         </span>
       )}

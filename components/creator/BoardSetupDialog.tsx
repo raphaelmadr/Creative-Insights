@@ -182,7 +182,7 @@ export default function BoardSetupDialog({
         { url: "https://exemplo/arte.png", name: "arte.png", mime: "image/png" },
       ]),
       linkUrl: "https://drive.google.com/drive/folders/exemplo",
-      // Preenchido no exemplo para que o selo "Pasta da entrega" possa ser
+      // Preenchido no exemplo para que o selo "Entrega" possa ser
       // visto ao ser ligado — um card de amostra sem entrega deixaria a opção
       // sem efeito visível, e quem configura não saberia o que está ligando.
       deliveryUrl: "https://drive.google.com/drive/folders/exemplo-entrega",
