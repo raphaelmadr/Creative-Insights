@@ -975,6 +975,128 @@ button.filter-control:hover {
 }
 
 /* ---------------------------------------------------------------------------
+   Formulário público de demanda
+
+   A única tela que gente de fora do sistema vê, e a que menos parecia com ele:
+   uma pilha de campos encostada na margem esquerda, sem cartão, sem respiro e
+   sem nada que dissesse de quem é aquela página.
+
+   Aqui ela ganha a mesma linguagem do login — folha centrada, marca no topo,
+   conteúdo dentro de um cartão — porque as duas fazem o mesmo trabalho: receber
+   alguém que chegou de fora e pedir que preencha algo.
+   --------------------------------------------------------------------------- */
+.demanda-page {
+  min-height: 100dvh;
+  background: var(--background-main);
+  display: flex;
+  justify-content: center;
+  /* Em cima é menos que embaixo de propósito: o formulário sobe para perto do
+     olho, e a folga de baixo é o que impede o último campo de encostar na
+     borda da janela em tela curta. */
+  padding: 2.5rem 1rem 4rem;
+}
+
+.demanda-sheet {
+  width: 100%;
+  max-width: 640px;
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+}
+
+.demanda-header {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.5rem;
+  text-align: center;
+}
+
+.demanda-titulo {
+  font-size: var(--text-metric-lg);
+  font-weight: 700;
+  margin: 0;
+  line-height: 1.2;
+}
+
+.demanda-card {
+  background: var(--card-bg);
+  border: 1px solid var(--card-border);
+  border-radius: var(--radius-card);
+  box-shadow: var(--card-shadow);
+  display: flex;
+  flex-direction: column;
+  /* Sem `gap`: quem separa as seções é a linha do `border-top` abaixo, e o gap
+     somado a ela dobraria o espaço em um lugar só. */
+  padding: var(--pad-card-lg);
+}
+
+/* Respiro maior onde há largura para ele. No celular, 1.25rem já é metade da
+   tela em cada lado somados — mais que isso espreme o campo. */
+@media (min-width: 640px) {
+  .demanda-card {
+    padding: 2rem;
+  }
+}
+
+.demanda-secao {
+  display: flex;
+  flex-direction: column;
+  gap: var(--gap-stack);
+}
+
+/* A linha entre seções, e não em volta de cada uma: o formulário continua
+   sendo uma folha só, com assuntos separados — e não três cartões empilhados
+   dentro de um quarto. */
+.demanda-secao + .demanda-secao {
+  margin-top: 1.5rem;
+  padding-top: 1.5rem;
+  border-top: 1px solid var(--card-border);
+}
+
+.demanda-eyebrow {
+  font-size: var(--text-eyebrow);
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.demanda-rodape {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  margin-top: 1.5rem;
+  padding-top: 1.25rem;
+  border-top: 1px solid var(--card-border);
+}
+
+/* O botão ocupa a linha no celular e encolhe no desktop: num formulário longo,
+   um botão pequeno no canto de uma tela estreita é o alvo mais difícil da
+   página inteira. */
+.demanda-rodape .btn {
+  width: 100%;
+  justify-content: center;
+}
+
+@media (min-width: 640px) {
+  .demanda-rodape {
+    flex-direction: row;
+    align-items: center;
+    justify-content: space-between;
+  }
+  .demanda-rodape .btn {
+    width: auto;
+    margin-left: auto;
+  }
+}
+
+.demanda-nota {
+  text-align: center;
+  margin: 0;
+}
+
+/* ---------------------------------------------------------------------------
    Diálogo
 
    Onde os formulários da plataforma moram. O corpo rola sozinho quando o

@@ -1,6 +1,8 @@
 "use client";
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useSession } from "next-auth/react";
+import { isAdminRole } from "@/lib/roles";
 import { Plus, SlidersHorizontal, LayoutGrid, Layers, Archive, Link2, Search } from "lucide-react";
 import KanbanBoard from "@/components/creator/KanbanBoard";
 import DemandDialog, { type PersonOption } from "@/components/creator/DemandDialog";
@@ -64,6 +66,22 @@ export default function KanbanPage() {
   const [editBoard, setEditBoard] = useState(false);
   const [editLink, setEditLink] = useState(false);
   const [editGroups, setEditGroups] = useState(false);
+  /*
+   * Configurar o quadro é de administrador; usá-lo é de quem produz.
+   *
+   * "Preferências" e "Grupos" mudam o quadro para TODA a equipe — as perguntas
+   * do formulário, o que o card mostra, as etapas do fluxo e quem responde por
+   * cada fase. Não é decisão de quem está tocando uma demanda, e a barra ficava
+   * oferecendo as duas portas para todo mundo.
+   *
+   * A regra vem de `lib/roles.ts`, a mesma linha que decide a engrenagem na
+   * barra do topo. Esconder aqui é conveniência, não proteção: quem chamar as
+   * rotas de configuração direto continua passando, porque elas exigem creator
+   * e não administrador. Trancá-las é o passo seguinte, se for o caso.
+   */
+  const { data: session } = useSession();
+  const isAdmin = isAdminRole(session?.user?.role);
+
   const [showArchive, setShowArchive] = useState(false);
   const [showSearch, setShowSearch] = useState(false);
 
@@ -498,24 +516,28 @@ export default function KanbanPage() {
                 Separadas, quem enxugava o card não achava a pergunta que o
                 enchia — ela estava atrás do outro botão, com outro nome.
               */}
-              <button
-                className="btn btn-secondary btn-compact"
-                onClick={() => setEditBoard(true)}
-                disabled={!board}
-                title="O formulário, o que o card mostra e as etapas do fluxo"
-              >
-                <SlidersHorizontal size={14} />
-                Preferências
-              </button>
-              <button
-                className="btn btn-secondary btn-compact"
-                onClick={() => setEditGroups(true)}
-                disabled={!board}
-                title="Agrupar as etapas em grupos — Criação, Growth, Mídia"
-              >
-                <Layers size={14} />
-                Grupos
-              </button>
+              {isAdmin && (
+                <>
+                  <button
+                    className="btn btn-secondary btn-compact"
+                    onClick={() => setEditBoard(true)}
+                    disabled={!board}
+                    title="O formulário, o que o card mostra e as etapas do fluxo"
+                  >
+                    <SlidersHorizontal size={14} />
+                    Preferências
+                  </button>
+                  <button
+                    className="btn btn-secondary btn-compact"
+                    onClick={() => setEditGroups(true)}
+                    disabled={!board}
+                    title="Agrupar as etapas em grupos — Criação, Growth, Mídia"
+                  >
+                    <Layers size={14} />
+                    Grupos
+                  </button>
+                </>
+              )}
               {/*
                 O arquivo é um botão, e não uma coluna.
                 
