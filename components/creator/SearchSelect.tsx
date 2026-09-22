@@ -28,33 +28,85 @@ export interface SearchSelectOption {
   keywords?: string;
 }
 
-export default function SearchSelect({
-  options,
-  value,
-  onChange,
-  placeholder = "Selecione…",
-  emptyLabel = "Nenhum resultado.",
-  disabled = false,
-  loading = false,
-  id,
-  allowClear = true,
-}: {
+interface SearchSelectBase {
   options: SearchSelectOption[];
-  value: string | null;
-  onChange: (id: string | null) => void;
   placeholder?: string;
   emptyLabel?: string;
   disabled?: boolean;
   loading?: boolean;
   id?: string;
   allowClear?: boolean;
-}) {
+}
+
+/**
+ * Os dois modos são tipos DIFERENTES, e não um `value` que aceita as duas
+ * formas: quem usa a caixa em modo múltiplo recebe uma lista no `onChange`, e
+ * quem usa em modo único recebe um id ou nulo. Com um tipo só, o compilador
+ * deixaria passar um `value` de texto num campo múltiplo — e o defeito
+ * apareceria em tela, como uma seleção que some a cada clique.
+ */
+type SearchSelectProps =
+  | (SearchSelectBase & {
+      multiple?: false;
+      value: string | null;
+      onChange: (id: string | null) => void;
+    })
+  | (SearchSelectBase & {
+      multiple: true;
+      value: string[];
+      onChange: (ids: string[]) => void;
+    });
+
+export default function SearchSelect(props: SearchSelectProps) {
+  const {
+    options,
+    placeholder = "Selecione…",
+    emptyLabel = "Nenhum resultado.",
+    disabled = false,
+    loading = false,
+    id,
+    allowClear = true,
+  } = props;
+
+  const multiple = props.multiple === true;
+
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
   const wrapper = useRef<HTMLDivElement>(null);
   const searchBox = useRef<HTMLInputElement>(null);
 
-  const selected = useMemo(() => options.find((o) => o.id === value) ?? null, [options, value]);
+  /** A seleção sempre como lista, para o corpo do componente ser um só. */
+  const selecionados = useMemo(
+    () => (props.multiple ? props.value : props.value ? [props.value] : []),
+    [props.multiple, props.value]
+  );
+
+  const escolher = (optionId: string) => {
+    if (props.multiple) {
+      const atual = props.value;
+      /* Alterna, e o painel FICA ABERTO: escolher cinco produtos reabrindo a
+         caixa cinco vezes é o gesto que o modo múltiplo existe para evitar. */
+      props.onChange(
+        atual.includes(optionId) ? atual.filter((v) => v !== optionId) : [...atual, optionId]
+      );
+      return;
+    }
+    props.onChange(optionId);
+    setOpen(false);
+  };
+
+  const limpar = () => {
+    if (props.multiple) props.onChange([]);
+    else props.onChange(null);
+  };
+
+  /** O que o gatilho mostra: o rótulo escolhido, ou todos, separados por vírgula. */
+  const resumo = useMemo(() => {
+    const rotulos = selecionados
+      .map((v) => options.find((o) => o.id === v)?.label)
+      .filter((l): l is string => !!l);
+    return rotulos.length ? rotulos.join(", ") : null;
+  }, [selecionados, options]);
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -124,13 +176,13 @@ export default function SearchSelect({
             overflow: "hidden",
             textOverflow: "ellipsis",
             whiteSpace: "nowrap",
-            color: selected ? "var(--foreground)" : "var(--muted)",
+            color: resumo ? "var(--foreground)" : "var(--muted)",
           }}
         >
-          {loading ? "Carregando…" : selected?.label ?? placeholder}
+          {loading ? "Carregando…" : resumo ?? placeholder}
         </span>
 
-        {selected && allowClear && !loading && (
+        {resumo && allowClear && !loading && (
           <span
             role="button"
             tabIndex={0}
@@ -138,13 +190,13 @@ export default function SearchSelect({
             title="Limpar seleção"
             onClick={(e) => {
               e.stopPropagation();
-              onChange(null);
+              limpar();
             }}
             onKeyDown={(e) => {
               if (e.key === "Enter" || e.key === " ") {
                 e.preventDefault();
                 e.stopPropagation();
-                onChange(null);
+                limpar();
               }
             }}
             style={{ display: "inline-flex", color: "var(--muted)", flexShrink: 0 }}
@@ -201,6 +253,20 @@ export default function SearchSelect({
             />
           </div>
 
+          {multiple && selecionados.length > 0 && (
+            <div
+              style={{
+                padding: "0.4rem 0.6rem",
+                borderBottom: "1px solid var(--card-border)",
+                fontSize: "var(--text-eyebrow)",
+                color: "var(--muted)",
+              }}
+            >
+              {selecionados.length} selecionado{selecionados.length === 1 ? "" : "s"} — clique para
+              tirar da lista
+            </div>
+          )}
+
           <div style={{ overflowY: "auto", padding: "0.25rem" }}>
             {filtered.length === 0 ? (
               <div
@@ -215,17 +281,14 @@ export default function SearchSelect({
               </div>
             ) : (
               filtered.map((option) => {
-                const active = option.id === value;
+                const active = selecionados.includes(option.id);
                 return (
                   <button
                     key={option.id}
                     type="button"
                     role="option"
                     aria-selected={active}
-                    onClick={() => {
-                      onChange(option.id);
-                      setOpen(false);
-                    }}
+                    onClick={() => escolher(option.id)}
                     style={{
                       width: "100%",
                       display: "flex",

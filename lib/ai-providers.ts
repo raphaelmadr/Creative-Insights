@@ -45,6 +45,18 @@ export interface AiProviderMeta {
   vision: boolean;
   /** O que distingue este provedor dos outros, para quem escolhe a ordem. */
   note: string;
+  /**
+   * O teto de saída que este provedor aceita, em tokens.
+   *
+   * Existe porque o orçamento deixou de ser fixo: uma landing page longa precisa
+   * de muito mais espaço de resposta que um anúncio, e pedir esse espaço a um
+   * provedor que não o oferece é levar um erro de requisição inválida — a
+   * cadeia inteira cairia por um número, e não por falta de chave. Cada um
+   * recebe o menor entre o que foi pedido e o que ele aceita.
+   *
+   * São os limites publicados por provedor; na dúvida, o valor conservador.
+   */
+  maxOutputTokens: number;
 }
 
 /**
@@ -53,13 +65,13 @@ export interface AiProviderMeta {
  * menciona algum provedor.
  */
 export const AI_PROVIDERS: AiProviderMeta[] = [
-  { id: "gemini", label: "Gemini", keyField: "geminiApiKey", vision: true, note: "Lê imagens; cota gratuita generosa" },
-  { id: "groq", label: "Groq", keyField: "groqApiKey", vision: true, note: "O mais rápido da fila" },
-  { id: "openrouter", label: "OpenRouter", keyField: "openRouterApiKey", vision: true, note: "Roteia para vários modelos" },
-  { id: "openai", label: "OpenAI", keyField: "openaiApiKey", vision: true, note: "Lê imagens" },
-  { id: "anthropic", label: "Anthropic", keyField: "anthropicApiKey", vision: true, note: "Lê imagens" },
-  { id: "cohere", label: "Cohere", keyField: "cohereApiKey", vision: false, note: "Só texto" },
-  { id: "huggingface", label: "HuggingFace", keyField: "huggingFaceApiKey", vision: false, note: "Só texto; modelos abertos" },
+  { id: "gemini", label: "Gemini", keyField: "geminiApiKey", vision: true, note: "Lê imagens; cota gratuita generosa", maxOutputTokens: 8192 },
+  { id: "groq", label: "Groq", keyField: "groqApiKey", vision: true, note: "O mais rápido da fila", maxOutputTokens: 8192 },
+  { id: "openrouter", label: "OpenRouter", keyField: "openRouterApiKey", vision: true, note: "Roteia para vários modelos", maxOutputTokens: 4096 },
+  { id: "openai", label: "OpenAI", keyField: "openaiApiKey", vision: true, note: "Lê imagens", maxOutputTokens: 16384 },
+  { id: "anthropic", label: "Anthropic", keyField: "anthropicApiKey", vision: true, note: "Lê imagens", maxOutputTokens: 8192 },
+  { id: "cohere", label: "Cohere", keyField: "cohereApiKey", vision: false, note: "Só texto", maxOutputTokens: 4000 },
+  { id: "huggingface", label: "HuggingFace", keyField: "huggingFaceApiKey", vision: false, note: "Só texto; modelos abertos", maxOutputTokens: 4096 },
 ];
 
 export const DEFAULT_AI_PROVIDER_ORDER: AiProviderId[] = AI_PROVIDERS.map((p) => p.id);

@@ -307,6 +307,52 @@ export function findFormat(id: string | undefined | null) {
   return COPY_FORMATS.find((f) => f.id === id) ?? null;
 }
 
+/**
+ * O rótulo reduzido ao que ele identifica, para casar duas listas escritas por
+ * pessoas diferentes.
+ *
+ * O quadro chama o canal de "Meta"; esta lista o chama de "Meta (Facebook,
+ * Instagram, WhatsApp)". São o mesmo canal, e a orientação curada que existe
+ * aqui — o que o leilão impõe à escrita — não pode se perder porque um rótulo
+ * traz o parêntese e o outro não. Corta o parêntese, o sufixo "Ads", os acentos
+ * e a caixa; o que sobra é o nome.
+ */
+function labelKey(label: string | null | undefined): string {
+  return (label ?? "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/\([^)]*\)/g, " ")
+    .replace(/\bads\b/gi, " ")
+    .replace(/[^a-z0-9]+/gi, " ")
+    .trim()
+    .toLowerCase();
+}
+
+/**
+ * A orientação curada de um canal, procurada pelo RÓTULO.
+ *
+ * O gerador passou a oferecer os canais e formatos DO QUADRO — é lá que a
+ * equipe os define, e manter uma segunda lista aqui fazia a tela oferecer
+ * "Todos os formatos e tamanhos" para Parcerias enquanto o quadro tinha nove
+ * formatos configurados. O que continua morando aqui é a orientação de escrita,
+ * que não cabe num formulário: ela é reencontrada pelo nome.
+ *
+ * Nulo quando não há orientação para aquele rótulo — e aí o prompt leva só o
+ * nome, que já diz bastante ("Reels (9:16)").
+ */
+export function channelGuidanceFor(label: string | null | undefined): string | null {
+  if (!label?.trim()) return null;
+  const alvo = labelKey(label);
+  return COPY_CHANNELS.find((c) => labelKey(c.label) === alvo)?.guidance ?? null;
+}
+
+/** A orientação curada de um formato, procurada pelo rótulo. Ver `channelGuidanceFor`. */
+export function formatGuidanceFor(label: string | null | undefined): string | null {
+  if (!label?.trim()) return null;
+  const alvo = labelKey(label);
+  return COPY_FORMATS.find((f) => labelKey(f.label) === alvo)?.guidance ?? null;
+}
+
 /** Os formatos de um canal. Sem canal, lista vazia — e não a lista inteira. */
 export function formatsForChannel(channelId: string | undefined | null) {
   return COPY_FORMATS.filter((f) => f.channelId === channelId);
@@ -401,6 +447,297 @@ export function clampVariations(value: unknown): number {
 }
 
 /**
+ * O que a peça É — e é isso que decide o que o "corpo" significa.
+ *
+ * Um estático, um vídeo e uma landing page pedem três textos diferentes do
+ * mesmo briefing: no estático o corpo é o argumento que cabe numa olhada; no
+ * vídeo o corpo é o ROTEIRO que alguém vai gravar, com as falas na ordem em que
+ * são ditas; na página é o texto que a pessoa lê rolando, com fôlego para
+ * seções. Pedir "um corpo" para os três, com o mesmo teto, era o que fazia o
+ * roteiro sair do tamanho de uma legenda de feed.
+ */
+export type CopyPieceKindId = "estatico" | "video" | "lp";
+
+export interface CopyPieceKind {
+  id: CopyPieceKindId;
+  label: string;
+  /** Como o campo "Corpo" se chama nesta peça, na tela e no prompt. */
+  bodyLabel: string;
+  /** Teto de palavras que a tela sugere — e que quem pede pode mudar. */
+  defaultBodyMaxWords: number;
+  /** O que o modelo precisa entender sobre o tipo de peça. */
+  guidance: string;
+  /** Como o corpo deve ser escrito, dito no formato da resposta. */
+  bodyInstruction: string;
+  /** O que se pede N vezes: "variações de copy", "versões completas da página". */
+  unitLabel: string;
+  /** O mesmo no singular — "Escreva 1 versões completas" é o tipo de descuido
+   *  que faz o texto parecer gerado por máquina logo na primeira linha. */
+  unitLabelOne: string;
+  /**
+   * Para que servem as peças vencedoras nesta peça.
+   *
+   * O prompt dizia, para todos, que as referências eram "o padrão a seguir em
+   * ESTRUTURA e registro". Num anúncio isso está certo; numa landing page é a
+   * instrução que estraga o resultado — mandar a página copiar a estrutura de um
+   * criativo de feed devolve um criativo com mais palavras, que foi exatamente o
+   * defeito relatado. O registro e os argumentos continuam valendo; a forma, não.
+   */
+  referenceUse: string;
+  /**
+   * O que fazer com as peças vencedoras, em regras — o bloco "SIGA ESTES
+   * MODELOS", que fica logo antes do formato da resposta.
+   *
+   * Era uma lista única, escrita para anúncio, e a primeira regra dela mandava
+   * REPRODUZIR A ESTRUTURA das referências. Como ela aparece perto do fim do
+   * prompt e é a mais concreta de todas, era ela que o modelo seguia: pedir uma
+   * landing page devolvia um criativo, e a justificativa da própria resposta
+   * dizia "reproduz a estrutura da referência". Mudar a frase de abertura do
+   * prompt não bastava — as duas precisavam dizer a mesma coisa.
+   */
+  referenceBullets: string[];
+  /**
+   * As seções que a peça tem, quando ela é feita de seções.
+   *
+   * Só a landing page tem. É o esqueleto que sai pronto para montar a página, em
+   * vez de um texto corrido que alguém teria de repartir depois.
+   */
+  sections?: string[];
+}
+
+export const COPY_PIECE_KINDS: CopyPieceKind[] = [
+  {
+    id: "estatico",
+    label: "Peça estática",
+    bodyLabel: "Corpo",
+    defaultBodyMaxWords: 40,
+    guidance:
+      "A peça é um anúncio estático: imagem parada, lida de passagem. O texto disputa a atenção com o resto do feed e precisa entregar o argumento antes de a pessoa rolar.",
+    bodyInstruction:
+      "o argumento, em frases curtas e diretas. Nada de introdução: a primeira frase já é o argumento.",
+    unitLabel: "variações de copy",
+    unitLabelOne: "variação de copy",
+    referenceUse:
+      "a sua copy deve sair parecida com elas em estrutura e registro, não com um anúncio genérico de tecnologia",
+    referenceBullets: [
+      "Reproduza a ESTRUTURA: a ordem em que o argumento é construído, o tipo de gancho de abertura, onde a oferta entra, como o CTA é formulado.",
+      "Reproduza o REGISTRO: comprimento de frase, nível de formalidade, uso de pergunta, de número, de primeira ou segunda pessoa.",
+      "Prefira ângulos vizinhos aos que já funcionaram a ângulos novos e não testados.",
+      "O corpo pode ser tão longo quanto o das referências. Não corte o argumento pela metade para ficar curto: uma peça que converteu com cinco linhas converteu COM as cinco linhas.",
+    ],
+  },
+  {
+    id: "video",
+    label: "Vídeo (roteiro)",
+    bodyLabel: "Roteiro",
+    defaultBodyMaxWords: 150,
+    guidance:
+      "A peça é um VÍDEO, e o que você escreve é o ROTEIRO que alguém vai gravar e editar. Escreva as FALAS, na ordem em que são ditas, do jeito que se fala — não descreva a cena, não narre o que aparece na tela e não escreva em terceira pessoa sobre o vídeo. Indicação de imagem entra só quando a fala depende dela, entre parênteses e curta. O roteiro tem fôlego maior que uma legenda: ele precisa segurar a pessoa por alguns segundos, não caber numa olhada.",
+    bodyInstruction:
+      "o roteiro em falas, UMA POR LINHA, cada linha começando pela marcação de tempo aproximada — `(0-3s) fala`, `(3-8s) fala`. O primeiro trecho é o gancho e decide se o resto é visto.",
+    unitLabel: "roteiros",
+    unitLabelOne: "roteiro",
+    referenceUse:
+      "use o registro e os ganchos delas como referência — o que prende a atenção nelas é o que precisa prender no primeiro trecho do roteiro. A estrutura, essa é a do roteiro, não a do anúncio",
+    referenceBullets: [
+      "Reproduza o GANCHO: o que prende a atenção nas referências é o que precisa prender nos três primeiros segundos do roteiro.",
+      "Reproduza o REGISTRO: comprimento de frase, nível de formalidade, uso de pergunta, de número, de primeira ou segunda pessoa.",
+      "NÃO reproduza a estrutura delas. Elas são peças de leitura; o seu roteiro é FALADO, e a estrutura dele é a ordem em que as frases são ditas na câmera.",
+      "Prefira ângulos vizinhos aos que já funcionaram a ângulos novos e não testados.",
+    ],
+  },
+  {
+    id: "lp",
+    label: "Landing page",
+    bodyLabel: "Texto da página",
+    /*
+     * Uma página inteira, com cinco seções de texto pronto, não cabe no
+     * orçamento de um anúncio. Com 300 o modelo entregava um parágrafo por
+     * seção — ou, mais provável, desistia das seções e escrevia um criativo
+     * comprido, que foi o defeito relatado.
+     */
+    defaultBodyMaxWords: 500,
+    guidance:
+      "A peça é uma LANDING PAGE INTEIRA: a página que recebe quem clicou no anúncio. Você não está escrevendo um anúncio sobre a página — você está escrevendo o TEXTO DELA, seção por seção, pronto para ser montado. Cada seção tem de sair completa e utilizável como está: nada de descrever o que a seção deveria dizer, nada de instrução para o time, nada de espaço reservado, a não ser onde falte um dado que só a empresa tem (um depoimento real, um número de clientes) — e aí diga exatamente o que falta, entre colchetes.",
+    bodyInstruction:
+      "o texto de cada seção, pronto. Uma linha `**Nome da seção:**` e, abaixo dela, o texto daquela seção",
+    unitLabel: "versões completas da página",
+    unitLabelOne: "versão completa da página",
+    referenceUse:
+      "elas são ANÚNCIOS, e a sua peça é uma página: aproveite delas o registro, os argumentos que converteram e as objeções que elas atacam. NÃO copie a estrutura delas — a estrutura da sua peça é a da página, seção por seção",
+    referenceBullets: [
+      "Aproveite os ARGUMENTOS e as OBJEÇÕES que aparecem nelas: é o que já provou converter com este público, e é isso que alimenta as seções de benefícios, comparativo e prova social.",
+      "Reproduza o REGISTRO: comprimento de frase, nível de formalidade, uso de pergunta, de número, de primeira ou segunda pessoa.",
+      "NÃO reproduza a estrutura delas. Elas são anúncios de uma tela só; a sua peça é uma PÁGINA INTEIRA, lida rolando, e a estrutura dela são as seções pedidas no formato da resposta — todas, na ordem pedida.",
+      "Uma única seção da sua página pode ser mais longa que um anúncio inteiro. Não encolha a página para o tamanho de um criativo.",
+    ],
+    sections: [
+      "Home",
+      "Benefícios",
+      "Comparativo",
+      "Prova Social",
+      "Formulário",
+    ],
+  },
+];
+
+export function findPieceKind(id: string | null | undefined): CopyPieceKind {
+  return COPY_PIECE_KINDS.find((k) => k.id === id) ?? COPY_PIECE_KINDS[0];
+}
+
+/**
+ * O tipo de peça deduzido do nome do formato.
+ *
+ * O quadro nomeia os formatos livremente, então não há campo dizendo "isto é
+ * vídeo": o que existe é "Reels (9:16)" e "Criação de LP". As palavras são o
+ * único sinal, e elas erram — "Stories (9:16)" pode ser as duas coisas. Por isso
+ * a tela MOSTRA o que foi deduzido, num campo que se troca em um clique: o
+ * palpite acerta o caso comum e nunca fica no caminho do outro.
+ */
+export function guessPieceKind(formatLabel: string | null | undefined): CopyPieceKindId {
+  const nome = (formatLabel ?? "").toLowerCase();
+  if (!nome.trim()) return "estatico";
+  if (/\blps?\b|landing|\bpágina\b|\bpagina\b/.test(nome)) return "lp";
+  if (/v[ií]deo|reels?|roteiro|shorts?|\btvc\b/.test(nome)) return "video";
+  return "estatico";
+}
+
+export const MIN_BODY_WORDS = 10;
+
+/**
+ * O teto do teto.
+ *
+ * Eram 800, número que eu escolhi por cima e que não tem nada a ver com o
+ * trabalho: uma landing page longa passa fácil disso. Cinco mil palavras é o
+ * tamanho de uma página de vendas inteira, e é o limite que faz sentido pedir.
+ *
+ * Quem de fato limita, mais abaixo, é o teto de SAÍDA do provedor que atender —
+ * ver `estimateOutputTokens` e `maxOutputTokens` em `lib/ai-providers.ts`. Por
+ * isso a tela avisa quando o pedido não cabe numa resposta só, em vez de deixar
+ * a página chegar cortada no meio de uma frase.
+ */
+export const MAX_BODY_WORDS = 5000;
+
+/**
+ * Quantos tokens de saída um pedido precisa reservar.
+ *
+ * Português rende cerca de 1,7 token por palavra — mais que o inglês, por causa
+ * dos acentos e das palavras longas. A folga cobre os campos que acompanham cada
+ * variação (headline, CTA, justificativa) e a marcação do formato.
+ */
+export function estimateOutputTokens(totalWords: number): number {
+  return Math.ceil(totalWords * 1.7) + 400;
+}
+
+export function clampBodyMaxWords(value: unknown, kind: CopyPieceKindId): number {
+  const n = Math.round(Number(value));
+  if (!Number.isFinite(n)) return findPieceKind(kind).defaultBodyMaxWords;
+  return Math.min(Math.max(n, MIN_BODY_WORDS), MAX_BODY_WORDS);
+}
+
+/** Quantas palavras há num texto — a mesma conta na tela e no prompt. */
+export function countWords(text: string | null | undefined): number {
+  const limpo = (text ?? "").trim();
+  return limpo ? limpo.split(/\s+/).length : 0;
+}
+
+/**
+ * A "geração" que o nome de um produto anuncia — 17 em "iPhone 17 Pro", 2 em
+ * "Nintendo Switch 2".
+ *
+ * Números que vêm colados a uma unidade não contam: o catálogo tem "Switch 2
+ * 256GB", "Monitor Acer 31.5\"" e "Kindle Paperwhite 12ª Geração 2024", e lê-los
+ * como geração faria um monitor de 31,5 polegadas parecer trinta vezes mais novo
+ * que um iPhone 17.
+ *
+ * Nulo quando não há número nenhum — e aí não há o que comparar.
+ */
+function generationOf(name: string): number | null {
+  const limpo = name
+    .toLowerCase()
+    // Capacidade, tamanho, taxa e afins: o número e a unidade saem juntos.
+    /* A unidade escrita em letras exige fronteira de palavra; a escrita em
+       símbolo NÃO pode exigir — `\b` depois de aspas nunca casa no fim do texto,
+       e era por isso que `Monitor Acer Nitro 27"` chegava aqui como geração 27,
+       ficando "mais novo" que um iPhone 17. */
+    .replace(
+      /\d+(?:[.,]\d+)?\s*(?:(?:gb|tb|mb|kb|mm|cm|kg|g|hz|w|k|fps|p|pol|polegadas|mah|v)\b|["”'’ª])/g,
+      " "
+    )
+    // Ano de lançamento escrito por extenso não é geração.
+    .replace(/\b(?:19|20)\d{2}\b/g, " ");
+
+  const achado = limpo.match(/\b\d+(?:[.,]\d+)?\b/);
+  if (!achado) return null;
+
+  const n = Number(achado[0].replace(",", "."));
+  return Number.isFinite(n) ? n : null;
+}
+
+/** O nome até o primeiro número — "iPhone" em "iPhone 17 Pro". É a família. */
+function familyOf(name: string): string {
+  return name.toLowerCase().split(/\s*\b\d/)[0].trim();
+}
+
+export interface CopyProductPick {
+  id: string;
+  name: string;
+}
+
+export interface VariationShare extends CopyProductPick {
+  /** Quantas variações este produto recebe nesta geração. */
+  variations: number;
+}
+
+/**
+ * Como as variações se repartem entre os produtos escolhidos.
+ *
+ * O número pedido é o TOTAL — doze variações com dois produtos são seis e seis,
+ * e não doze de cada. Quando não divide certo, a sobra vai para o aparelho mais
+ * novo: três variações entre iPhone 16 e iPhone 17 são duas do 17 e uma do 16.
+ *
+ * "Mais novo" é decidido pela geração no nome, e SÓ entre produtos da mesma
+ * família: 17 é maior que 16 dentro de "iPhone", mas comparar o 17 de um iPhone
+ * com o 25 de um Galaxy não significaria nada. Famílias diferentes mantêm a
+ * ordem em que foram escolhidas — e a tela mostra a divisão antes de gerar,
+ * para que um palpite errado seja visto, e não descoberto na entrega.
+ */
+export function splitVariations(total: number, produtos: CopyProductPick[]): VariationShare[] {
+  if (produtos.length === 0) return [];
+
+  const n = clampVariations(total);
+
+  /*
+   * A ordem de prioridade da sobra. `sort` no JavaScript é estável, então
+   * produtos sem geração comparável — ou de famílias diferentes — ficam
+   * exatamente como foram escolhidos.
+   */
+  const prioridade = [...produtos].sort((a, b) => {
+    if (familyOf(a.name) !== familyOf(b.name)) return 0;
+    const ga = generationOf(a.name);
+    const gb = generationOf(b.name);
+    if (ga === null || gb === null) return 0;
+    return gb - ga;
+  });
+
+  const base = Math.floor(n / produtos.length);
+  let sobra = n % produtos.length;
+
+  const porProduto = new Map<string, number>();
+  for (const produto of prioridade) {
+    porProduto.set(produto.id, base + (sobra > 0 ? 1 : 0));
+    if (sobra > 0) sobra -= 1;
+  }
+
+  // Devolvida na ordem em que foram ESCOLHIDOS: é assim que a pessoa os vê na
+  // caixa, e uma lista que se reordena sozinha na tela parece defeito.
+  return produtos.map((produto) => ({
+    ...produto,
+    variations: porProduto.get(produto.id) ?? 0,
+  }));
+}
+
+/**
  * O título do card no Kanban: `Criativos Feed e Stories • iPhone 17 • 12 Peças`.
  *
  * Quem produz lê a coluna inteira de relance, e "Copy — iPhone 17 Pro Max" não
@@ -414,15 +751,25 @@ export function clampVariations(value: unknown): number {
  */
 export function buildCopyCardTitle({
   formatId,
+  formatLabel,
   productName,
   variations,
 }: {
   formatId?: string | null;
+  /**
+   * O rótulo do formato como o QUADRO o chama — é daí que ele vem agora.
+   *
+   * `cardLabel` é o apelido curto de um formato desta lista ("Criativos Feed
+   * 1:1"); um formato configurado no quadro não tem apelido, e o próprio rótulo
+   * serve. Sem isto, todo card gerado com um formato do quadro nascia com o
+   * título começando no nome do produto, sem dizer o que era para fazer.
+   */
+  formatLabel?: string | null;
   productName?: string | null;
   variations: number;
 }): string {
   const partes = [
-    findFormat(formatId)?.cardLabel,
+    findFormat(formatId)?.cardLabel ?? formatLabel?.trim() ?? null,
     // O nome do catálogo pode ser bem longo ("iPhone 17 Pro Max 256GB Preto") e
     // ainda assim é o que a pessoa reconhece — corta no fim, não some.
     productName?.trim()?.slice(0, 80),

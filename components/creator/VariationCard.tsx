@@ -3,6 +3,7 @@
 import React from "react";
 import { Trash2, Lightbulb, ChevronDown, ChevronRight } from "lucide-react";
 import type { CopyVariation } from "@/lib/copy-parse";
+import { countWords } from "@/lib/copy-options";
 
 /**
  * Uma variação de copy — no gerador, editável; no Kanban, só de leitura.
@@ -27,6 +28,8 @@ export default function VariationCard({
   collapsible = false,
   open = true,
   onToggle,
+  bodyLabel = "Corpo",
+  bodyMaxWords,
 }: {
   variation: CopyVariation;
   index: number;
@@ -39,6 +42,16 @@ export default function VariationCard({
   collapsible?: boolean;
   open?: boolean;
   onToggle?: () => void;
+  /** Como o corpo se chama nesta peça — "Roteiro" num vídeo. */
+  bodyLabel?: string;
+  /**
+   * O teto de palavras pedido ao modelo.
+   *
+   * Existe para o limite ser VERIFICÁVEL. Instruir o modelo e torcer é como o
+   * teto anterior se perdia: ninguém contava, ninguém sabia se tinha sido
+   * respeitado, e a decisão de encurtar caía na equipe criativa sem aviso.
+   */
+  bodyMaxWords?: number;
 }) {
   const set = (campo: keyof CopyVariation, valor: string) =>
     onChange?.({ ...variation, [campo]: valor });
@@ -171,7 +184,7 @@ export default function VariationCard({
           {readOnly ? (
             <>
               {readField("Headline", variation.headline)}
-              {readField("Corpo", variation.body)}
+              {readField(bodyLabel, variation.body)}
               {readField("CTA", variation.cta)}
             </>
           ) : (
@@ -189,15 +202,31 @@ export default function VariationCard({
               </div>
 
               <div className="field">
-                <label className="field-label" htmlFor={`corpo-${variation.id}`}>
-                  Corpo
+                <label
+                  className="field-label"
+                  htmlFor={`corpo-${variation.id}`}
+                  style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: "0.5rem" }}
+                >
+                  <span>{bodyLabel}</span>
+                  {bodyMaxWords !== undefined && (
+                    <span
+                      style={{
+                        fontSize: "var(--text-eyebrow)",
+                        fontWeight: 400,
+                        color:
+                          countWords(variation.body) > bodyMaxWords ? "var(--danger)" : "var(--muted)",
+                      }}
+                    >
+                      {countWords(variation.body)} / {bodyMaxWords} palavras
+                    </span>
+                  )}
                 </label>
                 <textarea
                   id={`corpo-${variation.id}`}
                   className="field-input field-prose"
                   value={variation.body}
                   onChange={(e) => set("body", e.target.value)}
-                  style={{ minHeight: "80px" }}
+                  style={{ minHeight: bodyMaxWords && bodyMaxWords > 100 ? "180px" : "80px" }}
                 />
               </div>
 
