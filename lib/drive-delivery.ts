@@ -104,6 +104,8 @@ export class DriveFolders {
   private auth: GoogleAuth;
   private rootFolderId: string;
   private folderCache = new Map<string, Promise<{ id: string; trilha: string }>>();
+  /** Resolvido uma vez por instância — ver `idDoDriveCompartilhado`. */
+  private sharedDriveId: Promise<string> | null = null;
 
   constructor(creds: DriveCredentials) {
     this.auth = criarAuth(creds.serviceAccountJson);
@@ -229,6 +231,146 @@ export class DriveFolders {
   }
 
   /**
+   * O id do drive compartilhado em que a pasta raiz configurada vive.
+   *
+   * Derivado da própria raiz, e não de um nome procurado em `drives.list`: o
+   * "Marketing" das parcerias é o MESMO drive que já guarda "01- Tráfego
+   * Pago", então perguntar ao Drive de quem é a pasta que já está configurada
+   * responde sozinho — sem depender de a conta enxergar a lista de drives, e
+   * sem quebrar no dia em que alguém renomear o drive.
+   */
+  private async idDoDriveCompartilhado(): Promise<string> {
+    if (!this.sharedDriveId) {
+      this.sharedDriveId = (async () => {
+        const data = await this.chamarDrive(`/${this.rootFolderId}`, {
+          query: { fields: "id,name,driveId", supportsAllDrives: "true" },
+        });
+        if (!data.driveId) {
+          throw new Error(
+            `A pasta raiz configurada ("${data.name ?? this.rootFolderId}") não está num drive compartilhado — ` +
+              "as pastas de parcerias vivem no drive Marketing, e só de lá dá para chegar nelas."
+          );
+        }
+        return data.driveId as string;
+      })().catch((err) => {
+        this.sharedDriveId = null;
+        throw err;
+      });
+    }
+    return this.sharedDriveId;
+  }
+
+  /**
+   * Acha "09-Parcerias", por qualquer um dos dois caminhos de permissão.
+   *
+   * Existem duas formas legítimas de dar acesso a essa pasta, e elas levam a
+   * APIs diferentes — por isso as duas tentativas:
+   *
+   * 1. A conta é MEMBRO do drive compartilhado. Aí a raiz do drive é listável,
+   *    e a pasta é filha dela. É o caminho preferido: além de achar, permite
+   *    CRIAR a pasta se ela ainda não existir.
+   * 2. A conta recebeu a pasta compartilhada item a item. Aí a raiz do drive é
+   *    invisível — o Drive responde "File not found" para ela —, mas a própria
+   *    pasta aparece numa busca por nome.
+   *
+   * Tentar a primeira e cair na segunda é o que faz a troca da credencial
+   * funcionar sem ninguém precisar saber qual das duas foi usada. O que não dá
+   * para fazer no caminho 2 é criar a pasta: sem enxergar o pai, não há onde.
+   */
+  private async resolverPastaParcerias(): Promise<string> {
+    const bate = (n: string) => stripAcc(n).toLowerCase().includes("parcerias");
+
+    try {
+      const driveId = await this.idDoDriveCompartilhado();
+      return await this.acharOuCriar(driveId, bate, "09-Parcerias");
+    } catch (err) {
+      const texto = err instanceof Error ? err.message : String(err);
+      // Erro que não seja de alcance sobe como está: uma cota estourada ou um
+      // JSON de credencial inválido não se resolve procurando a pasta de outro
+      // jeito, e mascará-los aqui esconderia a causa real.
+      if (!/not found|404|403/i.test(texto)) throw err;
+    }
+
+    /* Caminho 2: a pasta em si foi compartilhada, e é só ela que se enxerga. */
+    const achadas = await this.procurarPastasPorNome("parcerias");
+    if (achadas.length === 1) return achadas[0].id;
+
+    if (achadas.length > 1) {
+      throw new Error(
+        `A conta de serviço enxerga ${achadas.length} pastas com "parcerias" no nome ` +
+          `(${achadas.map((f) => `"${f.name}"`).join(", ")}) e não há como saber qual é a certa. ` +
+          "Adicione-a como membro do drive \"Marketing\" para que o caminho seja resolvido pela árvore."
+      );
+    }
+
+    throw new Error(
+      "A conta de serviço do Drive não alcança \"09-Parcerias\". " +
+        "Compartilhe essa pasta com ela como Gerenciador de conteúdo, ou — melhor — " +
+        "adicione-a como membro do drive \"Marketing\", que também permite criar as pastas do ano e do mês."
+    );
+  }
+
+  /** Pastas com este texto no nome, em tudo que a conta enxerga. */
+  private async procurarPastasPorNome(termo: string): Promise<{ id: string; name: string }[]> {
+    const data = await this.chamarDrive("", {
+      query: {
+        q: `mimeType = 'application/vnd.google-apps.folder' and name contains '${termo}' and trashed = false`,
+        fields: "files(id,name)",
+        pageSize: "20",
+        supportsAllDrives: "true",
+        includeItemsFromAllDrives: "true",
+        corpora: "allDrives",
+      },
+    });
+    return data.files || [];
+  }
+
+  /**
+   * Pasta dos vídeos brutos de parceria:
+   * `Marketing › 09-Parcerias › <ano> › <MM-Mês> › 00-BRUTOS`.
+   *
+   * Parte da RAIZ DO DRIVE, não de `rootFolderId`: "09-Parcerias" é irmã de
+   * "01- Tráfego Pago", não filha dela. É a única função aqui que sobe um
+   * nível — a entrega de criativo nasce dentro da pasta configurada, o bruto
+   * de parceria não.
+   *
+   * Cria o que faltar em qualquer um dos níveis, como a entrega já faz: a
+   * pasta do mês só existe depois que alguém entrega algo naquele mês, e a de
+   * BRUTOS só depois do primeiro bruto.
+   *
+   * A data é a da ABERTURA DA DEMANDA, não a de hoje: um vídeo subido no dia 2
+   * de outubro para uma demanda de setembro pertence a setembro, e é em
+   * setembro que quem procura vai olhar.
+   */
+  async garantirPastaBrutos(dataAbertura: Date): Promise<{ id: string; trilha: string }> {
+    const ano = dataAbertura.getFullYear();
+    const mesIdx = dataAbertura.getMonth();
+    const nomeAno = String(ano);
+    const nomeMes = ("0" + (mesIdx + 1)).slice(-2) + "-" + capitaliza(MESES_LONG[mesIdx]);
+
+    const chave = `brutos|${ano}-${mesIdx}`;
+    if (!this.folderCache.has(chave)) {
+      const p = (async () => {
+        const parceriasId = await this.resolverPastaParcerias();
+        const anoId = await this.acharOuCriar(parceriasId, (n) => n.trim() === nomeAno, nomeAno);
+        const mesId = await this.acharOuCriar(anoId, (n) => pastaBateMes(n, mesIdx), nomeMes);
+        const brutosId = await this.acharOuCriar(
+          mesId,
+          (n) => stripAcc(n).toLowerCase().replace(/[^a-z]/g, "") === "brutos",
+          "00-BRUTOS"
+        );
+
+        return { id: brutosId, trilha: `09-Parcerias › ${nomeAno} › ${nomeMes} › 00-BRUTOS` };
+      })().catch((err) => {
+        this.folderCache.delete(chave);
+        throw err;
+      });
+      this.folderCache.set(chave, p);
+    }
+    return this.folderCache.get(chave)!;
+  }
+
+  /**
    * Abre uma sessão de upload resumível e devolve a URL que o servidor (não o
    * navegador — ver nota no topo do arquivo) usa para mandar os pedaços.
    */
@@ -251,6 +393,29 @@ export class DriveFolders {
     const uploadUrl = res.headers.get("location");
     if (!uploadUrl) throw new Error("Drive não devolveu a URL de upload.");
     return uploadUrl;
+  }
+
+  /**
+   * Abre o arquivo no Drive para leitura, devolvendo a resposta CRUA.
+   *
+   * A resposta inteira, e não os bytes: quem chama vai repassá-la ao navegador,
+   * e o corpo é um fluxo. Lê-lo aqui para devolver um `Buffer` colocaria um
+   * vídeo de dois gigabytes na memória de uma conta de 1 núcleo e 2 GB — o
+   * mesmo motivo pelo qual o upload sobe em pedaços. Repassando o fluxo, o
+   * servidor só encaminha bytes, sem nunca segurar o arquivo.
+   */
+  async abrirArquivoParaDownload(fileId: string): Promise<Response> {
+    const token = await this.accessToken();
+    const url = new URL(`${DRIVE_API}/${fileId}`);
+    url.searchParams.set("alt", "media");
+    url.searchParams.set("supportsAllDrives", "true");
+
+    const res = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
+    if (!res.ok) {
+      const texto = await res.text().catch(() => "");
+      throw new Error(`Drive recusou a leitura do arquivo (${res.status}): ${texto.slice(0, 200)}`);
+    }
+    return res;
   }
 
   /** Repassa um pedaço (recebido do navegador) pra sessão resumível já aberta. */

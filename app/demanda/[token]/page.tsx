@@ -13,6 +13,8 @@ import {
 import {
   PRIORITIES,
   PRIORITY_LABEL,
+  camposVisiveis,
+  limparRespostasOcultas,
   type FormBuiltinKey,
   type Priority,
 } from "@/lib/kanban";
@@ -434,13 +436,23 @@ export default function DemandaPublica() {
             <section className="demanda-secao">
               <span className="demanda-eyebrow">Detalhes do pedido</span>
 
-              {board.fields.map((field) => (
+              {camposVisiveis(board.fields, valores).map((field) => (
                 <FieldInput
                   key={field.id}
                   field={field}
                   value={valores[field.key]}
                   values={valores}
                   parentLabel={board.fields.find((f) => f.key === field.dependsOn)?.label}
+                  /*
+                    Sem `upload` de propósito: aqui o campo é só link.
+
+                    Este formulário é aberto por LINK PÚBLICO, por quem não tem
+                    conta na plataforma, e as rotas de envio exigem sessão de
+                    criador. Passar o contexto de envio desenharia um botão que
+                    não pode funcionar — e fazê-lo funcionar significaria abrir
+                    um caminho de upload não autenticado para o Drive do
+                    Marketing, o que é outro assunto e outra decisão.
+                  */
                   onChange={(v) =>
                     setValores((atuais) => {
                       const proximo = { ...atuais, [field.key]: v };
@@ -449,7 +461,8 @@ export default function DemandaPublica() {
                       for (const outro of board.fields) {
                         if (outro.dependsOn === field.key) delete proximo[outro.key];
                       }
-                      return proximo;
+                      // E o que ela escondeu sai junto — ver `limparRespostasOcultas`.
+                      return limparRespostasOcultas(board.fields, proximo);
                     })
                   }
                 />

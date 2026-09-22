@@ -59,6 +59,74 @@ export const FRENTE_CODIGOS: Record<string, string> = {
   Unboxing: "unb",
 };
 
+/**
+ * Qual campo do quadro responde por "frente" — pelo CONTEÚDO, não pela chave.
+ *
+ * Procurava-se a chave `frente`, e isso quebrou de um jeito que não dá sinal
+ * nenhum: a chave não muda quando alguém renomeia o campo (é o que preserva as
+ * respostas já dadas), então o campo que um dia se chamou "Frente" virou
+ * "Formato" e ficou com a chave `frente`. Um "Frente" novo nasceu com a chave
+ * `frente_2`. A entrega continuou lendo `frente`, agora cheio de "Reels
+ * (9:16)" — e como isso não está em `FRENTE_CODIGOS`, o nome saiu com
+ * `reels-9-16` no lugar de `influ`. Sem erro em lugar nenhum: só arquivos
+ * nomeados errado, indefinidamente.
+ *
+ * A régua passa a ser o que o campo OFERECE: vence quem tiver mais opções
+ * reconhecidas como frente. É a única pergunta que não depende de nome nenhum
+ * — nem de chave, nem de rótulo —, e por isso sobrevive a renomeação, a
+ * duplicação e à ordem dos campos.
+ *
+ * Empate ou nenhum reconhecido devolve nulo, e quem chama segue sem frente no
+ * nome, como já fazia quando o campo não existia.
+ */
+export function campoDeFrentes<T extends { key: string; options?: string | null }>(
+  fields: T[]
+): T | null {
+  let melhor: T | null = null;
+  let melhorPlacar = 0;
+
+  for (const campo of fields) {
+    let placar = 0;
+    try {
+      const parsed = JSON.parse(campo.options || "[]");
+      const valores: string[] = Array.isArray(parsed)
+        ? parsed.filter((o): o is string => typeof o === "string")
+        : Object.values(parsed as Record<string, unknown>)
+            .flat()
+            .filter((o): o is string => typeof o === "string");
+      placar = valores.filter((v) => v in FRENTE_CODIGOS).length;
+    } catch {
+      placar = 0;
+    }
+
+    if (placar > melhorPlacar) {
+      melhorPlacar = placar;
+      melhor = campo;
+    }
+  }
+
+  return melhor;
+}
+
+/**
+ * As frentes respondidas neste card, prontas para `montarNomeArquivo`.
+ *
+ * Uma função, e não a mesma leitura escrita em cada lugar: a entrega e o vídeo
+ * bruto precisam concordar sobre qual campo é a frente, e foi justamente por
+ * lerem coisas diferentes que um saía com `influ` e o outro com `reels-9-16`.
+ */
+export function frentesDoCard<T extends { key: string; options?: string | null }>(
+  fields: T[],
+  values: Record<string, unknown>
+): string[] {
+  const campo = campoDeFrentes(fields);
+  if (!campo) return [];
+
+  const resposta = values[campo.key];
+  if (Array.isArray(resposta)) return resposta.filter((v): v is string => typeof v === "string");
+  return typeof resposta === "string" && resposta ? [resposta] : [];
+}
+
 export interface ValidacaoFrentes {
   ok: boolean;
   erro?: string;
@@ -150,6 +218,72 @@ export function montarNomeArquivo(input: MontarNomeInput): string {
   partes.push(mes, input.idCard);
 
   return partes.join("-");
+}
+
+/* ---------------------------------------------------------------------- */
+/* Vídeo bruto de parceria                                                 */
+/* ---------------------------------------------------------------------- */
+
+/**
+ * O "contexto" do nome de um vídeo bruto: `bruto` colado ao nome do parceiro.
+ *
+ * Sem separador nenhum entre as duas partes, e sem hífen dentro do nome —
+ * `brutojoaosilva`, não `bruto-joao-silva`. É decisão da equipe, e tem uma
+ * razão de leitura: todo o resto do nome já é separado por hífen, então um
+ * hífen aqui faria "bruto" e "joão" parecerem dois campos do padrão em vez de
+ * um só. Colado, o olho lê um bloco e sabe que aquilo é o contexto.
+ *
+ * Por isso NÃO usa `slugNome`, que hifeniza: acento cai, maiúscula desce, e
+ * tudo que não for letra ou número simplesmente some.
+ */
+export function contextoBruto(nomeInfluenciador: string | null | undefined): string {
+  const limpo = stripAcc(nomeInfluenciador || "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]/g, "");
+
+  // Sem nome do parceiro o contexto ainda precisa existir, senão o nome do
+  // arquivo perde uma parte e deixa de casar com o padrão. "bruto" sozinho diz
+  // o que é e denuncia que o card não respondeu quem é o parceiro.
+  return `bruto${limpo}`;
+}
+
+export interface MontarNomeBrutoInput {
+  /** Posição do vídeo no envio (1-based). */
+  indice: number;
+  /** As frentes do card, como rótulos — `FRENTE_CODIGOS` traduz. */
+  frentes: string[];
+  /** Quem está subindo o vídeo — decisão da equipe: o autor do upload, não o responsável do card. */
+  responsavel: string;
+  /** "MKT-2000". */
+  idCard: string;
+  /** O que o card respondeu em "Nome do influenciador/Embaixador". */
+  nomeInfluenciador: string | null | undefined;
+  data?: Date;
+}
+
+/**
+ * O nome de um vídeo bruto, sem extensão.
+ *
+ * Passa pelo MESMO `montarNomeArquivo` da entrega, com `formato: "video"` e o
+ * contexto ocupando a casa do nome da peça — que em vídeo já é o slot do nome
+ * do lote. Escrito assim, bruto e entrega saem com a mesma ordem de campos
+ * (índice, frentes, responsável, formato, nome, mês, ID), que foi a decisão
+ * tomada: o padrão do time é um só, e a única diferença entre um bruto e uma
+ * entrega de vídeo é o que está escrito na casa do nome.
+ *
+ * Fazer um montador separado teria produzido duas ordens divergindo com o
+ * tempo — é exatamente o defeito que este módulo existe para não ter.
+ */
+export function montarNomeBruto(input: MontarNomeBrutoInput): string {
+  return montarNomeArquivo({
+    formato: "video",
+    indice: input.indice,
+    frentes: input.frentes,
+    responsavel: input.responsavel,
+    idCard: input.idCard,
+    nomePeca: contextoBruto(input.nomeInfluenciador),
+    data: input.data,
+  });
 }
 
 /* ---------------------------------------------------------------------- */

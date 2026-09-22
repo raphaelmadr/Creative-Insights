@@ -606,6 +606,43 @@ model BoardField {
   /// aceita — e o time de design descobre isso no fim, com a peça pronta.
   dependsOn String?
 
+  /// A chave do campo que REVELA este — ou nulo, que é o caso comum.
+  ///
+  /// Eixo diferente de `dependsOn`, e os dois convivem no mesmo campo:
+  /// `dependsOn` decide QUAIS OPÇÕES este campo oferece conforme a resposta do
+  /// outro; `showWhenKey` decide SE este campo existe na tela. "Formato"
+  /// depende de "Canal" para saber o que oferecer; "Nome do evento" só aparece
+  /// quando "Frente" foi respondida com "Evento".
+  ///
+  /// Existe porque a alternativa é perguntar tudo a todos: um formulário que
+  /// pede o nome do evento para quem está pedindo um banner de remarketing
+  /// treina quem preenche a ignorar campo, e é assim que o obrigatório vira
+  /// decorativo.
+  showWhenKey String?
+
+  /// As respostas de `showWhenKey` que revelam este campo, em JSON: `["Evento"]`.
+  ///
+  /// Lista, e não valor único, porque a mesma pergunta costuma servir a vários
+  /// casos — "Nome do evento" vale para "Evento" e para "Feira", e obrigar uma
+  /// regra por valor faria duas perguntas idênticas no mesmo formulário.
+  showWhenValues String? @db.Text
+
+  /// Quando liberar o ENVIO de arquivo, num campo que aceita link e upload.
+  ///
+  /// Par separado de `showWhenKey`/`showWhenValues` porque as duas perguntas
+  /// são diferentes e no quadro real têm respostas diferentes: "Arquivos
+  /// Brutos" aparece quando o canal é Parcerias, mas subir vídeo bruto só vale
+  /// para Influenciadores/Embaixadores. Com um par só, uma das duas regras
+  /// teria de ser escrita como outro campo — e o formulário passaria a ter
+  /// duas caixas de link onde a equipe enxerga uma pergunta.
+  ///
+  /// Nulo — o caso comum — significa envio sempre liberado no tipo que o
+  /// aceita, e nada em todos os outros.
+  uploadWhenKey String?
+
+  /// As respostas de `uploadWhenKey` que liberam o envio, em JSON.
+  uploadWhenValues String? @db.Text
+
   placeholder String?
   helpText    String? @db.Text
   required    Boolean @default(false)
@@ -768,6 +805,20 @@ model BoardCard {
   /// O arquivo mora no servidor externo (o mesmo cPanel da arte dos criativos);
   /// aqui fica só o endereço. Ver `lib/attachments.ts`.
   attachments String? @db.Text
+
+  /// Vídeos brutos que subiram para o Drive, em JSON:
+  /// `[{fileId,name,folderId,uploadedAt,uploadedBy,size}]`.
+  ///
+  /// Coluna própria, e não `attachments`: aquela guarda o endereço de um
+  /// arquivo no cPanel, e vídeo não vai para o cPanel — a cota é da arte de
+  /// treze mil criativos e o link de vídeo de lá é renovado. Aqui fica o id do
+  /// arquivo no Drive, que é o que permite tanto abrir quanto baixar sem sair
+  /// da página (ver a rota de download).
+  ///
+  /// Também não é `deliveryUrl`: bruto é o INSUMO da demanda, chega na
+  /// abertura, e entrega é o resultado. Gravá-los juntos faria uma demanda
+  /// nascer parecendo entregue.
+  rawVideos String? @db.Text
 
   archived    Boolean   @default(false)
   completedAt DateTime?

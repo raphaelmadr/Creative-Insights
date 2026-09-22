@@ -11,6 +11,7 @@ import {
   plainSummary,
   clampText,
   isOverdue,
+  ordenarCampos,
   parseAssignees,
   fonteDoBadge,
   origemDoCard,
@@ -120,7 +121,13 @@ export default function CardFace({
    * Texto e pílula se separam porque ocupam lugares diferentes: o escrito à
    * mão vai em linha própria, e o de valor fechado entra na fileira de selos.
    */
-  const frontFields = useMemo(() => fields.filter((f) => f.showOnCard), [fields]);
+  /* Ordenados como o formulário os pergunta — um condicional marcado para
+     aparecer na frente do card fica junto da pergunta que o revela, e não
+     solto no fim, onde a posição gravada o deixaria. */
+  const frontFields = useMemo(
+    () => ordenarCampos(fields).filter((f) => f.showOnCard),
+    [fields]
+  );
   const camposDeTexto = useMemo(
     () => frontFields.filter((f) => f.type === "TEXT" || f.type === "TEXTAREA"),
     [frontFields]

@@ -20,6 +20,7 @@ export const FIELD_TYPES = [
   "DATE",
   "URL",
   "CHECKBOX",
+  "DRIVE_VIDEO",
 ] as const;
 
 export type FieldType = (typeof FIELD_TYPES)[number];
@@ -34,6 +35,7 @@ export const FIELD_TYPE_LABEL: Record<FieldType, string> = {
   DATE: "Data",
   URL: "Link",
   CHECKBOX: "Sim / Não",
+  DRIVE_VIDEO: "Link ou vídeo no Drive",
 };
 
 /**
@@ -155,8 +157,14 @@ export function campoVolumetria(fields: { key: string; type: string }[]): string
  * Mesma noção de "vazio" de `validateValues`, sem os efeitos colaterais dele
  * (não corrige RANGE, não valida opção) — é uma pergunta mais simples: falta
  * ou não falta, pra decidir se pergunta antes de criar o card.
+ *
+ * NÃO decide visibilidade: campo condicional escondido não é campo faltando, e
+ * quem passa a lista precisa filtrá-la por `camposVisiveis` antes. Fica de fora
+ * de propósito, porque esta função é usada sobre SUBCONJUNTOS de campos (ver
+ * `camposExtrasDoGerador`) e visibilidade só se resolve com a lista inteira em
+ * mãos — o revelador pode ser justamente um dos campos que o subconjunto tirou.
  */
-export function camposObrigatoriosFaltando<T extends { key: string; required: boolean; type: string }>(
+export function camposObrigatoriosFaltando<T extends FieldShape>(
   fields: T[],
   values: Record<string, unknown>
 ): T[] {
@@ -249,6 +257,14 @@ export interface FieldShape {
   options?: string | null;
   /** A chave do campo de que este depende. Ver `optionsFor`. */
   dependsOn?: string | null;
+  /** A chave do campo que REVELA este. Ver `camposVisiveis`. */
+  showWhenKey?: string | null;
+  /** As respostas do revelador que fazem este aparecer, em JSON. */
+  showWhenValues?: string | null;
+  /** A chave do campo que libera o ENVIO de arquivo. Ver `envioLiberado`. */
+  uploadWhenKey?: string | null;
+  /** As respostas que liberam o envio, em JSON. */
+  uploadWhenValues?: string | null;
 }
 
 /** As opções de um SELECT, já como lista — no banco elas são uma linha JSON. */
@@ -314,6 +330,250 @@ export function optionsFor(
   return parseOptionsMap(field.options)[pai] ?? [];
 }
 
+/**
+ * Os tipos que podem REVELAR outro campo.
+ *
+ * Só quem tem uma lista de escolhas serve: a regra de exibição é "apareça
+ * quando a resposta for uma destas", e para montá-la na tela de configuração é
+ * preciso saber, de antemão, quais são as respostas possíveis. Num texto livre
+ * não há o que marcar — a regra viraria uma comparação de strings digitadas em
+ * dois lugares, que erra no primeiro acento.
+ *
+ * MULTISELECT entra, ao contrário do que vale para `dependsOn`: ali o valor do
+ * pai vira CHAVE de um mapa e precisa ser um só; aqui basta que alguma das
+ * marcas esteja na lista que revela.
+ */
+export const FIELD_TYPES_AS_TRIGGER: FieldType[] = ["SELECT", "MULTISELECT"];
+
+/**
+ * As respostas que revelam um campo condicional.
+ *
+ * Mesma forma de `parseOptions` — uma lista JSON de textos —, com nome próprio
+ * porque no ponto de uso são duas coisas diferentes: uma é o que o campo
+ * OFERECE, a outra é o que o campo pai precisa ter respondido para este existir.
+ */
+export function parseShowWhenValues(raw: string | null | undefined): string[] {
+  return parseOptions(raw);
+}
+
+/**
+ * Todas as escolhas que um campo pode oferecer, somadas.
+ *
+ * Um campo dependente guarda um mapa por valor do pai, não uma lista — somar os
+ * ramos é o que dá "o conjunto de respostas previstas" sem precisar saber o que
+ * foi respondido no avô.
+ */
+export function universoDeOpcoes(field: FieldShape): string[] {
+  return field.dependsOn
+    ? Object.values(parseOptionsMap(field.options)).flat()
+    : parseOptions(field.options);
+}
+
+/**
+ * A resposta do campo revelador satisfaz a regra?
+ *
+ * Basta UMA marca em comum: com "Estático" e "Carrossel" na regra, quem marcar
+ * qualquer um dos dois vê o campo. É a leitura natural de quem escreve a regra
+ * — "apareça nestes casos" —, e a outra (exigir todas) não teria sentido num
+ * campo de escolha única, que é o caso comum.
+ */
+function respostaRevela(gatilho: FieldShape, esperados: string[], resposta: unknown): boolean {
+  const marcados = Array.isArray(resposta)
+    ? resposta.filter((r): r is string => typeof r === "string")
+    : typeof resposta === "string" && resposta
+      ? [resposta]
+      : [];
+
+  if (marcados.length === 0) return false;
+  if (marcados.some((m) => esperados.includes(m))) return true;
+
+  /*
+   * "Outros" na regra significa "qualquer resposta digitada à mão".
+   *
+   * O que fica gravado quando alguém escolhe "Outros" é o TEXTO, nunca a
+   * palavra — ver `OPCAO_OUTROS`. Comparar ao pé da letra faria uma regra sobre
+   * "Outros" nunca casar com nada, e o campo condicional simplesmente não
+   * apareceria, sem erro em lugar nenhum. O teste é o mesmo que denuncia o modo
+   * em toda parte: valor preenchido e fora da lista só pode ter vindo daí.
+   */
+  if (!esperados.includes(OPCAO_OUTROS)) return false;
+
+  const previstas = universoDeOpcoes(gatilho);
+  return marcados.some((m) => !previstas.includes(m));
+}
+
+/**
+ * Os campos na ordem em que o formulário os mostra: cada condicional logo
+ * abaixo do campo que o revela.
+ *
+ * DERIVADA da regra, e não guardada no banco. A posição continua sendo a ordem
+ * que a equipe escolhe com as setas, mas um campo com regra não a obedece: ele
+ * pertence à pergunta que o acende, e o lugar dele é imediatamente depois dela.
+ * Guardar isso como posição exigiria renumerar o quadro a cada regra criada,
+ * desfeita ou reapontada — e bastaria uma renumeração falhar no meio para o
+ * formulário passar a perguntar o nome do evento antes de perguntar se é um
+ * evento.
+ *
+ * Derivada, a garantia é estrutural: não existe estado gravado em que a ordem
+ * esteja errada. É também o que sustenta `camposVisiveis`, que percorre o
+ * formulário de cima a baixo e precisa ter lido a resposta do revelador antes
+ * de chegar ao que ele revela.
+ *
+ * Cadeia funciona sozinha — o campo revelado por um condicional entra logo
+ * abaixo dele, aninhado. E ciclo não derruba nada: quem não for alcançado pela
+ * descida entra na ordem de posição, no fim, em vez de sumir da tela.
+ */
+export function ordenarCampos<T extends FieldShape>(fields: T[]): T[] {
+  const porChave = new Map(fields.map((f) => [f.key, f]));
+  const filhos = new Map<string, T[]>();
+  const raizes: T[] = [];
+
+  for (const campo of fields) {
+    const gatilho = campo.showWhenKey ? porChave.get(campo.showWhenKey) : undefined;
+
+    // Regra apontando para campo apagado — ou para si mesmo — não prende o
+    // campo a nada: ele volta a ser uma pergunta solta, no lugar dela.
+    if (gatilho && gatilho.key !== campo.key) {
+      filhos.set(gatilho.key, [...(filhos.get(gatilho.key) ?? []), campo]);
+    } else {
+      raizes.push(campo);
+    }
+  }
+
+  const saida: T[] = [];
+  const jaPosto = new Set<string>();
+
+  const descer = (campo: T) => {
+    if (jaPosto.has(campo.key)) return;
+    jaPosto.add(campo.key);
+    saida.push(campo);
+    for (const filho of filhos.get(campo.key) ?? []) descer(filho);
+  };
+
+  for (const raiz of raizes) descer(raiz);
+  // A segunda passada recolhe o que ficou preso em ciclo: `descer` ignora quem
+  // já entrou, então isto não duplica nada — só garante que todo campo aparece.
+  for (const campo of fields) descer(campo);
+
+  return saida;
+}
+
+/**
+ * Os campos que o formulário deve mostrar, dadas as respostas até aqui.
+ *
+ * Um campo sem regra aparece sempre — que é o caso de todo campo já existente.
+ * Um campo com regra só aparece quando o campo revelador foi respondido com
+ * algum dos valores escolhidos: "Qual o evento?" nasce ao marcar "Evento" em
+ * "Frente", e some de novo se a marca mudar.
+ *
+ * Isto é o que decide TUDO sobre um campo condicional, e é de propósito que
+ * seja uma função pura e uma só: a tela usa para desenhar, `validateValues` usa
+ * para não cobrar uma resposta que ninguém tinha como dar, e as duas precisam
+ * concordar. Um campo escondido que o servidor cobrasse travaria o envio
+ * apontando para um campo que não está na tela — o pior erro possível de
+ * formulário, porque não há nada a fazer a respeito.
+ *
+ * Percorre na ordem de `ordenarCampos` — nunca na ordem recebida — e só
+ * considera respondido o que já foi dado como visível: assim uma cadeia
+ * funciona sozinha, e escondido o revelador some junto o que ele revelava, por
+ * mais fundo que esteja. Ordenar aqui dentro, e não confiar em quem chama, é o
+ * que torna isso verdade em toda tela: a lista chega do banco na ordem de
+ * posição, em que um condicional pode estar em qualquer lugar.
+ *
+ * Revelador inexistente — apagado do quadro depois da regra escrita — deixa o
+ * campo VISÍVEL. É a queda segura: um campo a mais na tela se responde e se
+ * corrige; um campo preso em invisível não dá sinal nenhum de que existe.
+ */
+export function camposVisiveis<T extends FieldShape>(
+  fields: T[],
+  values: Record<string, unknown>
+): T[] {
+  const porChave = new Map(fields.map((f) => [f.key, f]));
+  const respondidosEVisiveis: Record<string, unknown> = {};
+  const visiveis: T[] = [];
+
+  for (const field of ordenarCampos(fields)) {
+    const gatilho = field.showWhenKey ? porChave.get(field.showWhenKey) : undefined;
+    const esperados = field.showWhenKey ? parseShowWhenValues(field.showWhenValues) : [];
+
+    // Regra sem nenhum valor marcado não é regra: exibir sempre é o que a tela
+    // de configuração mostra enquanto ninguém marcou nada.
+    const escondido =
+      !!field.showWhenKey &&
+      !!gatilho &&
+      esperados.length > 0 &&
+      !respostaRevela(gatilho, esperados, respondidosEVisiveis[field.showWhenKey]);
+
+    if (escondido) continue;
+
+    visiveis.push(field);
+    respondidosEVisiveis[field.key] = values[field.key];
+  }
+
+  return visiveis;
+}
+
+/** O tipo de campo que aceita link E envio de arquivo para o Drive. */
+export const FIELD_TYPES_WITH_UPLOAD: FieldType[] = ["DRIVE_VIDEO"];
+
+/**
+ * O envio de arquivo está liberado neste campo, dadas as respostas?
+ *
+ * Eixo SEPARADO da visibilidade, e a separação não é teórica: no quadro real
+ * "Arquivos Brutos" aparece quando o canal é Parcerias, e subir vídeo bruto só
+ * vale quando a frente é Influenciadores ou Embaixadores. São duas perguntas
+ * diferentes sobre o mesmo campo, com respostas diferentes — com uma regra só,
+ * uma das duas teria de virar outro campo, e o formulário passaria a ter duas
+ * caixas de link onde quem preenche enxerga uma pergunta.
+ *
+ * Sem regra, liberado: um campo que aceita envio e não diz quando, aceita
+ * sempre. A mesma leitura de `camposVisiveis` para regra vazia.
+ */
+export function envioLiberado(
+  field: FieldShape,
+  fields: FieldShape[],
+  values: Record<string, unknown>
+): boolean {
+  if (!FIELD_TYPES_WITH_UPLOAD.includes(field.type as FieldType)) return false;
+  if (!field.uploadWhenKey) return true;
+
+  const gatilho = fields.find((f) => f.key === field.uploadWhenKey);
+  // Gatilho apagado do quadro libera o envio, mesma queda segura de
+  // `camposVisiveis`: um botão a mais se ignora, um botão que sumiu sem
+  // explicação manda a pessoa procurar o que não existe.
+  if (!gatilho) return true;
+
+  const esperados = parseShowWhenValues(field.uploadWhenValues);
+  if (esperados.length === 0) return true;
+
+  return respostaRevela(gatilho, esperados, values[field.uploadWhenKey]);
+}
+
+/**
+ * As respostas sem o que está escondido agora.
+ *
+ * Usada pela tela a cada mudança, pelo mesmo motivo que trocar o pai zera os
+ * filhos: uma resposta dada e depois escondida continuaria no formulário,
+ * invisível, e chegaria ao servidor como se ainda valesse. O servidor a
+ * descartaria — `validateValues` só percorre o que está visível —, e o card
+ * mostraria menos do que a pessoa acha que respondeu.
+ */
+export function limparRespostasOcultas(
+  fields: FieldShape[],
+  values: Record<string, unknown>
+): Record<string, unknown> {
+  const visiveis = new Set(camposVisiveis(fields, values).map((f) => f.key));
+  const limpas: Record<string, unknown> = {};
+
+  for (const [chave, valor] of Object.entries(values)) {
+    // Chave que não é campo do quadro passa: é resposta órfã de pergunta
+    // removida, e quem decide sobre ela é a rota do card, não esta função.
+    if (!fields.some((f) => f.key === chave) || visiveis.has(chave)) limpas[chave] = valor;
+  }
+
+  return limpas;
+}
+
 export function parseValues(raw: string | null | undefined): Record<string, unknown> {
   if (!raw) return {};
   try {
@@ -347,7 +607,16 @@ export function validateValues(
 ): ValueValidation {
   const values: Record<string, unknown> = {};
 
-  for (const field of fields) {
+  /*
+   * Só o que o formulário mostrou é conferido — e só ele é gravado.
+   *
+   * Um campo condicional escondido não foi perguntado: cobrá-lo como
+   * obrigatório recusaria o envio apontando para um campo que não está na tela,
+   * e guardar a resposta que sobrou de antes de a regra mudar registraria no
+   * card uma pergunta que não foi feita. `camposVisiveis` é a mesma função que
+   * a tela usa para desenhar, então as duas nunca discordam sobre isso.
+   */
+  for (const field of camposVisiveis(fields, incoming)) {
     const raw = incoming[field.key];
     const empty =
       raw === undefined ||
@@ -1721,6 +1990,32 @@ export function clampText(text: string, limit = CARD_TEXT_LIMIT): string {
  */
 export const CARD_CODE_PREFIX = "MKT";
 
+/**
+ * O menor número que uma demanda nova pode receber.
+ *
+ * A sequência começa aqui em vez de em 1 para que todo número novo tenha
+ * quatro dígitos ou mais. O motivo não é estético: as ferramentas que o time
+ * usava antes deixaram uma população de códigos curtos espalhada por buscas,
+ * links e conversas, e um "MKT-42" nosso colidiria com o "42" delas. Acima de
+ * 2000 não há ambiguidade — o número já diz de qual ferramenta ele é.
+ *
+ * Só sobe o piso, nunca desce: o próximo código é o maior entre este piso e o
+ * último usado, de modo que aumentar este valor no futuro pula a faixa sem
+ * quebrar nada, enquanto baixá-lo não reabre números já entregues.
+ */
+export const CARD_CODE_MIN = 2000;
+
+/**
+ * O próximo número da sequência, dado o maior já usado.
+ *
+ * Separado de `criarCardComCodigo` porque os scripts de seed mintam código por
+ * conta própria e precisam da mesma regra — dois lugares calculando "o
+ * próximo" é como o piso se perderia.
+ */
+export function proximoCardCode(maiorUsado: number | null | undefined): number {
+  return Math.max(maiorUsado ?? 0, CARD_CODE_MIN - 1) + 1;
+}
+
 /** O número como a equipe o escreve. Nulo só nas demandas anteriores à coluna. */
 export function formatCardCode(code: number | null | undefined): string | null {
   return typeof code === "number" ? `${CARD_CODE_PREFIX}-${code}` : null;
@@ -1729,8 +2024,8 @@ export function formatCardCode(code: number | null | undefined): string | null {
 /**
  * Cria um card já com o próximo número da sequência.
  *
- * O número sai de `MAX(code) + 1`, e duas aberturas simultâneas podem ler o
- * mesmo máximo. Em vez de serializar toda criação de demanda com um bloqueio —
+ * O número sai de `proximoCardCode(MAX(code))`, e duas aberturas simultâneas
+ * podem ler o mesmo máximo. Em vez de serializar toda criação de demanda com um bloqueio —
  * caro e permanente por um caso que acontece quando duas pessoas clicam no
  * mesmo segundo —, deixamos a restrição `@unique` do banco ser o árbitro e
  * tentamos de novo: quem perder a corrida relê o máximo, que agora já inclui o
@@ -1758,7 +2053,7 @@ export async function criarCardComCodigo<T>(
 
   for (let tentativa = 0; tentativa < 3; tentativa++) {
     const maior = await prisma.boardCard.aggregate({ _max: { code: true } });
-    const code = (maior?._max?.code ?? 0) + 1;
+    const code = proximoCardCode(maior?._max?.code);
 
     try {
       return await criar(code);

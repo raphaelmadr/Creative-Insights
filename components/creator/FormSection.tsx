@@ -7,9 +7,14 @@ import {
   FIELD_TYPES,
   FIELD_TYPE_LABEL,
   FIELD_TYPES_WITH_OPTIONS,
+  FIELD_TYPES_WITH_UPLOAD,
+  FIELD_TYPES_AS_TRIGGER,
   FORM_BUILTINS,
+  ordenarCampos,
   parseOptions,
   parseOptionsMap,
+  parseShowWhenValues,
+  universoDeOpcoes,
   type FieldType,
   type FormBuiltinKey,
 } from "@/lib/kanban";
@@ -47,6 +52,14 @@ interface Draft {
   dependsOn: string;
   /** Com pai: as opções de cada valor dele, uma por linha. Ver `optionsFor`. */
   optionsByParent: Record<string, string>;
+  /** A chave do campo que revela este, ou "" para aparecer sempre. */
+  showWhenKey: string;
+  /** As respostas do revelador que fazem este campo aparecer. */
+  showWhenValues: string[];
+  /** A chave do campo que libera o ENVIO de arquivo, ou "" para sempre liberado. */
+  uploadWhenKey: string;
+  /** As respostas que liberam o envio. */
+  uploadWhenValues: string[];
   placeholder: string;
   helpText: string;
   required: boolean;
@@ -59,6 +72,10 @@ const EMPTY: Draft = {
   options: "",
   dependsOn: "",
   optionsByParent: {},
+  showWhenKey: "",
+  showWhenValues: [],
+  uploadWhenKey: "",
+  uploadWhenValues: [],
   placeholder: "",
   helpText: "",
   required: false,
@@ -67,6 +84,19 @@ const EMPTY: Draft = {
 
 /** Um campo que pode ser pai de outro: escolha única, com opções próprias. */
 interface ParentOption {
+  key: string;
+  label: string;
+  values: string[];
+}
+
+/**
+ * Um campo que pode REVELAR outro — qualquer escolha, única ou múltipla.
+ *
+ * Lista mais larga que a de pais (`ParentOption`) de propósito: para filtrar
+ * opções o valor precisa ser um só, mas para acender um campo basta uma marca
+ * entre várias. Ver `FIELD_TYPES_AS_TRIGGER`.
+ */
+interface TriggerOption {
   key: string;
   label: string;
   values: string[];
@@ -87,6 +117,7 @@ function DraftForm({
   submitLabel,
   busy,
   parents,
+  triggers,
 }: {
   draft: Draft;
   setDraft: (d: Draft) => void;
@@ -95,9 +126,29 @@ function DraftForm({
   submitLabel: string;
   busy: boolean;
   parents: ParentOption[];
+  triggers: TriggerOption[];
 }) {
   const needsOptions = FIELD_TYPES_WITH_OPTIONS.includes(draft.type);
   const pai = parents.find((p) => p.key === draft.dependsOn) ?? null;
+  const gatilho = triggers.find((t) => t.key === draft.showWhenKey) ?? null;
+  const aceitaEnvio = FIELD_TYPES_WITH_UPLOAD.includes(draft.type);
+  const gatilhoEnvio = triggers.find((t) => t.key === draft.uploadWhenKey) ?? null;
+
+  const alternarResposta = (valor: string) =>
+    setDraft({
+      ...draft,
+      showWhenValues: draft.showWhenValues.includes(valor)
+        ? draft.showWhenValues.filter((v) => v !== valor)
+        : [...draft.showWhenValues, valor],
+    });
+
+  const alternarRespostaEnvio = (valor: string) =>
+    setDraft({
+      ...draft,
+      uploadWhenValues: draft.uploadWhenValues.includes(valor)
+        ? draft.uploadWhenValues.filter((v) => v !== valor)
+        : [...draft.uploadWhenValues, valor],
+    });
 
   return (
     <div
@@ -225,6 +276,154 @@ function DraftForm({
         </div>
       )}
 
+      {/*
+        Quando o campo aparece — o eixo que não é "quais opções ele oferece".
+        
+        Fica abaixo das opções e acima da ajuda porque é a última decisão sobre
+        a PERGUNTA em si; o que vem depois é acabamento. E vale para todo tipo,
+        não só para os de escolha: o mais útil desta regra é justamente revelar
+        uma caixa de texto ("Qual evento?") ou uma data que só faz sentido num
+        dos caminhos.
+      */}
+      {triggers.length > 0 && (
+        <div className="field">
+          <label className="field-label" htmlFor="campo-aparece">
+            Quando aparece
+          </label>
+          <select
+            id="campo-aparece"
+            className="field-input"
+            value={draft.showWhenKey}
+            onChange={(e) =>
+              /* Trocar de revelador zera as respostas marcadas: elas eram da
+                 lista do revelador anterior, e manter uma marca que a nova
+                 lista não tem gravaria uma regra que nunca acende. */
+              setDraft({ ...draft, showWhenKey: e.target.value, showWhenValues: [] })
+            }
+          >
+            <option value="">Sempre — a pergunta vale para todo mundo</option>
+            {triggers.map((t) => (
+              <option key={t.key} value={t.key}>
+                Só quando responderem &quot;{t.label}&quot;…
+              </option>
+            ))}
+          </select>
+          {!gatilho && (
+            <span className="field-hint">
+              Uma pergunta que só vale em alguns casos pode ficar escondida até lá — assim
+              quem pede um banner não precisa passar pelo campo do evento.
+            </span>
+          )}
+        </div>
+      )}
+
+      {gatilho && (
+        <div className="field">
+          <label className="field-label">
+            Aparece quando &quot;{gatilho.label}&quot; for
+          </label>
+          {gatilho.values.length === 0 ? (
+            <span className="field-hint">
+              &quot;{gatilho.label}&quot; ainda não tem opções — cadastre-as primeiro.
+            </span>
+          ) : (
+            <div style={{ display: "flex", flexWrap: "wrap", gap: "0.35rem" }}>
+              {gatilho.values.map((valor) => (
+                <button
+                  key={valor}
+                  type="button"
+                  className="btn btn-toggle"
+                  aria-pressed={draft.showWhenValues.includes(valor)}
+                  style={{ padding: "0.35rem 0.7rem", fontSize: "var(--text-caption)" }}
+                  onClick={() => alternarResposta(valor)}
+                >
+                  {valor}
+                </button>
+              ))}
+            </div>
+          )}
+          <span className="field-hint">
+            Marque as respostas que fazem esta pergunta aparecer — basta uma delas. Sem nenhuma
+            marcada, não há regra e o campo volta a aparecer sempre.
+            {draft.required && " Escondido, ele não é cobrado como obrigatório."}
+          </span>
+        </div>
+      )}
+
+      {/*
+        Quando LIBERAR O ENVIO — outro eixo que "quando o campo aparece".
+        
+        No quadro real as duas respostas são diferentes: "Arquivos Brutos"
+        aparece quando o canal é Parcerias, e subir vídeo só vale quando a
+        frente é Influenciadores ou Embaixadores. Com uma regra só, uma das duas
+        viraria outro campo — e o formulário teria duas caixas de link onde quem
+        preenche enxerga uma pergunta.
+      */}
+      {aceitaEnvio && triggers.length > 0 && (
+        <div className="field">
+          <label className="field-label" htmlFor="campo-envio">
+            Quando liberar o envio de arquivo
+          </label>
+          <select
+            id="campo-envio"
+            className="field-input"
+            value={draft.uploadWhenKey}
+            onChange={(e) =>
+              setDraft({ ...draft, uploadWhenKey: e.target.value, uploadWhenValues: [] })
+            }
+          >
+            <option value="">Sempre que o campo aparecer</option>
+            {triggers.map((t) => (
+              <option key={t.key} value={t.key}>
+                Só quando responderem &quot;{t.label}&quot;…
+              </option>
+            ))}
+          </select>
+          {!gatilhoEnvio && (
+            <span className="field-hint">
+              A caixa de link vale sempre. O botão de subir arquivo pode valer só para alguns
+              casos — é o que faz &quot;Arquivos Brutos&quot; continuar servindo a todo mundo com
+              o envio reservado a parcerias.
+            </span>
+          )}
+        </div>
+      )}
+
+      {aceitaEnvio && gatilhoEnvio && (
+        <div className="field">
+          <label className="field-label">
+            Envio liberado quando &quot;{gatilhoEnvio.label}&quot; for
+          </label>
+          {gatilhoEnvio.values.length === 0 ? (
+            <span className="field-hint">
+              &quot;{gatilhoEnvio.label}&quot; ainda não tem opções — cadastre-as primeiro.
+            </span>
+          ) : (
+            <div style={{ display: "flex", flexWrap: "wrap", gap: "0.35rem" }}>
+              {gatilhoEnvio.values.map((valor) => (
+                <button
+                  key={valor}
+                  type="button"
+                  className="btn btn-toggle"
+                  aria-pressed={draft.uploadWhenValues.includes(valor)}
+                  style={{ padding: "0.35rem 0.7rem", fontSize: "var(--text-caption)" }}
+                  onClick={() => alternarRespostaEnvio(valor)}
+                >
+                  {valor}
+                </button>
+              ))}
+            </div>
+          )}
+          {/* A legenda sob o botão de envio é ESTA lista, lida em voz alta —
+              ver `legendaDoEnvio`. Dizer isso aqui evita escrever o texto duas
+              vezes e vê-los divergir. */}
+          <span className="field-hint">
+            Quem preencher vê &quot;Exclusivo{" "}
+            {draft.uploadWhenValues.join("/") || "…"}&quot; abaixo do botão.
+          </span>
+        </div>
+      )}
+
       <div className="field">
         <label className="field-label" htmlFor="campo-ajuda">
           Texto de ajuda
@@ -270,6 +469,56 @@ function DraftForm({
       </div>
     </div>
   );
+}
+
+/**
+ * O pedaço da lista que anda junto: o campo e tudo que ele revela.
+ *
+ * Só funciona sobre uma lista já passada por `ordenarCampos`, e é por isso que
+ * ela é sempre o ponto de partida daqui: é lá que os revelados ficam contíguos,
+ * logo abaixo de quem os revela.
+ */
+function blocoDe(lista: FieldDefinition[], index: number): [number, number] {
+  const dentro = new Set([lista[index].key]);
+  let fim = index + 1;
+
+  while (fim < lista.length) {
+    const chave = lista[fim].showWhenKey;
+    if (!chave || !dentro.has(chave)) break;
+    dentro.add(lista[fim].key);
+    fim += 1;
+  }
+
+  return [index, fim];
+}
+
+/** Dois campos do mesmo nível: soltos no formulário, ou revelados pelo mesmo campo. */
+const mesmoNivel = (a: FieldDefinition, b: FieldDefinition) =>
+  (a.showWhenKey || "") === (b.showWhenKey || "");
+
+/**
+ * O índice do irmão imediatamente acima ou abaixo — ou nulo, quando não há.
+ *
+ * Abaixo, é o começo do próximo bloco. Acima, é o primeiro campo do mesmo nível
+ * que aparece voltando: entre dois irmãos só existem os revelados do primeiro,
+ * e nenhum deles é do mesmo nível que eles.
+ */
+function irmaoVizinho(
+  lista: FieldDefinition[],
+  index: number,
+  direcao: -1 | 1
+): number | null {
+  const alvo = lista[index];
+
+  if (direcao === 1) {
+    const [, fim] = blocoDe(lista, index);
+    return fim < lista.length && mesmoNivel(lista[fim], alvo) ? fim : null;
+  }
+
+  for (let p = index - 1; p >= 0; p--) {
+    if (mesmoNivel(lista[p], alvo)) return p;
+  }
+  return null;
 }
 
 export default function FormSection({
@@ -410,12 +659,41 @@ export default function FormSection({
    * é ela que decide o que se lê antes de responder o resto.
    */
   const mover = async (index: number, direcao: -1 | 1) => {
-    const destino = index + direcao;
-    if (destino < 0 || destino >= ordem.length) return;
-
     const anterior = ordem;
-    const proximo = [...ordem];
-    [proximo[index], proximo[destino]] = [proximo[destino], proximo[index]];
+    const lista = ordenarCampos(ordem);
+    const alvo = lista[index];
+    if (!alvo) return;
+
+    const [ini, fim] = blocoDe(lista, index);
+    const vizinho = irmaoVizinho(lista, index, direcao);
+    if (vizinho === null) return;
+
+    /*
+     * Troca de lugar com o IRMÃO, levando junto tudo que o campo revela.
+     *
+     * Descer "Canal" uma posição precisa descer também as perguntas que só
+     * existem por causa dele — deixá-las para trás as largaria sob a pergunta
+     * de cima, que não as revela, e `ordenarCampos` as puxaria de volta no
+     * quadro seguinte. A seta pareceria não ter funcionado.
+     *
+     * "Irmão" é o campo do mesmo nível: um condicional se move entre os outros
+     * condicionais do mesmo revelador, e nunca para fora dele.
+     */
+    const [iniVizinho, fimVizinho] = blocoDe(lista, vizinho);
+    const proximo =
+      direcao === 1
+        ? [
+            ...lista.slice(0, ini),
+            ...lista.slice(iniVizinho, fimVizinho),
+            ...lista.slice(ini, fim),
+            ...lista.slice(fimVizinho),
+          ]
+        : [
+            ...lista.slice(0, iniVizinho),
+            ...lista.slice(ini, fim),
+            ...lista.slice(iniVizinho, fimVizinho),
+            ...lista.slice(fim),
+          ];
 
     /*
      * Filho nunca sobe acima do pai.
@@ -456,10 +734,31 @@ export default function FormSection({
     .filter((f) => f.type === "SELECT" && f.id !== editingId)
     .map((f) => ({ key: f.key, label: f.label, values: parseOptions(f.options) }));
 
+  /*
+   * Quem pode revelar: qualquer campo de escolha do quadro, menos este.
+   *
+   * Sem corte por posição. A ordem do formulário é derivada da regra — o campo
+   * condicional é colocado sob quem o revela, esteja esse onde estiver (ver
+   * `ordenarCampos`) —, então exigir que o revelador já viesse antes só obrigava
+   * a arrumar a lista com as setas ANTES de poder escrever a regra, para chegar
+   * a uma ordem que o sistema produz sozinho.
+   *
+   * Ciclo é recusado pelo servidor, que é quem enxerga a cadeia inteira.
+   */
+  const triggers: TriggerOption[] = fields
+    .filter((f) => FIELD_TYPES_AS_TRIGGER.includes(f.type as FieldType) && f.id !== editingId)
+    .map((f) => ({ key: f.key, label: f.label, values: universoDeOpcoes(f) }));
+
   const payload = () => ({
     label: draft.label,
     type: draft.type,
     dependsOn: draft.dependsOn || null,
+    /* Revelador sem nenhuma resposta marcada vale como "aparece sempre" — é o
+       que a dica ao lado promete, e o servidor recusaria a regra pela metade. */
+    showWhenKey: draft.showWhenValues.length ? draft.showWhenKey || null : null,
+    showWhenValues: draft.showWhenValues,
+    uploadWhenKey: draft.uploadWhenValues.length ? draft.uploadWhenKey || null : null,
+    uploadWhenValues: draft.uploadWhenValues,
     // A forma acompanha a dependência: lista sem pai, mapa com pai. É o mesmo
     // par que `normalizeOptions` espera do outro lado.
     options: draft.dependsOn
@@ -510,6 +809,10 @@ export default function FormSection({
           lista.join("\n"),
         ])
       ),
+      showWhenKey: field.showWhenKey || "",
+      showWhenValues: parseShowWhenValues(field.showWhenValues),
+      uploadWhenKey: field.uploadWhenKey || "",
+      uploadWhenValues: parseShowWhenValues(field.uploadWhenValues),
       placeholder: field.placeholder || "",
       helpText: field.helpText || "",
       required: field.required,
@@ -596,7 +899,13 @@ export default function FormSection({
         </span>
       )}
 
-      {ordem.map((field, index) =>
+      {/*
+        A lista é a DERIVADA, não a ordem crua: cada condicional aparece
+        exatamente sob quem o revela, do mesmo jeito que aparecerá no
+        formulário. Esta tela decide o que a demanda pergunta — mostrar aqui uma
+        ordem que o formulário não usa seria descrever outro quadro.
+      */}
+      {ordenarCampos(ordem).map((field, index, lista) =>
         editingId === field.id ? (
           <DraftForm
             key={field.id}
@@ -610,6 +919,7 @@ export default function FormSection({
             submitLabel="Salvar campo"
             busy={busy}
             parents={parents}
+            triggers={triggers}
           />
         ) : (
           <div
@@ -622,6 +932,11 @@ export default function FormSection({
               borderRadius: "var(--radius-block)",
               background: "var(--surface-sunken)",
               border: "1px solid var(--surface-sunken-border)",
+              /* Recuado sob quem o revela — a mesma leitura de uma lista
+                 aninhada. Sem isto, "logo abaixo" é só coincidência de ordem, e
+                 quem lê a tela não tem como saber que a pergunta pertence à de
+                 cima. */
+              ...(field.showWhenKey ? { marginLeft: "1.25rem" } : {}),
             }}
           >
             <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", gap: "0.1rem" }}>
@@ -636,6 +951,25 @@ export default function FormSection({
               <span className="field-hint">
                 {FIELD_TYPE_LABEL[field.type as FieldType] ?? field.type}
                 {field.showOnCard ? " · visível no card" : ""}
+                {/* A condição na própria linha: sem ela, a lista mostra uma
+                    pergunta obrigatória que quem preenche às vezes não vê, e a
+                    única explicação estaria escondida atrás de "Editar". */}
+                {field.showWhenKey && (
+                  <>
+                    {" · só quando "}
+                    {fields.find((f) => f.key === field.showWhenKey)?.label ?? field.showWhenKey}
+                    {" = "}
+                    {parseShowWhenValues(field.showWhenValues).join(" ou ")}
+                  </>
+                )}
+                {field.uploadWhenKey && (
+                  <>
+                    {" · envio só com "}
+                    {fields.find((f) => f.key === field.uploadWhenKey)?.label ?? field.uploadWhenKey}
+                    {" = "}
+                    {parseShowWhenValues(field.uploadWhenValues).join(" ou ")}
+                  </>
+                )}
               </span>
             </div>
 
@@ -647,7 +981,7 @@ export default function FormSection({
                 className="btn btn-icon"
                 title={`Subir "${field.label}"`}
                 aria-label={`Subir ${field.label}`}
-                disabled={busy || index === 0}
+                disabled={busy || irmaoVizinho(lista, index, -1) === null}
                 style={{ padding: "0.1rem 0.3rem" }}
                 onClick={() => mover(index, -1)}
               >
@@ -658,7 +992,7 @@ export default function FormSection({
                 className="btn btn-icon"
                 title={`Descer "${field.label}"`}
                 aria-label={`Descer ${field.label}`}
-                disabled={busy || index === ordem.length - 1}
+                disabled={busy || irmaoVizinho(lista, index, 1) === null}
                 style={{ padding: "0.1rem 0.3rem" }}
                 onClick={() => mover(index, 1)}
               >
@@ -724,6 +1058,7 @@ export default function FormSection({
           submitLabel="Criar campo"
           busy={busy}
           parents={parents}
+          triggers={triggers}
         />
       ) : (
         <button

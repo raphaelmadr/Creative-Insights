@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import { Trash2, Send, History, Copy as CopyIcon, Check, ChevronsDownUp, ChevronsUpDown, ArchiveRestore, Archive, PackageCheck, ChevronDown } from "lucide-react";
 import Modal from "@/components/Modal";
@@ -13,11 +13,15 @@ import CardLinkField from "./CardLinkField";
 import DeliveryUploadPanel from "./DeliveryUploadPanel";
 import { parseCopyVariations } from "@/lib/copy-parse";
 import { parseAttachments } from "@/lib/attachments";
+import { parseRawVideos, type RawVideo } from "@/lib/raw-videos";
+import { RawVideoList } from "./RawVideoField";
 import { describeCardLink } from "@/lib/card-link";
 import type { PersonOption } from "./DemandDialog";
 import {
   PRIORITIES,
   PRIORITY_LABEL,
+  camposVisiveis,
+  limparRespostasOcultas,
   parseValues,
   parseAssignees,
   stageCandidates,
@@ -53,6 +57,8 @@ export interface CardData {
   copyText: string | null;
   /** JSON dos anexos — cru, como está no banco. Ver `parseAttachments`. */
   attachments: string | null;
+  /** JSON dos vídeos brutos que subiram para o Drive. Ver `parseRawVideos`. */
+  rawVideos: string | null;
   /** O link de referência — o material de apoio do pedido. Ver `lib/card-link.ts`. */
   linkUrl: string | null;
   /** O endereço do que foi entregue: a pasta criada pela automação, ou um
@@ -142,6 +148,19 @@ export default function CardDialog({
    * requisição por letra digitada. O `Salvar` aparece quando há o que salvar.
    */
   const [respostas, setRespostas] = useState<Record<string, unknown>>({});
+
+  /*
+   * Os vídeos brutos têm estado local porque a lista muda sem o card recarregar:
+   * subir um vídeo é uma requisição própria, e esperar o quadro inteiro voltar
+   * do servidor deixaria o painel dizendo "nenhum vídeo" logo depois de um
+   * envio que a pessoa acabou de acompanhar até 100%.
+   */
+  const [videos, setVideos] = useState<RawVideo[]>(() => parseRawVideos(card?.rawVideos));
+  const vistoRawVideos = useRef(card?.rawVideos);
+  if (vistoRawVideos.current !== card?.rawVideos) {
+    vistoRawVideos.current = card?.rawVideos;
+    setVideos(parseRawVideos(card?.rawVideos));
+  }
   const [busy, setBusy] = useState(false);
   const [copied, setCopied] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -293,7 +312,15 @@ export default function CardDialog({
       for (const outro of fields) {
         if (outro.dependsOn === field.key) delete proximo[outro.key];
       }
-      return proximo;
+      /*
+       * E some do rascunho o que esta resposta escondeu.
+       *
+       * Some só da TELA: o diff daqui não sabe dizer "apague isto", e quem
+       * apaga de verdade é o servidor, que ao gravar percorre apenas os campos
+       * visíveis (ver `validateValues`). São os dois lados da mesma regra — a
+       * tela para de perguntar, o banco para de guardar.
+       */
+      return limparRespostasOcultas(fields, proximo);
     });
 
   /*
@@ -686,6 +713,30 @@ export default function CardDialog({
       )}
 
       {/*
+        Os vídeos brutos ficam JUNTO das referências, e não dentro do campo que
+        os subiu: quem abre a demanda para ver o que ela tem procura os arquivos
+        onde estão os outros arquivos.
+        
+        Sem interruptor na tela de configuração, ao contrário das referências:
+        não vêm de pergunta nenhuma — são arquivos que a automação pôs no Drive,
+        e um card que não tem nenhum simplesmente não mostra a seção. É o mesmo
+        critério do selo de peças na frente do card.
+
+        Arquivado não remove: um card fora do quadro é registro, e registro não
+        se edita. Baixar e abrir continuam valendo.
+      */}
+      {videos.length > 0 && (
+        <div className="field">
+          <span className="field-label">Vídeos brutos</span>
+          <RawVideoList
+            videos={videos}
+            cardId={arquivado ? null : card.id}
+            onVideos={arquivado ? undefined : setVideos}
+          />
+        </div>
+      )}
+
+      {/*
         Briefing: o texto corrido e as respostas, num bloco só.
         
         Eram dois — "Contexto" com o que foi escrito à mão, "Briefing" com o que
@@ -721,7 +772,7 @@ export default function CardDialog({
               e registro não se edita.
             */}
             {respostasDoFormulario &&
-              fields.map((field) =>
+              camposVisiveis(fields, arquivado ? values : respostas).map((field) =>
                 arquivado ? (
                   <div key={field.id} style={{ display: "flex", flexDirection: "column", gap: "0.1rem" }}>
                     <span
@@ -745,6 +796,7 @@ export default function CardDialog({
                     value={respostas[field.key]}
                     values={respostas}
                     parentLabel={fields.find((f) => f.key === field.dependsOn)?.label}
+                    upload={{ cardId: card.id, fields, videos, onVideos: setVideos }}
                     onChange={(v) => responder(field, v)}
                   />
                 )

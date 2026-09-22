@@ -35,6 +35,8 @@ import {
   montarNomeArquivo,
   casarArquivos,
   formatoTemPosicoes,
+  campoDeFrentes,
+  frentesDoCard,
   nomeResponsavelDoEmail,
 } from "@/lib/delivery-naming";
 
@@ -208,19 +210,16 @@ export default function DeliveryUploadPanel({
   const idCard = formatCardCode(code);
 
   /*
-   * Chave "frente" fixa, mesma convenção de `CHAVES_DE_VOLUMETRIA` em
-   * `lib/kanban-deliveries.ts`: o campo é do quadro, mas esta funcionalidade
-   * é deste quadro específico (o de produção de criativos), então procurar
-   * por um nome combinado é proporcional — sem campo "frente", a entrega
-   * simplesmente sai sem frente no nome, em vez de travar.
+   * O campo da frente é achado pelo CONTEÚDO — ver `campoDeFrentes`.
+   *
+   * Era procurado pela chave `frente`, e foi assim que a entrega passou a
+   * nomear com `reels-9-16` no lugar de `influ`: a chave não muda quando
+   * alguém renomeia o campo, então ela ficou no campo que hoje se chama
+   * "Formato". Procurando por quem OFERECE as frentes, renomear deixa de
+   * quebrar o nome do arquivo.
    */
-  const frenteField = fields.find((f) => f.key === "frente");
-  const frentesResposta = values["frente"];
-  const frentes = Array.isArray(frentesResposta)
-    ? frentesResposta.map(String)
-    : frentesResposta
-      ? [String(frentesResposta)]
-      : [];
+  const frenteField = campoDeFrentes(fields);
+  const frentes = frentesDoCard(fields, values);
   const validacaoFrentes = frenteField ? validarFrentes(frentes) : { ok: true as const };
   /*
    * Mensagem específica pro caso mais comum: card sem resposta de "frente"
@@ -606,7 +605,8 @@ export default function DeliveryUploadPanel({
         <>
         {!frenteField && (
           <span className="field-hint" style={{ color: "var(--warning, #b45309)" }}>
-            Este quadro não tem o campo "frente" — a entrega sai sem essa parte no nome.
+            Nenhuma pergunta deste quadro oferece as frentes (Interno, Influenciadores,
+            Embaixadores…) — a entrega sai sem essa parte no nome.
           </span>
         )}
         {frenteField && mensagemFrenteInvalida && (
