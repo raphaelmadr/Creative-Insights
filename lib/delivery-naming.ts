@@ -236,15 +236,40 @@ export function montarNomeArquivo(input: MontarNomeInput): string {
  * Por isso NÃO usa `slugNome`, que hifeniza: acento cai, maiúscula desce, e
  * tudo que não for letra ou número simplesmente some.
  */
-export function contextoBruto(nomeInfluenciador: string | null | undefined): string {
-  const limpo = stripAcc(nomeInfluenciador || "")
+export function tokenParceiro(nome: string | null | undefined): string {
+  return stripAcc(nome || "")
     .toLowerCase()
     .replace(/[^a-z0-9]/g, "");
+}
 
+export function contextoBruto(nomeInfluenciador: string | null | undefined): string {
   // Sem nome do parceiro o contexto ainda precisa existir, senão o nome do
   // arquivo perde uma parte e deixa de casar com o padrão. "bruto" sozinho diz
   // o que é e denuncia que o card não respondeu quem é o parceiro.
-  return `bruto${limpo}`;
+  return `bruto${tokenParceiro(nomeInfluenciador)}`;
+}
+
+/**
+ * Qual campo do quadro pergunta o nome do parceiro, e o que ele respondeu.
+ *
+ * Achado pelo RÓTULO, e não pela chave — a chave de um campo renomeado deixa de
+ * descrevê-lo, que é exatamente como a entrega passou a nomear com
+ * `reels-9-16` (ver `campoDeFrentes`). Aqui não dá para usar a régua do
+ * conteúdo, porque é um campo de texto livre: não há lista de opções para
+ * reconhecer. O rótulo é o melhor sinal disponível, e os três termos cobrem
+ * como a equipe escreve essa pergunta.
+ *
+ * Uma função só, usada pela entrega e pelo bruto, porque os dois precisam pôr o
+ * MESMO parceiro no nome de arquivos da mesma demanda.
+ */
+export function nomeDoParceiro<T extends { key: string; label: string }>(
+  fields: T[],
+  values: Record<string, unknown>
+): string {
+  const campo = fields.find((f) => /influenc|embaixador|parceir/i.test(f.label));
+  if (!campo) return "";
+  const resposta = values[campo.key];
+  return typeof resposta === "string" ? resposta.trim() : "";
 }
 
 export interface MontarNomeBrutoInput {

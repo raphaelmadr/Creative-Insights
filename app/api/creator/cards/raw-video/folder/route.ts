@@ -18,7 +18,9 @@ import { getCurrentCreator } from "@/lib/auth";
 import { CREATOR_ONLY_ERROR } from "@/lib/roles";
 import { formatCardCode, parseValues, camposVisiveis, envioLiberado } from "@/lib/kanban";
 import { criarDriveFolders } from "@/lib/drive-delivery";
-import { montarNomeBruto, frentesDoCard, nomeResponsavelDoEmail } from "@/lib/delivery-naming";
+import {
+  montarNomeBruto, frentesDoCard, nomeDoParceiro, nomeResponsavelDoEmail,
+} from "@/lib/delivery-naming";
 import { parseRawVideos, rawVideoExtension, MAX_RAW_VIDEOS } from "@/lib/raw-videos";
 
 export async function POST(request: Request) {
@@ -92,10 +94,9 @@ export async function POST(request: Request) {
      */
     const frentes = frentesDoCard(campos, respostas);
 
-    const campoInfluenciador = campos.find((f) => /influenc|embaixador/i.test(f.label));
-    const nomeInfluenciador = campoInfluenciador
-      ? String(respostas[campoInfluenciador.key] ?? "")
-      : "";
+    /* Mesma função da entrega: o bruto e a peça entregue da mesma demanda têm
+       de nomear o MESMO parceiro. */
+    const nomeInfluenciador = nomeDoParceiro(campos, respostas);
 
     /* Quem sobe o vídeo entra no nome — decisão da equipe, e diferente da
        entrega, que usa o responsável do card. */
