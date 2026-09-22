@@ -11,10 +11,9 @@
  * (vídeo e animação usam a mesma extensão, não dá pra adivinhar) e quantas
  * peças têm.
  *
- * "Quantidade" parte da mesma resposta que já conta pro ranking de entregas
- * (`campoVolumetria`, a versão sem banco de `volumetriaDoCard` em
- * `lib/kanban-deliveries.ts`) — é o que já foi definido na abertura da
- * demanda, então pedir de novo aqui seria a mesma pergunta duas vezes. Fica
+ * "Quantidade" parte da resposta da pergunta de fábrica de mesmo nome
+ * (`CHAVE_VOLUMETRIA`) — é o que já foi definido na abertura da demanda,
+ * então pedir de novo aqui seria a mesma pergunta duas vezes. Fica
  * editável porque a quantidade real pode mudar entre a abertura e a entrega
  * (o card aberto já permite essa correção há um tempo), não porque as duas
  * perguntas sejam independentes.
@@ -22,9 +21,8 @@
 
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { UploadCloud, X, Loader2, CheckCircle2, ImageIcon, Video, PackageOpen, Link2 } from "lucide-react";
-import type { FieldDefinition } from "./FieldInput";
 import type { PersonOption } from "./DemandDialog";
-import { formatCardCode, parseAssignees, campoVolumetria } from "@/lib/kanban";
+import { formatCardCode, parseAssignees, CHAVE_VOLUMETRIA } from "@/lib/kanban";
 import { normalizeCardLink } from "@/lib/card-link";
 import {
   type DeliveryFormat,
@@ -35,7 +33,6 @@ import {
   montarNomeArquivo,
   casarArquivos,
   formatoTemPosicoes,
-  campoDeFrentes,
   frentesDoCard,
   nomeDoParceiro,
   tokenParceiro,
@@ -153,7 +150,6 @@ export default function DeliveryUploadPanel({
   code,
   assignees,
   values,
-  fields,
   people,
   emProducao,
   onUploaded,
@@ -162,7 +158,6 @@ export default function DeliveryUploadPanel({
   code: number | null;
   assignees: string | null;
   values: Record<string, unknown>;
-  fields: FieldDefinition[];
   /** Pra resolver a sigla do responsável (`rm`, `ez`...) — mesma lista que o seletor de responsável já usa. */
   people: PersonOption[];
   /** A etapa ATUAL do card é de produção? Ver `BoardColumn.isProduction`. */
@@ -182,8 +177,7 @@ export default function DeliveryUploadPanel({
    * demanda aberta.
    */
   const [quantidade, setQuantidade] = useState(() => {
-    const chave = campoVolumetria(fields);
-    const bruto = chave ? values[chave] : undefined;
+    const bruto = values[CHAVE_VOLUMETRIA];
     const n = typeof bruto === "number" ? bruto : Number(String(bruto ?? "").trim());
     return Number.isFinite(n) && n > 0 ? Math.floor(n) : 1;
   });
@@ -211,18 +205,10 @@ export default function DeliveryUploadPanel({
 
   const idCard = formatCardCode(code);
 
-  /*
-   * O campo da frente é achado pelo CONTEÚDO — ver `campoDeFrentes`.
-   *
-   * Era procurado pela chave `frente`, e foi assim que a entrega passou a
-   * nomear com `reels-9-16` no lugar de `influ`: a chave não muda quando
-   * alguém renomeia o campo, então ela ficou no campo que hoje se chama
-   * "Formato". Procurando por quem OFERECE as frentes, renomear deixa de
-   * quebrar o nome do arquivo.
-   */
-  const frenteField = campoDeFrentes(fields);
-  const frentes = frentesDoCard(fields, values);
-  const validacaoFrentes = frenteField ? validarFrentes(frentes) : { ok: true as const };
+  /* A frente é pergunta de fábrica: existe em todo quadro, com chave fixa, e
+     ninguém a apaga pela tela de campos. Ver `CAMPOS_DE_FABRICA`. */
+  const frentes = frentesDoCard(values);
+  const validacaoFrentes = validarFrentes(frentes);
   /*
    * Mensagem específica pro caso mais comum: card sem resposta de "frente"
    * ainda (de antes do campo existir, ou aberto sem responder). A mensagem
@@ -433,7 +419,7 @@ export default function DeliveryUploadPanel({
            * omissão: só sobra para o caso em que não há nem uma coisa nem outra.
            */
           const nomePeca = REGRA[formato].nome
-            ? tokenParceiro(nomeDoParceiro(fields, values)) || arquivo.base
+            ? tokenParceiro(nomeDoParceiro(values)) || arquivo.base
             : undefined;
           const nomeBase = montarNomeArquivo({
             formato,
@@ -625,13 +611,10 @@ export default function DeliveryUploadPanel({
 
       {!modoUrl && driveOk && (
         <>
-        {!frenteField && (
-          <span className="field-hint" style={{ color: "var(--warning, #b45309)" }}>
-            Nenhuma pergunta deste quadro oferece as frentes (Interno, Influenciadores,
-            Embaixadores…) — a entrega sai sem essa parte no nome.
-          </span>
-        )}
-        {frenteField && mensagemFrenteInvalida && (
+        {/* O aviso de "este quadro não pergunta a frente" morreu com a pergunta
+            de fábrica: ela existe em todo quadro. Sobra o caso real — o card
+            que ainda não respondeu. */}
+        {mensagemFrenteInvalida && (
           <span className="field-hint" role="alert" style={{ color: "var(--danger)" }}>
             {mensagemFrenteInvalida}
           </span>

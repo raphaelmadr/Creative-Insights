@@ -11,7 +11,13 @@ import { randomBytes } from "crypto";
 import prisma from "@/lib/prisma";
 import { getCurrentCreator } from "@/lib/auth";
 import { CREATOR_ONLY_ERROR } from "@/lib/roles";
-import { ensureDefaultBoard, archiveDeliveredBeforeThisMonth, boardPulse, BOARD_INCLUDE } from "@/lib/kanban-store";
+import {
+  ensureDefaultBoard,
+  archiveDeliveredBeforeThisMonth,
+  boardPulse,
+  comCamposDeFabrica,
+  BOARD_INCLUDE,
+} from "@/lib/kanban-store";
 import {
   serializeCardBadges,
   serializeCardPanel,
@@ -40,7 +46,9 @@ export async function GET(request: Request) {
     const activeId = boardId && boards.some((b) => b.id === boardId) ? boardId : boards[0]?.id;
 
     const board = activeId
-      ? await prisma.board.findUnique({ where: { id: activeId }, include: BOARD_INCLUDE })
+      ? comCamposDeFabrica(
+          await prisma.board.findUnique({ where: { id: activeId }, include: BOARD_INCLUDE })
+        )
       : null;
 
     /*
@@ -115,7 +123,7 @@ export async function POST(request: Request) {
       include: BOARD_INCLUDE,
     });
 
-    return NextResponse.json({ success: true, board });
+    return NextResponse.json({ success: true, board: comCamposDeFabrica(board) });
   } catch (error: any) {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
@@ -190,7 +198,7 @@ export async function PUT(request: Request) {
       include: BOARD_INCLUDE,
     });
 
-    return NextResponse.json({ success: true, board });
+    return NextResponse.json({ success: true, board: comCamposDeFabrica(board) });
   } catch (error: any) {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }

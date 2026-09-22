@@ -9,6 +9,12 @@
  */
 
 import { COPY_CHANNELS, MAX_VARIATIONS, formatsForChannel } from "./copy-options";
+import {
+  FRENTE_CODIGOS,
+  CHAVE_FRENTE,
+  CHAVE_PARCEIRO,
+  CHAVE_VOLUMETRIA,
+} from "./delivery-naming";
 
 export const FIELD_TYPES = [
   "TEXT",
@@ -117,33 +123,6 @@ export function isFieldType(value: unknown): value is FieldType {
 }
 
 /**
- * As chaves que costumam guardar a volumetria, em ordem de preferência.
- *
- * Fonte única: `volumetriaDoCard` (`lib/kanban-deliveries.ts`, que consulta o
- * banco) e `campoVolumetria` abaixo (puro, para quem já tem os campos em mãos
- * — ex. um componente de cliente que não pode importar Prisma) usam a MESMA
- * lista, pra nunca divergir sobre qual campo é a quantidade de peças.
- */
-export const CHAVES_DE_VOLUMETRIA = ["numero_de_pecas", "pecas", "volumetria", "quantidade"];
-
-/**
- * Qual campo do quadro responde por "quantidade de peças", sem ir ao banco.
- *
- * Mesma regra de `volumetriaDoCard`: nome reconhecido primeiro, e só quando
- * há UM campo numérico só, ele vale por eliminação. Com dois ou mais e nenhum
- * nome batendo, devolve `null` — quem chama decide o padrão (`volumetriaDoCard`
- * loga o aviso; um componente de cliente, sem acesso a Logs, normalmente só
- * assume 1).
- */
-export function campoVolumetria(fields: { key: string; type: string }[]): string | null {
-  const numericos = fields.filter((f) => f.type === "NUMBER" || f.type === "RANGE");
-  return (
-    CHAVES_DE_VOLUMETRIA.find((c) => numericos.some((f) => f.key === c)) ??
-    (numericos.length === 1 ? numericos[0].key : null)
-  );
-}
-
-/**
  * Quais campos obrigatórios do quadro ainda não têm resposta em `values`.
  *
  * Existe porque nem todo caminho de criação de card passa pelo formulário
@@ -238,6 +217,44 @@ export function slugifyFieldKey(label: string): string {
   return base || `campo_${Math.random().toString(36).slice(2, 8)}`;
 }
 
+/**
+ * As respostas de um card com uma chave renomeada — a mesma resposta, na
+ * pergunta certa.
+ *
+ * A chave é o que liga a pergunta à resposta gravada, e por isso ela não
+ * acompanha o rótulo: renomear "Prazo" para "Data de entrega" não pode apagar
+ * cem cards. O preço disso é que uma pergunta REAPROVEITADA — renomeada e com
+ * a lista de opções trocada por outra — passa a reivindicar respostas que não
+ * são dela, e não havia como desfazer: a chave era imutável.
+ *
+ * Foi o que aconteceu no quadro de demandas: "Frente" virou "Formato" e ficou
+ * com a chave `frente`, um "Frente" novo nasceu como `frente_2`, e as
+ * respostas antigas ("Interno") viraram, para o sistema, formatos inválidos —
+ * invisíveis na tela e impossíveis de apagar por ela, travando toda gravação
+ * do card. Ver `campoDeFrentes` em `lib/delivery-naming.ts`.
+ *
+ * Mantém a ORDEM das chaves: o JSON do card é lido por gente, e uma resposta
+ * que salta para o fim do objeto a cada renomeação atrapalha a leitura.
+ *
+ * Um valor já gravado sob a chave de destino é sobrescrito: ele é resíduo de
+ * uma pergunta que o quadro não faz mais (chave de campo vivo é recusada antes
+ * de chegar aqui), e entre o resíduo e a resposta de um campo existente quem
+ * vale é o campo existente.
+ */
+export function renomearChaveNasRespostas(
+  values: Record<string, unknown>,
+  de: string,
+  para: string
+): Record<string, unknown> {
+  if (de === para || !(de in values)) return values;
+
+  return Object.fromEntries(
+    Object.entries(values)
+      .filter(([chave]) => chave !== para)
+      .map(([chave, valor]) => (chave === de ? [para, valor] : [chave, valor]))
+  );
+}
+
 /** Garante que a chave não colida com outra já usada no mesmo quadro. */
 export function uniqueFieldKey(label: string, taken: Iterable<string>): string {
   const used = new Set(taken);
@@ -265,6 +282,125 @@ export interface FieldShape {
   uploadWhenKey?: string | null;
   /** As respostas que liberam o envio, em JSON. */
   uploadWhenValues?: string | null;
+}
+
+/** Um campo como a tela o consome — o formato de uma linha de `BoardField`. */
+export interface CampoDoQuadro extends FieldShape {
+  id: string;
+  options: string | null;
+  placeholder: string | null;
+  helpText: string | null;
+  showOnCard: boolean;
+  position: number;
+}
+
+/**
+ * As perguntas de FÁBRICA do formulário: as que a nomenclatura precisa.
+ *
+ * Elas vinham de `BoardField` como qualquer outra, e por isso podiam ser
+ * renomeadas, reaproveitadas ou apagadas por quem configura o quadro — e a
+ * entrega, que precisa DELAS para montar o nome do arquivo, tinha de adivinhar
+ * qual campo era qual: a frente pelo conteúdo das opções, o parceiro por
+ * palavra no rótulo, a quantidade pelo nome da chave. Toda adivinhação já
+ * errou em produção pelo menos uma vez — "Frente" renomeada para "Formato"
+ * produziu `reels-9-16` no lugar de `influ` por semanas, sem erro nenhum em
+ * lugar algum.
+ *
+ * Definidas aqui, não há o que adivinhar nem o que apagar: a chave é fixa, o
+ * significado é o mesmo em todo quadro, e quem configura o formulário continua
+ * dono de tudo o mais. É o mesmo princípio de `FORM_BUILTINS` — o que o
+ * sistema depende não se define por fora —, com uma diferença: a resposta
+ * destas mora no JSON do card, como a de qualquer pergunta do formulário, e
+ * não numa coluna própria.
+ *
+ * E não têm interruptor, ao contrário das de `FORM_BUILTINS`: desligar a
+ * frente não deixaria o formulário mais enxuto, deixaria a entrega sem nome.
+ *
+ * As opções da frente saem de `FRENTE_CODIGOS` — a MESMA lista que traduz a
+ * resposta em `int`, `influ`, `emb`. Acrescentar uma frente lá passa a
+ * oferecê-la no formulário e a nomeá-la no arquivo, sem uma segunda lista para
+ * manter em dia.
+ */
+export { CHAVE_FRENTE, CHAVE_PARCEIRO, CHAVE_VOLUMETRIA };
+
+export const CAMPOS_DE_FABRICA: CampoDoQuadro[] = [
+  {
+    id: "fabrica:frente",
+    key: CHAVE_FRENTE,
+    label: "Frente",
+    type: "MULTISELECT",
+    options: JSON.stringify(Object.keys(FRENTE_CODIGOS)),
+    required: true,
+    helpText: "Entra no nome de todo arquivo entregue.",
+    placeholder: null,
+    dependsOn: null,
+    showWhenKey: null,
+    showWhenValues: null,
+    uploadWhenKey: null,
+    uploadWhenValues: null,
+    showOnCard: true,
+    position: -3,
+  },
+  {
+    /*
+     * O parceiro só é perguntado quando a frente é de parceria — mesma regra
+     * condicional de qualquer campo do quadro, escrita aqui porque o nome do
+     * arquivo bruto depende dela (`contextoBruto`).
+     */
+    id: "fabrica:parceiro",
+    key: CHAVE_PARCEIRO,
+    label: "Nome do influenciador/embaixador",
+    type: "TEXT",
+    options: null,
+    required: true,
+    helpText: "Entra no nome dos vídeos brutos e da entrega da parceria.",
+    placeholder: "Como o nome aparece no perfil",
+    dependsOn: null,
+    showWhenKey: CHAVE_FRENTE,
+    showWhenValues: JSON.stringify(["Influenciadores", "Embaixadores"]),
+    uploadWhenKey: null,
+    uploadWhenValues: null,
+    showOnCard: true,
+    position: -2,
+  },
+  {
+    id: "fabrica:quantidade",
+    key: CHAVE_VOLUMETRIA,
+    label: "Quantidade de peças",
+    type: "RANGE",
+    options: null,
+    required: false,
+    helpText: "Quantas peças a demanda tem — é o que a entrega numera.",
+    placeholder: null,
+    dependsOn: null,
+    showWhenKey: null,
+    showWhenValues: null,
+    uploadWhenKey: null,
+    uploadWhenValues: null,
+    showOnCard: true,
+    position: -1,
+  },
+];
+
+/** As chaves que a fábrica reserva: nenhum campo do quadro pode usá-las. */
+export const CHAVES_DE_FABRICA = new Set(CAMPOS_DE_FABRICA.map((c) => c.key));
+
+/**
+ * As perguntas do formulário: as de fábrica primeiro, as do quadro depois.
+ *
+ * Um só lugar a chamar em toda leitura de campos — servidor e tela —, porque a
+ * lista precisa ser a MESMA em quem desenha, em quem valida e em quem nomeia o
+ * arquivo. Uma tela que esquecesse de somar as de fábrica pararia de perguntar
+ * a frente sem avisar ninguém.
+ *
+ * Uma linha do banco com chave reservada é descartada: ela é resíduo de antes
+ * da fábrica existir (o quadro real tinha uma "Formato" ocupando a chave
+ * `frente`), e deixá-la passar daria duas perguntas com a mesma chave — a
+ * segunda gravando por cima da primeira. A migração move a resposta para a
+ * chave certa e apaga a linha; até lá, quem manda é a de fábrica.
+ */
+export function camposDoQuadro<T extends { key: string }>(doBanco: T[]): (T | CampoDoQuadro)[] {
+  return [...CAMPOS_DE_FABRICA, ...doBanco.filter((f) => !CHAVES_DE_FABRICA.has(f.key))];
 }
 
 /** As opções de um SELECT, já como lista — no banco elas são uma linha JSON. */

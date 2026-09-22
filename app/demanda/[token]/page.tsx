@@ -119,7 +119,10 @@ export default function DemandaPublica() {
   const faltando = useMemo(() => {
     if (!board) return true;
     if (!isCorporateEmail(email) || !titulo.trim()) return true;
-    return board.fields.some((f) => {
+    /* Só o que está NA TELA é cobrado: um condicional escondido não foi
+       perguntado, e cobrá-lo deixaria o botão desabilitado apontando para um
+       campo que não existe ali. Mesma régua de `validateValues`. */
+    return camposVisiveis(board.fields, valores).some((f) => {
       if (!f.required) return false;
       /*
        * O deslizante não tem estado vazio: ele já nasce desenhado no mínimo, e

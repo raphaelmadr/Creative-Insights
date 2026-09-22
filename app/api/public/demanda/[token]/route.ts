@@ -23,7 +23,7 @@ import {
   isCorporateEmail,
   normalizeCorporateEmail,
 } from "@/lib/corporate-email";
-import { parseFormBuiltins } from "@/lib/kanban";
+import { parseFormBuiltins, camposDoQuadro } from "@/lib/kanban";
 
 export const dynamic = "force-dynamic";
 
@@ -110,13 +110,19 @@ export async function GET(_req: Request, ctx: { params: Promise<{ token: string 
       builtins: parseFormBuiltins(board.formBuiltins),
       // Sem `id`: quem preenche não precisa dele, e não tê-lo em mãos é uma
       // porta a menos para tentar as rotas autenticadas do quadro.
-      fields: board.fields.map((f) => ({
+      fields: camposDoQuadro(board.fields).map((f) => ({
         id: f.id,
         key: f.key,
         label: f.label,
         type: f.type,
         options: f.options,
         dependsOn: f.dependsOn,
+        /* A regra de exibição vai junto: sem ela, o formulário de fora
+           desenharia sempre todo campo condicional — inclusive o obrigatório
+           que só vale para uma frente, travando o envio de quem escolheu
+           outra. Ver `camposVisiveis`. */
+        showWhenKey: f.showWhenKey,
+        showWhenValues: f.showWhenValues,
         placeholder: f.placeholder,
         helpText: f.helpText,
         required: f.required,

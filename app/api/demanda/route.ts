@@ -17,7 +17,7 @@
 import { NextResponse } from "next/server";
 import prisma from "@/lib/prisma";
 import { getCurrentUser } from "@/lib/auth";
-import { ensureDefaultBoard } from "@/lib/kanban-store";
+import { ensureDefaultBoard, comCamposDeFabrica } from "@/lib/kanban-store";
 import { abrirDemanda } from "@/lib/demanda-intake";
 
 export const dynamic = "force-dynamic";
@@ -62,7 +62,7 @@ export async function GET(request: Request) {
         })
       : null;
 
-    return NextResponse.json({ success: true, boards, board });
+    return NextResponse.json({ success: true, boards, board: comCamposDeFabrica(board) });
   } catch (error: unknown) {
     console.error("[Demanda] Falha ao carregar o formulário:", error);
     return NextResponse.json(

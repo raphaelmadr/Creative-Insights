@@ -20,6 +20,7 @@ import {
 import { copyTargetBoard, groupIntake, topPosition, logActivity } from "@/lib/kanban-store";
 import { isPriority, optionsFor, parseDueDate, serializeAssignees,
   criarCardComCodigo, validateValues, camposObrigatoriosFaltando, camposVisiveis,
+  camposDoQuadro, CHAVE_VOLUMETRIA,
 } from "@/lib/kanban";
 import {
   buildCopyCardTitle,
@@ -65,21 +66,21 @@ type CampoQuadro = {
  * travava o envio com um erro genérico e nenhum jeito de responder pelo
  * próprio gerador.
  */
-function camposExtrasDoGerador(camposDoQuadro: CampoQuadro[]): CampoQuadro[] {
+function camposExtrasDoGerador(camposDoFormulario: CampoQuadro[]): CampoQuadro[] {
   const acharPorNome = (nome: string) =>
-    camposDoQuadro.find((f) => f.key === nome || f.label.trim().toLowerCase() === nome) ?? null;
+    camposDoFormulario.find((f) => f.key === nome || f.label.trim().toLowerCase() === nome) ?? null;
 
   const autoPreenchidos = new Set(
     [
       acharPorNome("canal"),
       acharPorNome("formato"),
-      camposDoQuadro.find((f) => f.type === "RANGE" || f.type === "NUMBER") ?? null,
+      camposDoFormulario.find((f) => f.key === CHAVE_VOLUMETRIA) ?? null,
     ]
       .filter((f): f is CampoQuadro => !!f)
       .map((f) => f.key)
   );
 
-  return camposDoQuadro.filter((f) => f.required && !autoPreenchidos.has(f.key));
+  return camposDoFormulario.filter((f) => f.required && !autoPreenchidos.has(f.key));
 }
 
 /** Onde a copy vai cair, para a tela poder dizer isso antes de gerar. */
@@ -147,10 +148,12 @@ export async function GET() {
            * do 400, que é o caminho por onde esta tela já sabe perguntar.
            */
           camposVisiveis(
-            await prisma.boardField.findMany({
-              where: { boardId: target.board.id },
-              orderBy: { position: "asc" },
-            }),
+            camposDoQuadro(
+              await prisma.boardField.findMany({
+                where: { boardId: target.board.id },
+                orderBy: { position: "asc" },
+              })
+            ),
             {}
           )
         )
@@ -170,19 +173,21 @@ export async function GET() {
      * a tela resolver a dependência com a mesma função que o formulário do
      * quadro usa (`optionsFor`) em vez de reimplementar a regra.
      */
-    const camposDoQuadro = target
-      ? await prisma.boardField.findMany({
-          where: { boardId: target.board.id },
-          orderBy: { position: "asc" },
-        })
+    const camposDoFormulario = target
+      ? camposDoQuadro(
+          await prisma.boardField.findMany({
+            where: { boardId: target.board.id },
+            orderBy: { position: "asc" },
+          })
+        )
       : [];
 
     const acharCampo = (chave: string) =>
-      camposDoQuadro.find(
+      camposDoFormulario.find(
         (f) => f.key === chave || f.label.trim().toLowerCase() === chave
       ) ?? null;
 
-    const comoCampo = (f: (typeof camposDoQuadro)[number] | null) =>
+    const comoCampo = (f: (typeof camposDoFormulario)[number] | null) =>
       f
         ? {
             key: f.key,
@@ -379,15 +384,17 @@ export async function POST(request: Request) {
      * envio — gerar copy sem quadro configurado sempre funcionou.
      */
     const target = await copyTargetBoard();
-    const camposDoQuadro = target
-      ? await prisma.boardField.findMany({
-          where: { boardId: target.board.id },
-          orderBy: { position: "asc" },
-        })
+    const camposDoFormulario = target
+      ? camposDoQuadro(
+          await prisma.boardField.findMany({
+            where: { boardId: target.board.id },
+            orderBy: { position: "asc" },
+          })
+        )
       : [];
 
     const acharCampo = (chave: string) =>
-      camposDoQuadro.find(
+      camposDoFormulario.find(
         (f) => f.key === chave || f.label.trim().toLowerCase() === chave
       ) ?? null;
 
@@ -596,9 +603,7 @@ export async function POST(request: Request) {
      * uma demanda de doze copys entraria no ranking valendo UMA peça, e o
      * gerador — que é justamente quem sabe o número — ficaria de fora da conta.
      */
-    const campoPecas =
-      camposDoQuadro.find((f) => f.type === "RANGE" || f.type === "NUMBER") ?? null;
-    if (campoPecas) respostas[campoPecas.key] = pecas;
+    respostas[CHAVE_VOLUMETRIA] = pecas;
 
     /*
      * O que o gerador NÃO sabe preencher sozinho, e a tela já perguntou.
@@ -612,7 +617,7 @@ export async function POST(request: Request) {
      */
     if (body.extraRespostas && typeof body.extraRespostas === "object") {
       for (const [chave, valor] of Object.entries(body.extraRespostas)) {
-        if (camposDoQuadro.some((f) => f.key === chave)) respostas[chave] = valor;
+        if (camposDoFormulario.some((f) => f.key === chave)) respostas[chave] = valor;
       }
     }
 
@@ -632,7 +637,7 @@ export async function POST(request: Request) {
      * frente for "Evento"). Cobrar um campo que a regra esconde travaria o
      * envio apontando para uma pergunta que a tela nunca mostrou.
      */
-    const visiveis = camposVisiveis(camposDoQuadro, respostas);
+    const visiveis = camposVisiveis(camposDoFormulario, respostas);
     const faltando = camposObrigatoriosFaltando(camposExtrasDoGerador(visiveis), respostas);
     if (faltando.length) {
       return NextResponse.json(
@@ -650,7 +655,7 @@ export async function POST(request: Request) {
      * `faltando` acima só via "vazio ou não"; isto pega o resto (uma opção
      * que não existe mais no campo, por exemplo).
      */
-    const validado = validateValues(camposDoQuadro, respostas);
+    const validado = validateValues(camposDoFormulario, respostas);
     if (!validado.ok) {
       return NextResponse.json({ error: validado.error }, { status: 400 });
     }

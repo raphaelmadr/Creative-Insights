@@ -20,6 +20,7 @@
 
 import prisma from "./prisma";
 import {
+  camposDoQuadro,
   criarCardComCodigo,
   isPriority,
   normalizePerson,
@@ -72,10 +73,12 @@ export async function abrirDemanda(pedido: PedidoDeDemanda): Promise<AberturaDeD
     return { ok: false, error: "A demanda precisa de um título.", status: 400 };
   }
 
-  const fields = await prisma.boardField.findMany({
-    where: { boardId: pedido.boardId },
-    orderBy: { position: "asc" },
-  });
+  const fields = camposDoQuadro(
+    await prisma.boardField.findMany({
+      where: { boardId: pedido.boardId },
+      orderBy: { position: "asc" },
+    })
+  );
 
   /*
    * As respostas são conferidas contra os campos do próprio quadro — a equipe

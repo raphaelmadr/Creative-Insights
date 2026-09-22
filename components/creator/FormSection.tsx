@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState } from "react";
-import { Plus, Trash2, Check, ChevronUp, ChevronDown } from "lucide-react";
+import { Plus, Trash2, Check, ChevronUp, ChevronDown, Lock } from "lucide-react";
 import { type FieldDefinition } from "./FieldInput";
 import {
   FIELD_TYPES,
@@ -10,6 +10,8 @@ import {
   FIELD_TYPES_WITH_UPLOAD,
   FIELD_TYPES_AS_TRIGGER,
   FORM_BUILTINS,
+  CAMPOS_DE_FABRICA,
+  CHAVES_DE_FABRICA,
   ordenarCampos,
   parseOptions,
   parseOptionsMap,
@@ -46,6 +48,15 @@ import {
 
 interface Draft {
   label: string;
+  /**
+   * A chave onde a resposta é gravada no card.
+   *
+   * Só aparece na EDIÇÃO: na criação ela é derivada do rótulo, e oferecê-la
+   * antes de a pergunta existir seria pedir uma decisão técnica a quem só quer
+   * fazer uma pergunta. Editável porque uma pergunta reaproveitada fica com a
+   * chave de outra — e, sem isto, o quadro não tinha como desfazer.
+   */
+  key: string;
   type: FieldType;
   options: string;
   /** A chave do campo pai, ou "" para campo independente. */
@@ -68,6 +79,7 @@ interface Draft {
 
 const EMPTY: Draft = {
   label: "",
+  key: "",
   type: "TEXT",
   options: "",
   dependsOn: "",
@@ -118,6 +130,7 @@ function DraftForm({
   busy,
   parents,
   triggers,
+  editando,
 }: {
   draft: Draft;
   setDraft: (d: Draft) => void;
@@ -127,6 +140,8 @@ function DraftForm({
   busy: boolean;
   parents: ParentOption[];
   triggers: TriggerOption[];
+  /** Editando um campo que já existe — só aí a chave aparece. */
+  editando: boolean;
 }) {
   const needsOptions = FIELD_TYPES_WITH_OPTIONS.includes(draft.type);
   const pai = parents.find((p) => p.key === draft.dependsOn) ?? null;
@@ -194,6 +209,25 @@ function DraftForm({
           </select>
         </div>
       </div>
+
+      {editando && (
+        <div className="field">
+          <label className="field-label" htmlFor="campo-chave">
+            Chave
+          </label>
+          <input
+            id="campo-chave"
+            className="field-input"
+            value={draft.key}
+            placeholder="formato"
+            onChange={(e) => setDraft({ ...draft, key: e.target.value })}
+          />
+          <span className="field-hint">
+            É onde a resposta fica gravada nos cards. Trocar leva as respostas junto —
+            use quando a chave deixou de descrever a pergunta.
+          </span>
+        </div>
+      )}
 
       {needsOptions && parents.length > 0 && (
         <div className="field">
@@ -561,7 +595,17 @@ export default function FormSection({
    * quando o quadro recarrega.
    */
   const [perguntas, setPerguntas] = useState<FormBuiltinKey[]>(builtins);
-  const [ordem, setOrdem] = useState<FieldDefinition[]>(fields);
+  /*
+   * A lista editável é só a do TIME.
+   *
+   * `fields` chega com as perguntas de fábrica dentro (é a lista que o
+   * formulário desenha, e elas fazem parte dele — ver `camposDoQuadro`), mas
+   * elas não são linhas do banco: não têm o que editar, o que reordenar nem o
+   * que apagar. Deixá-las na lista daria uma lixeira que devolve 404 e uma
+   * seta que reordena o que não tem posição.
+   */
+  const doTime = fields.filter((f) => !CHAVES_DE_FABRICA.has(f.key));
+  const [ordem, setOrdem] = useState<FieldDefinition[]>(doTime);
 
   /*
    * A adoção é feita na RENDERIZAÇÃO, e não num efeito — mesmo idioma de
@@ -575,12 +619,12 @@ export default function FormSection({
    * desenhado — inclusive no instante entre o clique e a resposta do servidor,
    * que é justamente o que ela existe para cobrir.
    */
-  const doServidor = JSON.stringify({ builtins, fields });
+  const doServidor = JSON.stringify({ builtins, fields: doTime });
   const [visto, setVisto] = useState(doServidor);
   if (doServidor !== visto) {
     setVisto(doServidor);
     setPerguntas(builtins);
-    setOrdem(fields);
+    setOrdem(doTime);
   }
 
   const send = async (method: "POST" | "PUT" | "DELETE", body: object) => {
@@ -751,6 +795,7 @@ export default function FormSection({
 
   const payload = () => ({
     label: draft.label,
+    key: draft.key,
     type: draft.type,
     dependsOn: draft.dependsOn || null,
     /* Revelador sem nenhuma resposta marcada vale como "aparece sempre" — é o
@@ -800,6 +845,7 @@ export default function FormSection({
     setError(null);
     setDraft({
       label: field.label,
+      key: field.key,
       type: field.type as FieldType,
       options: field.dependsOn ? "" : parseOptions(field.options).join("\n"),
       dependsOn: field.dependsOn || "",
@@ -845,7 +891,8 @@ export default function FormSection({
       <span className="field-label">Perguntas de fábrica</span>
       <span className="field-hint" style={{ marginTop: "-0.4rem" }}>
         Vêm com o quadro. Desligue a que este time já pergunta do jeito dele — o que
-        já foi respondido continua nos cards.
+        já foi respondido continua nos cards. As marcadas como nomenclatura não
+        desligam: é com elas que a entrega nomeia os arquivos.
       </span>
 
       {FORM_BUILTINS.map((pergunta) => {
@@ -889,11 +936,69 @@ export default function FormSection({
         );
       })}
 
+      {/*
+        As de fábrica que NÃO têm interruptor — e é esse o ponto delas.
+
+        Estas três não alimentam um selo do card: alimentam o NOME do arquivo
+        entregue. Enquanto eram campos personalizados como os outros, dava para
+        renomeá-las, reaproveitá-las ou apagá-las sem que nada avisasse, e a
+        entrega ia atrás delas adivinhando — até nomear meses de arquivo com
+        `reels-9-16` onde devia estar `influ`. Aqui elas estão à vista, com a
+        regra dita em voz alta, e sem botão que as tire do formulário.
+      */}
+      {CAMPOS_DE_FABRICA.map((campo) => (
+        <div
+          key={campo.key}
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: "0.6rem",
+            padding: "0.6rem 0.75rem",
+            borderRadius: "var(--radius-block)",
+            background: "var(--surface-sunken)",
+            border: "1px solid var(--surface-sunken-border)",
+            ...(campo.showWhenKey ? { marginLeft: "1.25rem" } : {}),
+          }}
+        >
+          <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", gap: "0.1rem" }}>
+            <span style={{ fontSize: "var(--text-control)", fontWeight: 600 }}>
+              {campo.label}
+              {campo.required && (
+                <span style={{ color: "var(--danger)", marginLeft: "0.25rem" }} aria-hidden="true">
+                  *
+                </span>
+              )}
+            </span>
+            <span className="field-hint">
+              {FIELD_TYPE_LABEL[campo.type as FieldType] ?? campo.type}
+              {campo.showWhenKey && (
+                <>
+                  {" · só quando "}
+                  {fields.find((f) => f.key === campo.showWhenKey)?.label ?? campo.showWhenKey}
+                  {" = "}
+                  {parseShowWhenValues(campo.showWhenValues).join(" ou ")}
+                </>
+              )}
+              {campo.helpText ? ` · ${campo.helpText}` : ""}
+            </span>
+          </div>
+
+          <span
+            className="field-hint"
+            style={{ flexShrink: 0, display: "flex", alignItems: "center", gap: "0.3rem" }}
+            title="A entrega monta o nome do arquivo com esta resposta — por isso ela não sai do formulário."
+          >
+            <Lock size={12} aria-hidden="true" />
+            Nomenclatura
+          </span>
+        </div>
+      ))}
+
       <span className="field-label" style={{ marginTop: "0.4rem" }}>
         Perguntas deste quadro
       </span>
 
-      {fields.length === 0 && !adding && (
+      {doTime.length === 0 && !adding && (
         <span className="field-hint">
           Nenhuma ainda — este quadro só faz as perguntas de fábrica.
         </span>
@@ -920,6 +1025,7 @@ export default function FormSection({
             busy={busy}
             parents={parents}
             triggers={triggers}
+            editando
           />
         ) : (
           <div
@@ -1035,7 +1141,7 @@ export default function FormSection({
                   // Recusada a remoção, a linha volta: escondê-la de vez
                   // mostraria um formulário que não é o que está gravado.
                   send("DELETE", { id: field.id }).then((ok) => {
-                    if (!ok) setOrdem(fields);
+                    if (!ok) setOrdem(doTime);
                   });
                 }
               }}
@@ -1059,6 +1165,7 @@ export default function FormSection({
           busy={busy}
           parents={parents}
           triggers={triggers}
+          editando={false}
         />
       ) : (
         <button
