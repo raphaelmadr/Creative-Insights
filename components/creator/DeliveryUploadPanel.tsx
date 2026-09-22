@@ -37,6 +37,8 @@ import {
   formatoTemPosicoes,
   campoDeFrentes,
   frentesDoCard,
+  nomeDoParceiro,
+  tokenParceiro,
   nomeResponsavelDoEmail,
 } from "@/lib/delivery-naming";
 
@@ -411,8 +413,28 @@ export default function DeliveryUploadPanel({
           const arquivo = pool.find((p) => p.poolIndex === slot.poolIndex);
           if (!arquivo) continue;
 
-          const nomePeca =
-            formato === "video" ? undefined : REGRA[formato].nome ? arquivo.base : undefined;
+          /*
+           * A casa do nome, para os formatos que a têm.
+           *
+           * Vídeo passava `undefined` aqui — esperando um "nome do lote" que a
+           * tela nunca chegou a pedir —, e `montarNomeArquivo` preenchia a
+           * lacuna com `sem-nome`. Toda entrega de vídeo saiu assim:
+           * `1-influ-rm-video-SEM-NOME-set-MKT-2000`.
+           *
+           * O nome do parceiro vem primeiro porque é ele que identifica a peça
+           * numa entrega de parceria — é a mesma informação que o vídeo bruto
+           * já carrega, e ter as duas pontas com o mesmo nome é o que permite
+           * casar bruto e entrega olhando a pasta. Colado e sem acento, pelo
+           * mesmo motivo de `contextoBruto`: entre hífens, um nome hifenizado
+           * pareceria dois campos do padrão.
+           *
+           * Sem parceiro respondido, cai no nome do próprio arquivo — como
+           * animação e unboxing já faziam. `sem-nome` deixa de acontecer por
+           * omissão: só sobra para o caso em que não há nem uma coisa nem outra.
+           */
+          const nomePeca = REGRA[formato].nome
+            ? tokenParceiro(nomeDoParceiro(fields, values)) || arquivo.base
+            : undefined;
           const nomeBase = montarNomeArquivo({
             formato,
             indice: indice + 1,
