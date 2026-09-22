@@ -95,11 +95,55 @@ export function loadCategories(settings: LegacyCategorySettings | null | undefin
 }
 
 /**
+ * Quão exigente é uma categoria — para comparar duas SEM olhar a posição delas
+ * na lista.
+ *
+ * Devolve uma trinca comparada em ordem: retorno exigido, depois investimento
+ * exigido, depois aperto do teto de CPA. O retorno vem primeiro porque é ele que
+ * mede a conquista nesta operação; o investimento é porteiro de volume, e diz
+ * quanto a peça rodou, não quanto ela entregou.
+ *
+ * Um limite em zero é "sem limite", e não "limite zero" — é como a tela de metas
+ * grava um campo deixado em branco. Daí uma categoria sem critério nenhum
+ * pontuar (0, 0, 0): ela é o piso por construção, sem precisar de exceção
+ * escrita à parte, esteja onde estiver na lista.
+ */
+function demandRank(rules: CategoryRule): [number, number, number] {
+  const maxCpa = rules.maxCpa || 0;
+  return [
+    rules.minReturn || 0,
+    rules.minSpend || 0,
+    // Teto de CPA: quanto MENOR o teto, mais exigente. Invertido para que
+    // "maior é mais exigente" valha para os três componentes.
+    maxCpa > 0 ? 1 / maxCpa : 0,
+  ];
+}
+
+/** Compara duas exigências: positivo quando `a` é mais exigente que `b`. */
+function compareDemand(a: [number, number, number], b: [number, number, number]): number {
+  for (let i = 0; i < a.length; i++) {
+    if (a[i] !== b[i]) return a[i] - b[i];
+  }
+  return 0;
+}
+
+/**
  * Em qual categoria a peça cai — o índice, ou `-1` para nenhuma.
  *
- * A primeira que servir vence: a lista está em ordem de prioridade, da mais
- * exigente para a menos. Um limite em zero é "sem limite", e não "limite zero" —
- * é como a tela de metas grava um campo deixado em branco.
+ * Entre todas as categorias cujos critérios a peça cumpre, vence a MAIS
+ * EXIGENTE, medida pelos próprios critérios (ver `demandRank`). A posição na
+ * lista não participa: ela é ordem de exibição.
+ *
+ * Vencia a primeira que servisse, e isso fazia a ordenação da tela reclassificar
+ * o acervo. A tela de metas tem setas de subir e descer ao lado do nome da
+ * categoria, que é o lugar onde qualquer um espera mexer em como as coisas
+ * aparecem; quem as usou para ler a lista como progressão — recém-lançados,
+ * testando, validando, winners — mandou TODOS os anúncios para o primeiro item,
+ * porque uma categoria sem critério serve para qualquer peça e as de baixo
+ * jamais eram consultadas. Classificação é dos critérios; ordem é só ordem.
+ *
+ * Empate só acontece entre categorias de exigência idêntica, e aí não há o que
+ * distinguir: fica a primeira da lista.
  */
 export function matchCategoryIndex(
   totals: CreativeTotals,
@@ -109,6 +153,9 @@ export function matchCategoryIndex(
   const canal = (platform || "META").toUpperCase();
   const cpa = calculateCpa(totals);
   const retorno = referenceRevenue(totals);
+
+  let escolhida = -1;
+  let melhor: [number, number, number] | null = null;
 
   for (let i = 0; i < categories.length; i++) {
     const rules = categories[i].rules?.[canal] || categories[i].rules?.META || {};
@@ -122,10 +169,16 @@ export function matchCategoryIndex(
       (minReturn === 0 || retorno >= minReturn) &&
       (maxCpa === 0 || cpa <= maxCpa);
 
-    if (serve) return i;
+    if (!serve) continue;
+
+    const exigencia = demandRank(rules);
+    if (melhor === null || compareDemand(exigencia, melhor) > 0) {
+      melhor = exigencia;
+      escolhida = i;
+    }
   }
 
-  return -1;
+  return escolhida;
 }
 
 /**

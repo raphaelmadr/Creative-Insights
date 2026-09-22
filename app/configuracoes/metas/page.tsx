@@ -88,13 +88,16 @@ export default function MetasPage() {
           }
         } else {
           // Fallback to legacy structure if no JSON yet
+          // O campo é `maxCpa`. Escrito como `minCpa`, o teto de CPA configurado
+          // era jogado numa chave que ninguém lê, e a categoria ficava com o teto
+          // embutido no padrão em vez do que está gravado.
           const cats = JSON.parse(JSON.stringify(DEFAULT_CATEGORIES));
           cats[0].rules.META.minSpend = settingsRes.data.superWinnerSpend ?? 1000;
           cats[0].rules.META.minReturn = settingsRes.data.superWinnerReturn ?? 5000;
-          cats[0].rules.META.minCpa = settingsRes.data.superWinnerCpa ?? 50;
+          cats[0].rules.META.maxCpa = settingsRes.data.superWinnerCpa ?? 50;
           cats[1].rules.META.minSpend = settingsRes.data.winnerSpend ?? 500;
           cats[1].rules.META.minReturn = settingsRes.data.winnerReturn ?? 2000;
-          cats[1].rules.META.minCpa = settingsRes.data.winnerCpa ?? 60;
+          cats[1].rules.META.maxCpa = settingsRes.data.winnerCpa ?? 60;
           setCategories(cats);
         }
       }
@@ -295,7 +298,7 @@ export default function MetasPage() {
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
             <div>
               <h3 style={{ fontSize: "var(--text-cardtitle)", fontWeight: 600, margin: 0 }}>Categorias Dinâmicas</h3>
-              <p style={{ fontSize: "var(--text-caption)", opacity: 0.6, margin: "0.25rem 0 0" }}>A ordem define a prioridade da validação (de cima para baixo). O que não bater meta vira "Área de Testes".</p>
+              <p style={{ fontSize: "var(--text-caption)", opacity: 0.6, margin: "0.25rem 0 0" }}>A ordem aqui é só de exibição. Cada anúncio entra na categoria mais exigente cujos critérios ele cumpre, venha ela antes ou depois na lista. O que não bater nenhuma meta vira "Área de Testes".</p>
             </div>
             <div style={{ display: "flex", gap: "1rem" }}>
               <button type="button" onClick={addCategory} className="btn btn-secondary">
