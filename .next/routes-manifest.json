@@ -85,12 +85,6 @@
       "namedRegex": "^/api/creator/attachments(?:/)?$"
     },
     {
-      "page": "/api/creator/audiences",
-      "regex": "^/api/creator/audiences(?:/)?$",
-      "routeKeys": {},
-      "namedRegex": "^/api/creator/audiences(?:/)?$"
-    },
-    {
       "page": "/api/creator/boards",
       "regex": "^/api/creator/boards(?:/)?$",
       "routeKeys": {},

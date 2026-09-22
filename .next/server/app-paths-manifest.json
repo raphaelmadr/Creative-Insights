@@ -5,7 +5,6 @@
   "/api/auth/config-check/route": "app/api/auth/config-check/route.js",
   "/api/creatives/vision/route": "app/api/creatives/vision/route.js",
   "/api/creator/attachments/route": "app/api/creator/attachments/route.js",
-  "/api/creator/audiences/route": "app/api/creator/audiences/route.js",
   "/api/creator/boards/pulse/route": "app/api/creator/boards/pulse/route.js",
   "/api/creator/boards/route": "app/api/creator/boards/route.js",
   "/api/creator/cards/delivery/chunk/route": "app/api/creator/cards/delivery/chunk/route.js",

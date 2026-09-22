@@ -16,21 +16,41 @@ import {
   type CopyVariation,
 } from "@/lib/copy-parse";
 import { type CardAttachment } from "@/lib/attachments";
-import { camposVisiveis, limparRespostasOcultas } from "@/lib/kanban";
+import { camposVisiveis, limparRespostasOcultas, optionsFor, type FieldShape } from "@/lib/kanban";
 import {
   COPY_TONES,
   MAX_VARIATIONS,
   MIN_VARIATIONS,
   DEFAULT_VARIATIONS,
   COPY_MODES,
-  COPY_CHANNELS,
   OTHER_OPTION_ID,
   OTHER_OPTION_LABEL,
   buildCopyCardTitle,
-  formatsForChannel,
   isOtherOption,
+  splitVariations,
+  MIN_BODY_WORDS,
+  MAX_BODY_WORDS,
+  clampBodyMaxWords,
+  estimateOutputTokens,
+  findPieceKind,
+  guessPieceKind,
   type CopyModeId,
 } from "@/lib/copy-options";
+
+/**
+ * Canal e formato como o QUADRO os define.
+ *
+ * Eram duas listas fixas em `lib/copy-options.ts`, e não as do quadro: quem
+ * configurou nove formatos de Parcerias no formulário via um só na tela do
+ * gerador — "Todos os formatos e tamanhos" —, e o card criado saía com o campo
+ * Formato vazio, porque a resposta escolhida aqui não existia entre as opções
+ * de lá. A definição vem inteira do servidor para que a dependência entre os
+ * dois seja resolvida por `optionsFor`, a mesma função do formulário.
+ */
+interface BriefFields {
+  canal: FieldShape | null;
+  formato: FieldShape | null;
+}
 
 interface Target {
   boardId: string;
@@ -60,14 +80,6 @@ interface AlluProduct {
   url: string | null;
 }
 
-interface MetaAudience {
-  id: string;
-  name: string;
-  /** Já em português — a rota traduz, ver `lib/meta-audiences.ts`. */
-  subtypeLabel: string;
-  size: number | null;
-}
-
 /** A entrada fixa das duas listas — mesmo rótulo e mesma posição nos dois campos. */
 const OTHER_OPTION: SearchSelectOption = {
   id: OTHER_OPTION_ID,
@@ -91,24 +103,49 @@ const brl = (v: number) => v.toLocaleString("pt-BR", { style: "currency", curren
  */
 export default function CopyPage() {
   const [mode, setMode] = useState<CopyModeId>("ai");
-  const [productId, setProductId] = useState<string | null>(null);
+  /*
+   * VÁRIOS produtos por demanda: um lançamento costuma sair com o iPhone 16 e o
+   * 17 juntos, e abrir duas demandas para isso era o trabalho dobrado que esta
+   * lista evita. O número de variações pedido é o total e se reparte entre eles
+   * — ver `splitVariations`, que é quem decide a divisão aqui e no servidor.
+   */
+  const [productIds, setProductIds] = useState<string[]>([]);
   const [productName, setProductName] = useState("");
-  const [audienceId, setAudienceId] = useState<string | null>(null);
-  const [audienceText, setAudienceText] = useState("");
   const [objective, setObjective] = useState("");
+  /* Os valores são os RÓTULOS das opções do quadro ("Parcerias", "Reels
+     (9:16)") — é o que o card grava e o que o modelo lê. */
   const [channelId, setChannelId] = useState<string | null>(null);
   const [formatId, setFormatId] = useState<string | null>(null);
+  const [briefFields, setBriefFields] = useState<BriefFields>({ canal: null, formato: null });
   const [toneId, setToneId] = useState<string | null>(null);
   const [toneText, setToneText] = useState("");
   const [constraints, setConstraints] = useState("");
   const [variationCount, setVariationCount] = useState(DEFAULT_VARIATIONS);
 
+  /*
+   * O tipo da peça é CONSEQUÊNCIA do formato, não uma segunda pergunta.
+   *
+   * Havia um campo para escolhê-lo, e ele perguntava de novo o que o formato já
+   * tinha respondido: quem escolhe "Reels (9:16)" acabou de dizer que a peça é
+   * um vídeo. Duas perguntas para o mesmo fato são duas chances de elas se
+   * contradizerem — e a contradição iria calada para o prompt.
+   *
+   * O teto do corpo continua sendo um campo, porque ele é decisão de quem pede.
+   * `tetoEditado` guarda se alguém já mexeu nele à mão: sem isso, trocar o
+   * formato depois de ajustar o número jogaria o ajuste fora sem avisar.
+   */
+  const [bodyMaxWords, setBodyMaxWords] = useState(findPieceKind("estatico").defaultBodyMaxWords);
+  const [tetoEditado, setTetoEditado] = useState(false);
+
+  /** O que a saída não cumpriu do formato pedido — ver `checkCopyFormat`. */
+  const [formatIssues, setFormatIssues] = useState<string[]>([]);
+
+  /** Quantos tokens de resposta o provedor da vez devolve, no máximo. */
+  const [outputCeiling, setOutputCeiling] = useState<number | null>(null);
+
   const [products, setProducts] = useState<AlluProduct[]>([]);
-  const [audiences, setAudiences] = useState<MetaAudience[]>([]);
   const [loadingProducts, setLoadingProducts] = useState(true);
-  const [loadingAudiences, setLoadingAudiences] = useState(true);
   const [productsError, setProductsError] = useState<string | null>(null);
-  const [audiencesError, setAudiencesError] = useState<string | null>(null);
 
   /**
    * O resultado em duas formas.
@@ -163,27 +200,8 @@ export default function CopyPage() {
     }
   }, []);
 
-  const loadAudiences = React.useCallback(async (refresh = false) => {
-    setLoadingAudiences(true);
-    setAudiencesError(null);
-    try {
-      const res = await fetch(`/api/creator/audiences${refresh ? "?refresh=1" : ""}`);
-      const data = await res.json();
-      if (!res.ok) {
-        setAudiencesError(data.error || "Não foi possível consultar os públicos.");
-        return;
-      }
-      setAudiences(data.audiences || []);
-    } catch {
-      setAudiencesError("Falha de conexão com a Meta.");
-    } finally {
-      setLoadingAudiences(false);
-    }
-  }, []);
-
   useEffect(() => {
     loadProducts();
-    loadAudiences();
 
     fetch("/api/creator/copy")
       .then((res) => res.json())
@@ -198,6 +216,11 @@ export default function CopyPage() {
          */
         setGroupId(res.target?.groupId ?? times[0]?.id ?? null);
         setAiConfigured(res.aiConfigured !== false);
+        setOutputCeiling(typeof res.outputCeiling === "number" ? res.outputCeiling : null);
+        setBriefFields({
+          canal: res.briefFields?.canal ?? null,
+          formato: res.briefFields?.formato ?? null,
+        });
         /*
          * O que este quadro pergunta, já na abertura da tela — não só depois
          * de uma primeira tentativa de "Enviar ao Board" recusada. A rota
@@ -209,7 +232,7 @@ export default function CopyPage() {
         }
       })
       .catch(() => setTarget(null));
-  }, [loadProducts, loadAudiences]);
+  }, [loadProducts]);
 
   const manual = mode === "manual";
 
@@ -224,16 +247,57 @@ export default function CopyPage() {
   const etapaDestino =
     groups.find((g) => g.id === groupId)?.columnName ?? target?.columnName ?? null;
 
-  /** Os formatos do canal escolhido. Sem canal, a caixa de formato fica fechada. */
-  const channelFormats = useMemo(() => formatsForChannel(channelId), [channelId]);
+  /**
+   * O pedido cabe numa resposta só?
+   *
+   * `estimateOutputTokens` é a mesma conta que o servidor usa para reservar o
+   * espaço de saída — perguntar aqui com outra fórmula seria abrir espaço para a
+   * tela dizer que cabe e a resposta chegar cortada.
+   */
+  const naoCabe = useMemo(
+    () =>
+      !!outputCeiling &&
+      estimateOutputTokens((bodyMaxWords + 40) * variationCount) > outputCeiling,
+    [outputCeiling, bodyMaxWords, variationCount]
+  );
+
+  /** Quantas palavras, ao todo, cabem no teto do provedor da vez. */
+  const palavrasQueCabem = useMemo(
+    () => (outputCeiling ? Math.max(0, Math.floor((outputCeiling - 400) / 1.7)) : 0),
+    [outputCeiling]
+  );
+
+  /** O que a peça é, lido do nome do formato escolhido. */
+  const pieceKind = useMemo(() => guessPieceKind(formatId), [formatId]);
+  const peca = useMemo(() => findPieceKind(pieceKind), [pieceKind]);
+
+  /** Os canais que o quadro oferece. */
+  const channelOptions = useMemo(
+    () => (briefFields.canal ? optionsFor(briefFields.canal, {}) : []),
+    [briefFields.canal]
+  );
+
+  /**
+   * Os formatos do canal escolhido, resolvidos pelo próprio `optionsFor`.
+   *
+   * O campo do quadro guarda um MAPA do valor do canal para as escolhas daquele
+   * canal, e é `optionsFor` quem sabe lê-lo — reimplementar a leitura aqui era
+   * exatamente o que fazia a tela do gerador divergir do formulário.
+   */
+  const channelFormats = useMemo(
+    () =>
+      briefFields.formato && briefFields.canal
+        ? optionsFor(briefFields.formato, { [briefFields.canal.key]: channelId ?? "" })
+        : [],
+    [briefFields.formato, briefFields.canal, channelId]
+  );
 
   /*
    * "Outro / especifique" é uma opção da lista, não um campo permanente abaixo
    * dela. O id sentinela nunca vira id de produto: vira nulo no envio, e o campo
    * de texto livre só existe enquanto ele estiver escolhido.
    */
-  const productIsOther = isOtherOption(productId);
-  const audienceIsOther = isOtherOption(audienceId);
+  const productIsOther = productIds.some(isOtherOption);
   const toneIsOther = isOtherOption(toneId);
 
   /*
@@ -241,12 +305,31 @@ export default function CopyPage() {
    * isso que a checagem não é pelo id. Exigir o catálogo deixaria de fora a
    * campanha institucional e o produto que ainda não subiu no site.
    */
-  const hasProduct = (!!productId && !productIsOther) || !!productName.trim();
-  const hasAudience = (!!audienceId && !audienceIsOther) || !!audienceText.trim();
+  /** Os ids de catálogo de verdade — "Outro / especifique" não é um deles. */
+  const catalogIds = useMemo(() => productIds.filter((id) => !isOtherOption(id)), [productIds]);
 
-  const selectedProduct = useMemo(
-    () => products.find((p) => p.id === productId) ?? null,
-    [products, productId]
+  const hasProduct = catalogIds.length > 0 || (productIsOther && !!productName.trim());
+
+  const selectedProducts = useMemo(
+    () => catalogIds.map((id) => products.find((p) => p.id === id)).filter((p): p is AlluProduct => !!p),
+    [products, catalogIds]
+  );
+
+  /**
+   * Como as variações se repartem — mostrada na tela ANTES de gerar.
+   *
+   * A regra tem um lado que ninguém adivinha olhando o formulário: quando o
+   * número não divide certo, a sobra vai para o aparelho mais novo, e "mais
+   * novo" é deduzido do nome. Deixar a conta visível é o que transforma um
+   * palpite errado em algo que se corrige antes de gastar a geração, em vez de
+   * algo que se descobre na entrega.
+   */
+  const divisao = useMemo(
+    () =>
+      selectedProducts.length > 1
+        ? splitVariations(variationCount, selectedProducts.map((p) => ({ id: p.id, name: p.name })))
+        : [],
+    [selectedProducts, variationCount]
   );
 
   /**
@@ -261,11 +344,11 @@ export default function CopyPage() {
   const autoTitle = useMemo(
     () =>
       buildCopyCardTitle({
-        formatId,
-        productName: selectedProduct?.name || productName,
+        formatLabel: formatId,
+        productName: selectedProducts.map((p) => p.name).join(" + ") || productName,
         variations: variations.length || variationCount,
       }),
-    [formatId, selectedProduct, productName, variations.length, variationCount]
+    [formatId, selectedProducts, productName, variations.length, variationCount]
   );
 
   const productOptions: SearchSelectOption[] = useMemo(
@@ -283,27 +366,10 @@ export default function CopyPage() {
     [products]
   );
 
-  const audienceOptions: SearchSelectOption[] = useMemo(
-    () => [
-      OTHER_OPTION,
-      ...audiences.map((a) => ({
-        id: a.id,
-        label: a.name,
-        hint: a.subtypeLabel,
-        trailing: a.size !== null ? `~${a.size.toLocaleString("pt-BR")}` : undefined,
-      })),
-    ],
-    [audiences]
-  );
-
   const payload = () => ({
     mode,
-    productId: productIsOther ? null : productId,
+    productIds: catalogIds,
     productName: productIsOther ? productName : "",
-    // No manual o campo de público nem existe na tela: mandar o que sobrou de
-    // uma geração anterior poria no card um público que ninguém escolheu.
-    audienceId: manual || audienceIsOther ? null : audienceId,
-    audienceText: !manual && audienceIsOther ? audienceText : "",
     objective,
     channelId,
     formatId,
@@ -311,6 +377,8 @@ export default function CopyPage() {
     toneText: toneIsOther ? toneText : "",
     constraints,
     variations: variationCount,
+    pieceKind,
+    bodyMaxWords,
   });
 
   /** Uma variação escrita é uma que tem qualquer coisa em algum campo. */
@@ -359,8 +427,28 @@ export default function CopyPage() {
    */
   const changeChannel = (next: string | null) => {
     setChannelId(next);
-    if (formatId && !formatsForChannel(next).some((f) => f.id === formatId)) {
-      setFormatId(null);
+    const doNovoCanal =
+      briefFields.formato && briefFields.canal
+        ? optionsFor(briefFields.formato, { [briefFields.canal.key]: next ?? "" })
+        : [];
+    if (formatId && !doNovoCanal.includes(formatId)) changeFormat(null);
+  };
+
+  /**
+   * Trocar o formato rededuz o tipo da peça.
+   *
+   * É o único sinal que existe: o quadro nomeia os formatos livremente e não tem
+   * campo dizendo "isto é vídeo". Quem já escolheu o tipo à mão não é
+   * atropelado — a dedução só entra quando ela muda de resposta.
+   */
+  const changeFormat = (next: string | null) => {
+    setFormatId(next);
+
+    /* Formato novo, tipo de peça novo, teto novo — a menos que alguém já tenha
+       escolhido o número à mão, que aí é decisão e não padrão. */
+    const deduzido = guessPieceKind(next);
+    if (deduzido !== guessPieceKind(formatId) && !tetoEditado) {
+      setBodyMaxWords(findPieceKind(deduzido).defaultBodyMaxWords);
     }
   };
 
@@ -382,10 +470,6 @@ export default function CopyPage() {
       setError("Escolha um produto do catálogo ou descreva a oferta.");
       return;
     }
-    if (!hasAudience) {
-      setError("Escolha um público ou descreva para quem é a peça.");
-      return;
-    }
     if (!objective.trim()) {
       setError("O objetivo é obrigatório.");
       return;
@@ -393,6 +477,7 @@ export default function CopyPage() {
 
     setGenerating(true);
     setError(null);
+    setFormatIssues([]);
     setSent(null);
 
     try {
@@ -417,6 +502,13 @@ export default function CopyPage() {
       // edição.
       setRawCopy(parsed.length ? "" : texto);
       setReferences(data.referencesUsed || 0);
+      /*
+       * O que o servidor conferiu e continuou fora do formato, mesmo depois da
+       * rodada de correção. Não bloqueia nada — o texto está aí e é editável —,
+       * mas quem pediu uma landing page e recebeu um parágrafo precisa saber
+       * disso sem ter de conferir seção por seção.
+       */
+      setFormatIssues(Array.isArray(data.formatIssues) ? data.formatIssues : []);
     } catch {
       setError("Falha de conexão ao gerar a copy.");
     } finally {
@@ -426,7 +518,7 @@ export default function CopyPage() {
 
   /** O que de fato será gravado no card: os cards editados, ou o texto cru. */
   const finalCopy = () =>
-    variations.length ? serializeCopyVariations(variations) : rawCopy;
+    variations.length ? serializeCopyVariations(variations, peca.bodyLabel) : rawCopy;
 
   const hasResult = variations.length > 0 || !!rawCopy.trim();
 
@@ -583,7 +675,7 @@ export default function CopyPage() {
                 style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "0.5rem" }}
               >
                 <span>
-                  Produto <span style={{ color: "var(--danger)" }} aria-hidden="true">*</span>
+                  Produtos <span style={{ color: "var(--danger)" }} aria-hidden="true">*</span>
                 </span>
                 <button
                   type="button"
@@ -600,11 +692,12 @@ export default function CopyPage() {
 
               <SearchSelect
                 id="copy-produto"
+                multiple
                 options={productOptions}
-                value={productId}
-                onChange={setProductId}
+                value={productIds}
+                onChange={setProductIds}
                 loading={loadingProducts}
-                placeholder="Escolha um produto do site…"
+                placeholder="Escolha um ou mais produtos do site…"
                 emptyLabel="Nenhum produto com esse nome."
               />
 
@@ -616,14 +709,22 @@ export default function CopyPage() {
 
               {/* O preço aparece assim que o produto é escolhido: é o número que
                   vai para a copy e para a arte, e conferi-lo antes de gerar é
-                  mais barato do que descobrir errado depois de publicado. */}
-              {selectedProduct && (
-                <div style={{ ...block, display: "flex", flexDirection: "column", gap: "0.35rem" }}>
+                  mais barato do que descobrir errado depois de publicado. Com
+                  vários produtos, um bloco por produto — uma tabela de preços
+                  sem dizer de quem ela é serve para estampar o valor errado. */}
+              {selectedProducts.map((produto) => (
+                <div
+                  key={produto.id}
+                  style={{ ...block, display: "flex", flexDirection: "column", gap: "0.35rem" }}
+                >
+                  {selectedProducts.length > 1 && (
+                    <strong style={{ fontSize: "var(--text-caption)" }}>{produto.name}</strong>
+                  )}
                   <div style={{ display: "flex", flexWrap: "wrap", gap: "0.35rem" }}>
                     {[
-                      { label: "12 meses", value: selectedProduct.price12 },
-                      { label: "24 meses", value: selectedProduct.price24 },
-                      { label: "36 meses", value: selectedProduct.price36 },
+                      { label: "12 meses", value: produto.price12 },
+                      { label: "24 meses", value: produto.price24 },
+                      { label: "36 meses", value: produto.price36 },
                     ]
                       .filter((p) => p.value !== null)
                       .map((p) => (
@@ -657,10 +758,10 @@ export default function CopyPage() {
                   </div>
 
                   <span className="field-hint" style={{ display: "flex", alignItems: "center", gap: "0.4rem", flexWrap: "wrap" }}>
-                    {selectedProduct.deliveryDays !== null && <span>Entrega em {selectedProduct.deliveryDays} dias</span>}
-                    {selectedProduct.url && (
+                    {produto.deliveryDays !== null && <span>Entrega em {produto.deliveryDays} dias</span>}
+                    {produto.url && (
                       <a
-                        href={selectedProduct.url}
+                        href={produto.url}
                         target="_blank"
                         rel="noreferrer"
                         style={{ display: "inline-flex", alignItems: "center", gap: "0.2rem", color: "var(--primary)" }}
@@ -669,6 +770,44 @@ export default function CopyPage() {
                       </a>
                     )}
                   </span>
+                </div>
+              ))}
+
+              {/*
+                A divisão das variações, dita antes de gerar.
+
+                O número pedido é o TOTAL e se reparte entre os produtos; quando
+                não divide certo, a sobra vai para o aparelho mais novo, deduzido
+                do nome. É uma conta que ninguém adivinha olhando o formulário, e
+                vê-la aqui é o que permite corrigir a escolha antes de gastar a
+                geração — em vez de descobrir na entrega.
+              */}
+              {divisao.length > 0 && !manual && (
+                <div style={{ ...block, display: "flex", flexDirection: "column", gap: "0.3rem" }}>
+                  <span style={{ fontSize: "var(--text-caption)", fontWeight: 600 }}>
+                    {variationCount} {variationCount === 1 ? "variação" : "variações"} divididas entre{" "}
+                    {divisao.length} produtos
+                  </span>
+                  {divisao.map((parte) => (
+                    <span
+                      key={parte.id}
+                      className="field-hint"
+                      style={{ display: "flex", justifyContent: "space-between", gap: "0.75rem" }}
+                    >
+                      <span style={{ minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                        {parte.name}
+                      </span>
+                      <strong style={{ flexShrink: 0, color: parte.variations === 0 ? "var(--danger)" : "var(--primary)" }}>
+                        {parte.variations} {parte.variations === 1 ? "copy" : "copys"}
+                      </strong>
+                    </span>
+                  ))}
+                  {divisao.some((p) => p.variations === 0) && (
+                    <span className="field-hint" style={{ color: "var(--danger)" }}>
+                      Há menos variações do que produtos: algum produto ficaria sem copy nenhuma.
+                      Aumente a quantidade.
+                    </span>
+                  )}
                 </div>
               )}
 
@@ -688,67 +827,6 @@ export default function CopyPage() {
                 />
               )}
             </div>
-
-            {/*
-              Público — só no modo IA.
-
-              A lista existe para dar ao modelo a segmentação real da conta como
-              briefing. Quem escreve à mão já partiu de uma análise de público
-              antes de abrir a tela; repetir a pergunta aqui é pedir que a pessoa
-              formalize para ninguém uma decisão que ela já tomou.
-            */}
-            {!manual && (
-              <div className="field">
-                <label
-                  className="field-label"
-                  htmlFor="copy-publico"
-                  style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "0.5rem" }}
-                >
-                  <span>
-                    Público{" "}
-                    {!manual && <span style={{ color: "var(--danger)" }} aria-hidden="true">*</span>}
-                  </span>
-                  <button
-                    type="button"
-                    className="btn btn-ghost"
-                    style={refreshBtn}
-                    title="Rebuscar os públicos da conta de anúncios"
-                    onClick={() => loadAudiences(true)}
-                    disabled={loadingAudiences}
-                  >
-                    <RefreshCw size={11} />
-                    Atualizar
-                  </button>
-                </label>
-
-                <SearchSelect
-                  id="copy-publico"
-                  options={audienceOptions}
-                  value={audienceId}
-                  onChange={setAudienceId}
-                  loading={loadingAudiences}
-                  placeholder="Escolha um público da conta…"
-                  emptyLabel="Nenhum público com esse nome."
-                />
-
-                {audiencesError && (
-                  <span className="field-hint" style={{ color: "var(--danger)" }}>
-                    {audiencesError}
-                  </span>
-                )}
-
-                {audienceIsOther && (
-                  <input
-                    className="field-input"
-                    value={audienceText}
-                    placeholder="Descreva para quem é a peça"
-                    aria-label="Público descrito à mão"
-                    autoFocus
-                    onChange={(e) => setAudienceText(e.target.value)}
-                  />
-                )}
-              </div>
-            )}
 
             <div className="field">
               <label className="field-label" htmlFor="copy-objetivo">
@@ -771,52 +849,136 @@ export default function CopyPage() {
             {/*
               Canal antes de formato, porque formato depende dele.
 
-              O canal era texto livre ("Meta Ads", "meta", "IG") e o formato
-              oferecia os dezenove de uma vez, a maioria sem relação com onde a
-              peça ia rodar. Agora a segunda lista é a do canal escolhido — e
-              "Carrossel", que existe no Meta e no TikTok, deixa de ser ambíguo.
+              As duas listas são as DO QUADRO — as mesmas que o formulário de
+              demanda mostra, com o mesmo `dependsOn`. Antes eram uma cópia fixa
+              no código, e a cópia não acompanhava: quem configurava um formato
+              novo no quadro não o via aqui, e o card gerado nascia com o campo
+              Formato em branco, porque a resposta escolhida nesta tela não
+              existia entre as opções de lá.
             */}
-            <div className="field">
-              <label className="field-label" htmlFor="copy-canal">
-                Canal
-              </label>
-              <select
-                id="copy-canal"
-                className="field-input"
-                value={channelId ?? ""}
-                onChange={(e) => changeChannel(e.target.value || null)}
-              >
-                <option value="">Selecione…</option>
-                {COPY_CHANNELS.map((c) => (
-                  <option key={c.id} value={c.id}>
-                    {c.label}
-                  </option>
-                ))}
-              </select>
-            </div>
+            {briefFields.canal && (
+              <div className="field">
+                <label className="field-label" htmlFor="copy-canal">
+                  {briefFields.canal.label}
+                </label>
+                <select
+                  id="copy-canal"
+                  className="field-input"
+                  value={channelId ?? ""}
+                  onChange={(e) => changeChannel(e.target.value || null)}
+                >
+                  <option value="">Selecione…</option>
+                  {channelOptions.map((c) => (
+                    <option key={c} value={c}>
+                      {c}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
 
-            <div className="field">
-              <label className="field-label" htmlFor="copy-formato">
-                Formato
-              </label>
-              <select
-                id="copy-formato"
-                className="field-input"
-                value={formatId ?? ""}
-                disabled={!channelId}
-                onChange={(e) => setFormatId(e.target.value || null)}
-              >
-                <option value="">{channelId ? "Selecione…" : "Escolha o canal primeiro"}</option>
-                {channelFormats.map((f) => (
-                  <option key={f.id} value={f.id}>
-                    {f.label}
-                  </option>
-                ))}
-              </select>
-              {!channelId && (
-                <span className="field-hint">Cada canal tem os seus formatos.</span>
-              )}
-            </div>
+            {briefFields.formato && (
+              <div className="field">
+                <label className="field-label" htmlFor="copy-formato">
+                  {briefFields.formato.label}
+                </label>
+                <select
+                  id="copy-formato"
+                  className="field-input"
+                  value={formatId ?? ""}
+                  disabled={!channelId}
+                  onChange={(e) => changeFormat(e.target.value || null)}
+                >
+                  <option value="">{channelId ? "Selecione…" : "Escolha o canal primeiro"}</option>
+                  {channelFormats.map((f) => (
+                    <option key={f} value={f}>
+                      {f}
+                    </option>
+                  ))}
+                </select>
+                {!channelId && (
+                  <span className="field-hint">Cada canal tem os seus formatos.</span>
+                )}
+                {/*
+                  Canal escolhido e nenhuma opção: o quadro não configurou
+                  formato para ESTE canal. Uma caixa vazia e muda faria parecer
+                  defeito da tela — e o conserto é no formulário do quadro.
+                */}
+                {channelId && channelFormats.length === 0 && (
+                  <span className="field-hint">
+                    Nenhum formato configurado para {channelId} no quadro. Ajuste o campo
+                    &quot;{briefFields.formato.label}&quot; no formulário da demanda.
+                  </span>
+                )}
+              </div>
+            )}
+
+            {/*
+              Quanto o corpo pode ter.
+
+              O TIPO da peça não se pergunta: ele é lido do formato. Havia um
+              campo para escolhê-lo, e ele repetia o que o formato já tinha
+              respondido — quem escolhe "Reels (9:16)" acabou de dizer que a peça
+              é um vídeo. O que sobra aqui é a única coisa que o formato não diz:
+              quanto texto o corpo comporta. O tipo aparece na dica, para ficar
+              claro POR QUE o padrão mudou de 40 para 150 palavras ao trocar o
+              formato.
+
+              No modo manual não aparece: não há prompt a instruir, e quem
+              escreve decide o tamanho enquanto escreve.
+            */}
+            {!manual && (
+              <div className="field">
+                <label
+                  className="field-label"
+                  htmlFor="copy-max-palavras"
+                  style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "0.5rem" }}
+                >
+                  <span>Máximo de palavras — {peca.bodyLabel.toLowerCase()}</span>
+                  {bodyMaxWords !== peca.defaultBodyMaxWords && (
+                    <button
+                      type="button"
+                      className="btn btn-ghost"
+                      style={refreshBtn}
+                      onClick={() => {
+                        setTetoEditado(false);
+                        setBodyMaxWords(peca.defaultBodyMaxWords);
+                      }}
+                    >
+                      Voltar ao padrão ({peca.defaultBodyMaxWords})
+                    </button>
+                  )}
+                </label>
+                <input
+                  id="copy-max-palavras"
+                  type="number"
+                  className="field-input"
+                  min={MIN_BODY_WORDS}
+                  max={MAX_BODY_WORDS}
+                  value={bodyMaxWords}
+                  onChange={(e) => {
+                    setTetoEditado(true);
+                    setBodyMaxWords(Number(e.target.value));
+                  }}
+                  onBlur={(e) => setBodyMaxWords(clampBodyMaxWords(e.target.value, pieceKind))}
+                />
+                <span className="field-hint">
+                  {formatId ? (
+                    <>
+                      <strong>{formatId}</strong> é {peca.label.toLowerCase()}:{" "}
+                      {pieceKind === "video"
+                        ? "a IA escreve o roteiro com as falas na ordem em que são ditas e a marcação de tempo, não uma legenda."
+                        : pieceKind === "lp"
+                          ? "a IA escreve o texto da página por seções, com fôlego para quem lê rolando."
+                          : "a IA escreve o argumento para ser lido de passagem, no feed."}{" "}
+                    </>
+                  ) : null}
+                  O teto vale só para o {peca.bodyLabel.toLowerCase()}, e é teto, não alvo: a IA usa o
+                  que o argumento exigir e para aí. A <strong>headline é livre</strong> — quem a corta
+                  é a arte. Cada variação mostra a contagem ao lado do campo.
+                </span>
+              </div>
+            )}
 
             {/* Tom e restrições são instruções para o modelo. No modo manual não
                 há a quem instruir: quem escreve já está aplicando o tom. */}
@@ -903,9 +1065,20 @@ export default function CopyPage() {
                   Um card em branco por criativo, ao lado. Descer o número descarta os do fim.
                 </span>
               ) : (
-                variationCount >= 8 && (
-                  <span className="field-hint">
-                    Com muitas variações a IA fica mais concisa para caber no limite de resposta.
+                /*
+                 * O aviso compara o pedido com o teto REAL de quem vai atender.
+                 *
+                 * Era um número escolhido a esmo (1500 palavras). O teto de saída
+                 * varia muito entre provedores — a OpenAI devolve quatro vezes o
+                 * que a Cohere devolve —, e o provedor que atende é o primeiro da
+                 * cadeia configurada. Avisar com o número certo é a diferença
+                 * entre "pode ser que corte" e "não cabe, e o que fazer".
+                 */
+                naoCabe && (
+                  <span className="field-hint" style={{ color: "var(--warning)" }}>
+                    {variationCount} × {bodyMaxWords} palavras não cabem numa resposta só: o provedor
+                    da vez devolve no máximo ~{palavrasQueCabem} palavras. O texto viria cortado —
+                    reduza o máximo de palavras, ou gere uma variação por vez.
                   </span>
                 )
               )}
@@ -938,6 +1111,39 @@ export default function CopyPage() {
                 <span className="section-subtitle">{references} winner(s) como referência</span>
               )}
             </div>
+
+            {/*
+              O formato não foi cumprido, e o servidor já tentou corrigir.
+              Fica no topo do resultado, e não como erro: o texto veio e é
+              editável — o que falta é a pessoa saber que falta, antes de mandar
+              ao quadro uma "landing page" que é um parágrafo.
+            */}
+            {formatIssues.length > 0 && (
+              <div
+                style={{
+                  ...block,
+                  borderColor: "var(--warning)",
+                  background: "rgba(245,158,11,0.08)",
+                  display: "flex",
+                  flexDirection: "column",
+                  gap: "0.3rem",
+                }}
+              >
+                <strong style={{ fontSize: "var(--text-caption)" }}>
+                  A saída não bateu com o formato pedido
+                </strong>
+                {formatIssues.map((aviso) => (
+                  <span key={aviso} className="field-hint">
+                    {aviso}
+                  </span>
+                ))}
+                <span className="field-hint" style={{ opacity: 0.8 }}>
+                  A IA já foi chamada uma segunda vez para corrigir e não corrigiu. Gere de novo, ou
+                  troque a ordem dos provedores em Configurações › IA — a obediência ao formato varia
+                  bastante entre eles.
+                </span>
+              </div>
+            )}
 
             {!hasResult ? (
               <div
@@ -974,6 +1180,11 @@ export default function CopyPage() {
                         onRemove={() =>
                           setVariations((prev) => prev.filter((x) => x.id !== v.id))
                         }
+                        bodyLabel={peca.bodyLabel}
+                        /* No manual não há teto: quem escreve decide o tamanho
+                           enquanto escreve, e um contador em vermelho cobrando
+                           um limite que ninguém pediu só atrapalharia. */
+                        bodyMaxWords={manual ? undefined : bodyMaxWords}
                       />
                     ))}
                   </div>

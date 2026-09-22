@@ -11,24 +11,24 @@ import { NextResponse } from "next/server";
 import prisma from "@/lib/prisma";
 import { getCurrentCreator } from "@/lib/auth";
 import { CREATOR_ONLY_ERROR } from "@/lib/roles";
-import { isAiConfigured } from "@/lib/ai";
+import { AI_MAX_TOKENS, isAiConfigured, resolveAiChain } from "@/lib/ai";
 import {
   generateCopy,
   briefProductName,
-  briefAudienceName,
   type CopyBrief,
 } from "@/lib/creator-copy";
 import { copyTargetBoard, groupIntake, topPosition, logActivity } from "@/lib/kanban-store";
-import { isPriority, matchOption, optionsFor, parseDueDate, serializeAssignees,
+import { isPriority, optionsFor, parseDueDate, serializeAssignees,
   criarCardComCodigo, validateValues, camposObrigatoriosFaltando, camposVisiveis,
 } from "@/lib/kanban";
 import {
   buildCopyCardTitle,
+  clampBodyMaxWords,
   clampVariations,
+  guessPieceKind,
   findChannel,
   findFormat,
   findTone,
-  formatBelongsToChannel,
   isCopyMode,
   isOtherOption,
 } from "@/lib/copy-options";
@@ -36,7 +36,6 @@ import { sanitizeAttachments, serializeAttachments } from "@/lib/attachments";
 import { resolveStorageConfig } from "@/lib/media-upload";
 import { parseCopyVariations } from "@/lib/copy-parse";
 import { findAlluProduct, describePricing } from "@/lib/allu-catalog";
-import { findMetaAudience } from "@/lib/meta-audiences";
 
 /* A forma inteira do campo, e não só o que este arquivo lê: `camposVisiveis`
    precisa das opções e da regra de exibição para decidir o que ainda vale
@@ -157,11 +156,67 @@ export async function GET() {
         )
       : [];
 
+    /*
+     * O canal e o formato COMO O QUADRO OS DEFINE.
+     *
+     * O gerador tinha uma lista própria em `lib/copy-options.ts` e oferecia
+     * aquela. As duas não se encontravam: o quadro define nove formatos para
+     * Parcerias, e a tela mostrava um só — "Todos os formatos e tamanhos" —,
+     * porque era isso que a lista fixa dizia. Pior, o card criado saía com o
+     * campo Formato VAZIO, já que a resposta escolhida aqui não existia entre as
+     * opções de lá.
+     *
+     * Vão as duas definições inteiras, com o `dependsOn` e o mapa de opções, para
+     * a tela resolver a dependência com a mesma função que o formulário do
+     * quadro usa (`optionsFor`) em vez de reimplementar a regra.
+     */
+    const camposDoQuadro = target
+      ? await prisma.boardField.findMany({
+          where: { boardId: target.board.id },
+          orderBy: { position: "asc" },
+        })
+      : [];
+
+    const acharCampo = (chave: string) =>
+      camposDoQuadro.find(
+        (f) => f.key === chave || f.label.trim().toLowerCase() === chave
+      ) ?? null;
+
+    const comoCampo = (f: (typeof camposDoQuadro)[number] | null) =>
+      f
+        ? {
+            key: f.key,
+            label: f.label,
+            type: f.type,
+            required: f.required,
+            options: f.options,
+            dependsOn: f.dependsOn,
+            helpText: f.helpText,
+          }
+        : null;
+
+    /*
+     * O teto de saída de quem vai atender — o PRIMEIRO da cadeia, não o maior.
+     *
+     * Um provedor que trunca a resposta ainda responde com sucesso, então a
+     * cadeia de fallback não passa a vez: quem define o tamanho máximo do que
+     * volta é quem atende primeiro. A tela usa isto para avisar, antes de gerar,
+     * que a página pedida não cabe numa resposta só.
+     */
+    const cadeia = await resolveAiChain(
+      await prisma.systemSettings.findUnique({ where: { id: 1 } })
+    );
+
     return NextResponse.json({
       success: true,
       aiConfigured: await isAiConfigured(),
+      outputCeiling: cadeia[0]?.provider.maxOutputTokens ?? AI_MAX_TOKENS,
       missingFields,
       groups,
+      briefFields: {
+        canal: comoCampo(acharCampo("canal")),
+        formato: comoCampo(acharCampo("formato")),
+      },
       target: target
         ? {
             boardId: target.board.id,
@@ -198,36 +253,68 @@ async function buildBrief(body: any): Promise<CopyBrief> {
    * "este produto não está mais disponível" por ter dito justamente que ele não
    * está lá. A tela já o converte em nulo; a rota não confia nisso.
    */
-  const productId = isOtherOption(body.productId) ? null : body.productId;
-  const audienceId = isOtherOption(body.audienceId) ? null : body.audienceId;
+  /*
+   * Os ids chegam como LISTA — uma demanda cobre o lançamento inteiro, os iPhone
+   * 16 e 17 na mesma leva. O `productId` no singular ainda é aceito para que uma
+   * aba aberta antes desta mudança continue funcionando.
+   */
+  const brutos: unknown[] = Array.isArray(body.productIds)
+    ? body.productIds
+    : body.productId
+      ? [body.productId]
+      : [];
 
-  const product = productId ? await findAlluProduct(String(productId)) : null;
-  const audience = audienceId ? await findMetaAudience(String(audienceId)) : null;
+  const productIds = brutos
+    .map((id) => String(id))
+    .filter((id) => id && !isOtherOption(id));
+
+  /*
+   * Buscados em paralelo, e o que não existe mais cai fora aqui — a checagem de
+   * "sumiu do catálogo" logo abaixo compara as duas contagens.
+   */
+  const encontrados = await Promise.all(productIds.map((id) => findAlluProduct(id)));
+  const products = encontrados.filter((p): p is NonNullable<typeof p> => !!p);
+
+  /* O rótulo do formato, resolvido uma vez: ele responde duas perguntas — qual
+     é o formato e que tipo de peça ele é. */
+  const formatLabel = body.format?.trim() || findFormat(body.formatId)?.label || undefined;
 
   return {
-    product,
+    products,
     productName: body.productName?.trim() || undefined,
-    audience,
-    audienceText: body.audienceText?.trim() || undefined,
     objective: String(body.objective || "").trim(),
     toneId: findTone(body.toneId)?.id,
     toneText: body.toneText?.trim() || undefined,
-    formatId: findFormat(body.formatId)?.id,
     /*
-     * O canal vem da lista. Sem ele, mas com formato escolhido, o canal é
-     * deduzido do próprio formato — todo formato pertence a um. E `channel`
-     * continua sendo o rótulo, que é o que a descrição do card exibe; o texto
-     * livre de antes ainda é aceito para não quebrar chamadas antigas.
+     * Canal e formato são os RÓTULOS das opções do quadro, e é a tela quem os
+     * manda assim. Os ids da lista fixa antiga (`channelId`, `formatId`) ainda
+     * são aceitos e convertidos em rótulo: uma aba aberta antes desta mudança
+     * continua conseguindo enviar em vez de criar um card sem canal nenhum.
      */
-    channelId:
-      findChannel(body.channelId)?.id ?? findFormat(body.formatId)?.channelId ?? undefined,
     channel:
-      findChannel(body.channelId)?.label ??
-      findChannel(findFormat(body.formatId)?.channelId)?.label ??
-      body.channel?.trim() ??
+      body.channel?.trim() ||
+      findChannel(body.channelId)?.label ||
+      findChannel(findFormat(body.formatId)?.channelId)?.label ||
       undefined,
+    format: formatLabel,
     constraints: body.constraints?.trim() || undefined,
     variations: clampVariations(body.variations),
+    /*
+     * O tipo da peça sai do FORMATO, aqui como na tela — não do que o corpo da
+     * requisição afirma ser.
+     *
+     * Ele deixou de ser uma escolha: quem seleciona "Reels (9:16)" já disse que
+     * a peça é um vídeo. Derivar nos dois lados a partir do mesmo rótulo é o que
+     * garante que a tela e o prompt nunca discordem — lendo o `pieceKind`
+     * enviado, uma tela desatualizada pediria um roteiro com formato de estático
+     * e ninguém veria a divergência.
+     *
+     * O teto é preso à faixa aceita: o número vem de um campo numérico, onde
+     * nada impede digitar 99999 e pedir ao modelo mais do que ele consegue
+     * devolver.
+     */
+    pieceKind: guessPieceKind(formatLabel),
+    bodyMaxWords: clampBodyMaxWords(body.bodyMaxWords, guessPieceKind(formatLabel)),
   };
 }
 
@@ -255,15 +342,18 @@ export async function POST(request: Request) {
      * exatamente o que a pessoa acabou de fazer. A causa real é outra, e é ela
      * que a tela precisa dizer.
      */
-    if (body.productId && !isOtherOption(body.productId) && !brief.product) {
+    const pedidos = (
+      Array.isArray(body.productIds) ? body.productIds : body.productId ? [body.productId] : []
+    ).filter((id: unknown) => id && !isOtherOption(String(id)));
+
+    if (pedidos.length > (brief.products?.length ?? 0)) {
       return NextResponse.json(
-        { error: "Este produto não está mais disponível no catálogo. Atualize a lista." },
-        { status: 400 }
-      );
-    }
-    if (body.audienceId && !isOtherOption(body.audienceId) && !brief.audience) {
-      return NextResponse.json(
-        { error: "Este público não existe mais na conta de anúncios. Atualize a lista." },
+        {
+          error:
+            pedidos.length === 1
+              ? "Este produto não está mais disponível no catálogo. Atualize a lista."
+              : "Um dos produtos escolhidos não está mais disponível no catálogo. Atualize a lista.",
+        },
         { status: 400 }
       );
     }
@@ -280,31 +370,85 @@ export async function POST(request: Request) {
       );
     }
     /*
-     * Formato e canal precisam combinar. A tela só oferece os formatos do canal
-     * escolhido, então isto pega o que vem de fora dela — e diz o que está
-     * errado, em vez de gerar uma copy de stories para um pedido de e-mail.
+     * O quadro de destino e os campos dele, buscados UMA vez.
+     *
+     * Sobem para cá porque agora é o quadro que define canal e formato: a
+     * validação precisa deles antes de qualquer chamada de modelo, para não
+     * gastar uma geração inteira num pedido que o quadro vai recusar. O
+     * `target` nulo continua sendo tratado adiante, onde ele de fato impede o
+     * envio — gerar copy sem quadro configurado sempre funcionou.
      */
-    if (body.channelId && brief.formatId && !formatBelongsToChannel(brief.formatId, body.channelId)) {
-      const canal = findChannel(body.channelId);
-      return NextResponse.json(
-        { error: `"${findFormat(brief.formatId)?.label}" não é um formato de ${canal?.label ?? "outro canal"}.` },
-        { status: 400 }
-      );
-    }
+    const target = await copyTargetBoard();
+    const camposDoQuadro = target
+      ? await prisma.boardField.findMany({
+          where: { boardId: target.board.id },
+          orderBy: { position: "asc" },
+        })
+      : [];
+
+    const acharCampo = (chave: string) =>
+      camposDoQuadro.find(
+        (f) => f.key === chave || f.label.trim().toLowerCase() === chave
+      ) ?? null;
+
+    const campoCanal = acharCampo("canal");
+    const campoFormato = acharCampo("formato");
 
     /*
-     * Público e objetivo são exigidos só de quem vai gerar: eles existem para o
-     * modelo saber para quem escrever e por quê. No manual quem sabe isso é a
-     * pessoa que está escrevendo, e transformá-los em obrigação seria cobrar o
-     * preenchimento de um briefing que ninguém vai ler.
+     * Canal e formato viram resposta do card AQUI, e já validados.
+     *
+     * Antes eram adivinhados no fim, por `matchOption`, tentando casar o rótulo
+     * da lista fixa do gerador com o da opção do quadro — "Feed 1:1" de um lado,
+     * "Feed Quadrado (1:1)" do outro. Quando não casava, e quase nunca casava, o
+     * campo ficava VAZIO no card: a demanda chegava ao quadro sem dizer o
+     * formato que ela mesma pediu. Com a tela oferecendo as opções do quadro, o
+     * que chega aqui já é uma delas, e o que resta é conferir.
      */
-    if (mode === "ai") {
-      if (!briefAudienceName(brief)) {
+    const respostasDoBriefing: Record<string, unknown> = {};
+
+    if (campoCanal && brief.channel) {
+      const permitidos = optionsFor(campoCanal, {});
+      if (permitidos.length && !permitidos.includes(brief.channel)) {
         return NextResponse.json(
-          { error: "Escolha um público ou descreva para quem é a peça." },
+          { error: `"${brief.channel}" não é uma opção de ${campoCanal.label} neste quadro.` },
           { status: 400 }
         );
       }
+      respostasDoBriefing[campoCanal.key] =
+        campoCanal.type === "MULTISELECT" ? [brief.channel] : brief.channel;
+    }
+
+    if (campoFormato && brief.format) {
+      /*
+       * Depois do canal, de propósito: o formato depende dele para saber quais
+       * opções existem. E o canal entra como TEXTO, não como a resposta já
+       * gravada: num quadro onde alguém tornasse o canal um campo de escolha
+       * múltipla, a resposta seria uma lista, `optionsFor` não acharia a chave
+       * do mapa e devolveria zero formatos — recusando, em silêncio, qualquer
+       * formato que a tela oferecesse.
+       */
+      const permitidos = campoCanal
+        ? optionsFor(campoFormato, { [campoCanal.key]: brief.channel ?? "" })
+        : optionsFor(campoFormato, {});
+      if (permitidos.length && !permitidos.includes(brief.format)) {
+        return NextResponse.json(
+          {
+            error: `"${brief.format}" não é um formato de ${brief.channel ?? "canal nenhum"} neste quadro.`,
+          },
+          { status: 400 }
+        );
+      }
+      respostasDoBriefing[campoFormato.key] =
+        campoFormato.type === "MULTISELECT" ? [brief.format] : brief.format;
+    }
+
+    /*
+     * O objetivo é exigido só de quem vai gerar: ele existe para o modelo saber
+     * por que a peça está sendo escrita. No manual quem sabe isso é a pessoa que
+     * está escrevendo, e transformá-lo em obrigação seria cobrar o preenchimento
+     * de um briefing que ninguém vai ler.
+     */
+    if (mode === "ai") {
       if (!brief.objective) {
         return NextResponse.json({ error: "O objetivo é obrigatório." }, { status: 400 });
       }
@@ -326,10 +470,14 @@ export async function POST(request: Request) {
      * editado — era essa chamada inteira, descartada, que fazia "Enviar ao
      * Board" demorar no modo IA.
      */
-    const { text, winners } =
+    const { text, winners, formatIssues } =
       mode === "ai" && !body.sendToBoard
         ? await generateCopy(brief)
-        : { text: "", winners: [] as Awaited<ReturnType<typeof generateCopy>>["winners"] };
+        : {
+            text: "",
+            winners: [] as Awaited<ReturnType<typeof generateCopy>>["winners"],
+            formatIssues: [] as string[],
+          };
 
     /*
      * Gerar não é entregar.
@@ -351,10 +499,16 @@ export async function POST(request: Request) {
         copy: text,
         referencesUsed: winners.length,
         variations: brief.variations,
+        /*
+         * O que continuou fora do formato depois da rodada de correção. Não é
+         * erro — o texto veio e é editável —, mas quem pediu uma landing page e
+         * recebeu um parágrafo precisa saber disso sem ter que conferir seção
+         * por seção.
+         */
+        formatIssues,
       });
     }
 
-    const target = await copyTargetBoard();
     if (!target) {
       return NextResponse.json(
         { error: "Nenhum quadro configurado para receber copys." },
@@ -398,7 +552,6 @@ export async function POST(request: Request) {
     });
     const anexos = sanitizeAttachments(body.attachments, resolveStorageConfig(settings).host);
 
-    const formato = findFormat(brief.formatId);
     const tom = findTone(brief.toneId);
 
     /*
@@ -427,43 +580,13 @@ export async function POST(request: Request) {
      * respostas do formulário. Ele tinha a informação; só não a guardava onde o
      * resto do quadro procura.
      *
-     * Só entra o que `matchOption` reconhece sem ambiguidade. As duas listas de
-     * formato — a do gerador e a do formulário — hoje não se encontram
-     * ("Estático Feed" de um lado, "Feed 1:1" do outro), e é melhor o campo
-     * ficar vazio do que gravar no card uma resposta que ninguém deu.
+     * Canal e formato já foram conferidos contra as opções do quadro lá em cima,
+     * assim que o briefing foi montado — e entram prontos. Eram adivinhados aqui
+     * por `matchOption`, tentando casar duas listas escritas em lugares
+     * diferentes; quando não casava, o campo ficava vazio e a demanda chegava ao
+     * quadro sem dizer o formato que ela mesma pediu.
      */
-    const camposDoQuadro = await prisma.boardField.findMany({
-      where: { boardId: target.board.id },
-      orderBy: { position: "asc" },
-    });
-
-    const acharCampo = (chave: string) =>
-      camposDoQuadro.find(
-        (f) => f.key === chave || f.label.trim().toLowerCase() === chave
-      ) ?? null;
-
-    const respostas: Record<string, unknown> = {};
-
-    const campoCanal = acharCampo("canal");
-    const nomeDoCanal = findChannel(brief.channelId)?.label ?? brief.channel ?? null;
-    if (campoCanal && nomeDoCanal) {
-      const escolhida = matchOption(nomeDoCanal, optionsFor(campoCanal, respostas));
-      if (escolhida) {
-        respostas[campoCanal.key] =
-          campoCanal.type === "MULTISELECT" ? [escolhida] : escolhida;
-      }
-    }
-
-    const campoFormato = acharCampo("formato");
-    if (campoFormato && formato) {
-      // Depois do canal, de propósito: o formato depende dele para saber quais
-      // opções existem.
-      const escolhida = matchOption(formato.label, optionsFor(campoFormato, respostas));
-      if (escolhida) {
-        respostas[campoFormato.key] =
-          campoFormato.type === "MULTISELECT" ? [escolhida] : escolhida;
-      }
-    }
+    const respostas: Record<string, unknown> = { ...respostasDoBriefing };
 
     /*
      * A volumetria vai junto — é o número que o gerador já sabe.
@@ -555,7 +678,7 @@ export async function POST(request: Request) {
           title:
           String(body.title ?? "").trim().slice(0, 180) ||
           buildCopyCardTitle({
-            formatId: brief.formatId,
+            formatLabel: brief.format,
             productName: briefProductName(brief),
             variations: pecas,
           }),
@@ -568,12 +691,26 @@ export async function POST(request: Request) {
            * depender de alguém voltar ao site para conferir.
            */
           description: [
-          `**Produto:** ${briefProductName(brief)}`,
-          brief.product ? `**Preço:** ${describePricing(brief.product)}` : null,
-          brief.product?.url ? `**No site:** ${brief.product.url}` : null,
-          briefAudienceName(brief) ? `**Público:** ${briefAudienceName(brief)}` : null,
+          `**Produto${(brief.products?.length ?? 0) > 1 ? "s" : ""}:** ${briefProductName(brief)}`,
+          /*
+           * Preço e link POR PRODUTO, um por linha. Eram um só, do produto
+           * único; com vários, uma linha de preço sem dizer de quem é manda a
+           * arte estampar o valor errado no aparelho errado.
+           */
+          ...(brief.products ?? []).map((p) =>
+            (brief.products?.length ?? 0) > 1
+              ? `**Preço — ${p.name}:** ${describePricing(p)}`
+              : `**Preço:** ${describePricing(p)}`
+          ),
+          ...(brief.products ?? [])
+            .filter((p) => p.url)
+            .map((p) =>
+              (brief.products?.length ?? 0) > 1
+                ? `**No site — ${p.name}:** ${p.url}`
+                : `**No site:** ${p.url}`
+            ),
           brief.objective ? `**Objetivo:** ${brief.objective}` : null,
-          formato ? `**Formato:** ${formato.label}` : null,
+          brief.format ? `**Formato:** ${brief.format}` : null,
           brief.channel ? `**Canal:** ${brief.channel}` : null,
           tom ? `**Tom:** ${tom.label}` : null,
           // Sem tom da lista, o texto livre é o tom — ver `buildCopyPrompt`.

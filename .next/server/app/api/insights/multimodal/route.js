@@ -1,5 +1,5 @@
 var R=require("../../../../chunks/[turbopack]_runtime.js")("server/app/api/insights/multimodal/route.js")
-R.c("server/chunks/[root-of-the-server]__1g7qhpw._.js")
+R.c("server/chunks/[root-of-the-server]__0ycxoxw._.js")
 R.c("server/chunks/node_modules_next_1zdbrne._.js")
 R.c("server/chunks/node_modules_formdata-node_lib_esm_File_1ny6w8u.js")
 R.c("server/chunks/node_modules_next_dist_13kw1hb._.js")

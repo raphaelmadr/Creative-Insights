@@ -166,7 +166,13 @@ async function getBestHuggingFaceModel(): Promise<string> {
  * SDK nenhum, porque a tela de configuração também os lê. O que mora aqui é a
  * única parte que precisa do servidor: a chamada em si.
  */
-type AiRunner = (prompt: string, apiKey: string, images?: AiImageInput[]) => Promise<string | null>;
+type AiRunner = (
+  prompt: string,
+  apiKey: string,
+  images: AiImageInput[] | undefined,
+  /** Teto de saída desta chamada, já limitado ao que o provedor aceita. */
+  maxTokens: number
+) => Promise<string | null>;
 
 const RUNNERS: Record<AiProviderId, AiRunner> = {
   gemini: tryGemini,
@@ -234,7 +240,17 @@ export async function generateWithFallback(
   prompt: string,
   images?: AiImageInput[],
   /** O que estava sendo feito, para o log de falhas dizer em que a chave falhou. */
-  operation = "gerar resposta de IA"
+  operation = "gerar resposta de IA",
+  /**
+   * Teto de saída desta chamada, em tokens.
+   *
+   * O padrão serve às análises curtas, que são a maioria. Quem precisa de mais —
+   * uma landing page longa, por exemplo — pede aqui, e cada provedor recebe o
+   * menor entre o pedido e o que ele aceita: um teto global alto faria toda
+   * análise de criativo reservar espaço que ela nunca usa, e um teto global
+   * baixo cortaria a página no meio.
+   */
+  maxOutputTokens = AI_MAX_TOKENS
 ): Promise<string> {
   const settings = await prisma.systemSettings.findUnique({ where: { id: 1 } });
   const comChave = await resolveAiChain(settings);
@@ -275,7 +291,12 @@ export async function generateWithFallback(
 
   for (const { provider, apiKey } of chain) {
     try {
-      const resultado = await RUNNERS[provider.id](prompt, apiKey, images);
+      const resultado = await RUNNERS[provider.id](
+        prompt,
+        apiKey,
+        images,
+        Math.min(maxOutputTokens, provider.maxOutputTokens)
+      );
       if (resultado && resultado.trim()) return cleanAiOutput(resultado);
 
       /*
@@ -399,13 +420,18 @@ export function normalizeAiOutput(raw: string): string {
 // Alias to maintain compatibility with existing routes that used generateText
 export const generateText = generateWithFallback;
 
-async function tryGemini(prompt: string, apiKey: string, images?: AiImageInput[]): Promise<string | null> {
+async function tryGemini(
+  prompt: string,
+  apiKey: string,
+  images: AiImageInput[] | undefined,
+  maxTokens: number
+): Promise<string | null> {
   const modelId = await getCachedModel("gemini", () => getBestGeminiModel(apiKey), "gemini-3.6-flash");
   const genAI = new GoogleGenerativeAI(apiKey);
   const model = genAI.getGenerativeModel({
     model: modelId,
     systemInstruction: AI_OUTPUT_CONTRACT,
-    generationConfig: { temperature: AI_TEMPERATURE, maxOutputTokens: AI_MAX_TOKENS },
+    generationConfig: { temperature: AI_TEMPERATURE, maxOutputTokens: maxTokens },
   });
 
   let requestContent: any[] = [prompt];
@@ -429,7 +455,12 @@ async function tryGemini(prompt: string, apiKey: string, images?: AiImageInput[]
   return result.response.text().trim();
 }
 
-async function tryOpenAI(prompt: string, apiKey: string, images?: AiImageInput[]): Promise<string | null> {
+async function tryOpenAI(
+  prompt: string,
+  apiKey: string,
+  images: AiImageInput[] | undefined,
+  maxTokens: number
+): Promise<string | null> {
   const modelId = await getCachedModel("openai", () => getBestOpenAIModel(apiKey), "gpt-4o-mini");
   const openai = new OpenAI({ apiKey });
 
@@ -457,13 +488,18 @@ async function tryOpenAI(prompt: string, apiKey: string, images?: AiImageInput[]
       { role: "user", content: messageContent },
     ],
     temperature: AI_TEMPERATURE,
-    max_tokens: AI_MAX_TOKENS,
+    max_tokens: maxTokens,
   });
 
   return response.choices[0]?.message?.content?.trim() || null;
 }
 
-async function tryAnthropic(prompt: string, apiKey: string, images?: AiImageInput[]): Promise<string | null> {
+async function tryAnthropic(
+  prompt: string,
+  apiKey: string,
+  images: AiImageInput[] | undefined,
+  maxTokens: number
+): Promise<string | null> {
   const modelId = await getCachedModel("anthropic", () => getBestAnthropicModel(apiKey), "claude-3-5-sonnet-20240620");
   const anthropic = new Anthropic({ apiKey });
 
@@ -491,7 +527,7 @@ async function tryAnthropic(prompt: string, apiKey: string, images?: AiImageInpu
   // aceita `role: "system"` dentro de `messages`.
   const response = await anthropic.messages.create({
     model: modelId,
-    max_tokens: AI_MAX_TOKENS,
+    max_tokens: maxTokens,
     temperature: AI_TEMPERATURE,
     system: AI_OUTPUT_CONTRACT,
     messages: [{ role: "user", content: messageContent }],
@@ -501,7 +537,12 @@ async function tryAnthropic(prompt: string, apiKey: string, images?: AiImageInpu
   return textBlock ? textBlock.text.trim() : null;
 }
 
-async function tryGroq(prompt: string, apiKey: string, images?: AiImageInput[]): Promise<string | null> {
+async function tryGroq(
+  prompt: string,
+  apiKey: string,
+  images: AiImageInput[] | undefined,
+  maxTokens: number
+): Promise<string | null> {
   const modelId = await getCachedModel("groq", () => getBestGroqModel(apiKey), "qwen/qwen3.6-27b");
   const openai = new OpenAI({ apiKey, baseURL: "https://api.groq.com/openai/v1" });
   let messageContent: any[] = [{ type: "text", text: prompt }];
@@ -528,13 +569,18 @@ async function tryGroq(prompt: string, apiKey: string, images?: AiImageInput[]):
       { role: "user", content: messageContent },
     ],
     temperature: AI_TEMPERATURE,
-    max_tokens: AI_MAX_TOKENS,
+    max_tokens: maxTokens,
   });
 
   return response.choices[0]?.message?.content?.trim() || null;
 }
 
-async function tryOpenRouter(prompt: string, apiKey: string, images?: AiImageInput[]): Promise<string | null> {
+async function tryOpenRouter(
+  prompt: string,
+  apiKey: string,
+  images: AiImageInput[] | undefined,
+  maxTokens: number
+): Promise<string | null> {
   const modelId = await getCachedModel("openrouter", () => getBestOpenRouterModel(), "nvidia/nemotron-3.5-lightning:free");
   const openai = new OpenAI({ 
     apiKey, 
@@ -569,13 +615,18 @@ async function tryOpenRouter(prompt: string, apiKey: string, images?: AiImageInp
       { role: "user", content: messageContent },
     ],
     temperature: AI_TEMPERATURE,
-    max_tokens: AI_MAX_TOKENS,
+    max_tokens: maxTokens,
   });
 
   return response.choices[0]?.message?.content?.trim() || null;
 }
 
-async function tryCohere(prompt: string, apiKey: string, images?: AiImageInput[]): Promise<string | null> {
+async function tryCohere(
+  prompt: string,
+  apiKey: string,
+  images: AiImageInput[] | undefined,
+  maxTokens: number
+): Promise<string | null> {
   if (images && images.length > 0) {
     console.warn("Cohere doesn't support images in this fallback. Falling back to text-only mode.");
   }
@@ -592,7 +643,7 @@ async function tryCohere(prompt: string, apiKey: string, images?: AiImageInput[]
       preamble: AI_OUTPUT_CONTRACT,
       message: prompt,
       temperature: AI_TEMPERATURE,
-      max_tokens: AI_MAX_TOKENS,
+      max_tokens: maxTokens,
     })
   });
 
@@ -604,7 +655,12 @@ async function tryCohere(prompt: string, apiKey: string, images?: AiImageInput[]
   return data.text?.trim() || null;
 }
 
-async function tryHuggingFace(prompt: string, apiKey: string, images?: AiImageInput[]): Promise<string | null> {
+async function tryHuggingFace(
+  prompt: string,
+  apiKey: string,
+  images: AiImageInput[] | undefined,
+  maxTokens: number
+): Promise<string | null> {
   if (images && images.length > 0) {
     console.warn("HuggingFace fallback doesn't support images currently. Falling back to text-only mode.");
   }
@@ -623,7 +679,7 @@ async function tryHuggingFace(prompt: string, apiKey: string, images?: AiImageIn
         { role: "user", content: prompt },
       ],
       temperature: AI_TEMPERATURE,
-      max_tokens: AI_MAX_TOKENS,
+      max_tokens: maxTokens,
     })
   });
 
@@ -639,7 +695,7 @@ async function tryHuggingFace(prompt: string, apiKey: string, images?: AiImageIn
       body: JSON.stringify({
         // Sem papel de sistema nesta API: o contrato entra no próprio texto.
         inputs: `${AI_OUTPUT_CONTRACT}\n\n---\n\n${prompt}`,
-        parameters: { max_new_tokens: AI_MAX_TOKENS, temperature: AI_TEMPERATURE }
+        parameters: { max_new_tokens: maxTokens, temperature: AI_TEMPERATURE }
       })
     });
     
