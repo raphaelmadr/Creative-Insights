@@ -19,6 +19,7 @@ import {
   isPriority,
   parseValues,
   validateValues,
+  camposDoQuadro,
   parseDueDate,
   startOfCurrentMonth,
   parseAssignees,
@@ -469,10 +470,12 @@ export async function PUT(request: Request) {
       /* Ordenados por posição: `validateValues` decide visibilidade percorrendo
          o formulário na ordem em que ele é preenchido, e uma lista embaralhada
          faria um campo condicional ler o revelador como ainda em branco. */
-      const fields = await prisma.boardField.findMany({
-        where: { boardId: current.boardId },
-        orderBy: { position: "asc" },
-      });
+      const fields = camposDoQuadro(
+        await prisma.boardField.findMany({
+          where: { boardId: current.boardId },
+          orderBy: { position: "asc" },
+        })
+      );
 
       /*
        * A edição preserva o que não foi enviado.

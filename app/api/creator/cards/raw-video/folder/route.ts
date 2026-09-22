@@ -16,7 +16,13 @@ import { NextResponse } from "next/server";
 import prisma from "@/lib/prisma";
 import { getCurrentCreator } from "@/lib/auth";
 import { CREATOR_ONLY_ERROR } from "@/lib/roles";
-import { formatCardCode, parseValues, camposVisiveis, envioLiberado } from "@/lib/kanban";
+import {
+  formatCardCode,
+  parseValues,
+  camposVisiveis,
+  camposDoQuadro,
+  envioLiberado,
+} from "@/lib/kanban";
 import { criarDriveFolders } from "@/lib/drive-delivery";
 import {
   montarNomeBruto, frentesDoCard, nomeDoParceiro, nomeResponsavelDoEmail,
@@ -59,10 +65,12 @@ export async function POST(request: Request) {
      * o campo existe, está visível para estas respostas, e o envio está
      * liberado para elas.
      */
-    const campos = await prisma.boardField.findMany({
-      where: { boardId: card.boardId },
-      orderBy: { position: "asc" },
-    });
+    const campos = camposDoQuadro(
+      await prisma.boardField.findMany({
+        where: { boardId: card.boardId },
+        orderBy: { position: "asc" },
+      })
+    );
     const respostas = parseValues(card.values);
     const campo = camposVisiveis(campos, respostas).find((f) => f.key === fieldKey);
 
@@ -91,12 +99,13 @@ export async function POST(request: Request) {
      *
      * `frentesDoCard` é a MESMA função que o painel de entrega usa: o bruto e a
      * entrega da mesma demanda não podem discordar sobre qual é a frente dela.
+     * Ela lê a pergunta de fábrica pela chave — ver `CAMPOS_DE_FABRICA`.
      */
-    const frentes = frentesDoCard(campos, respostas);
+    const frentes = frentesDoCard(respostas);
 
     /* Mesma função da entrega: o bruto e a peça entregue da mesma demanda têm
        de nomear o MESMO parceiro. */
-    const nomeInfluenciador = nomeDoParceiro(campos, respostas);
+    const nomeInfluenciador = nomeDoParceiro(respostas);
 
     /* Quem sobe o vídeo entra no nome — decisão da equipe, e diferente da
        entrega, que usa o responsável do card. */

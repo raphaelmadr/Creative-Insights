@@ -60,69 +60,40 @@ export const FRENTE_CODIGOS: Record<string, string> = {
 };
 
 /**
- * Qual campo do quadro responde por "frente" — pelo CONTEÚDO, não pela chave.
+ * As chaves das respostas que a NOMENCLATURA precisa.
  *
- * Procurava-se a chave `frente`, e isso quebrou de um jeito que não dá sinal
- * nenhum: a chave não muda quando alguém renomeia o campo (é o que preserva as
- * respostas já dadas), então o campo que um dia se chamou "Frente" virou
- * "Formato" e ficou com a chave `frente`. Um "Frente" novo nasceu com a chave
- * `frente_2`. A entrega continuou lendo `frente`, agora cheio de "Reels
- * (9:16)" — e como isso não está em `FRENTE_CODIGOS`, o nome saiu com
- * `reels-9-16` no lugar de `influ`. Sem erro em lugar nenhum: só arquivos
- * nomeados errado, indefinidamente.
+ * Declaradas aqui, ao lado dos códigos que elas viram no nome do arquivo,
+ * porque é este módulo que depende delas: o quadro pergunta o que cada time
+ * quiser, mas estas três perguntas existem em todo quadro e com estas chaves —
+ * são perguntas de fábrica (`CAMPOS_DE_FABRICA`, em `lib/kanban.ts`), fora do
+ * alcance de quem configura os campos personalizados.
  *
- * A régua passa a ser o que o campo OFERECE: vence quem tiver mais opções
- * reconhecidas como frente. É a única pergunta que não depende de nome nenhum
- * — nem de chave, nem de rótulo —, e por isso sobrevive a renomeação, a
- * duplicação e à ordem dos campos.
- *
- * Empate ou nenhum reconhecido devolve nulo, e quem chama segue sem frente no
- * nome, como já fazia quando o campo não existia.
+ * Antes eram ADIVINHADAS, cada uma por um critério diferente: a frente pelo
+ * conteúdo das opções, o parceiro por palavra no rótulo, a quantidade pelo
+ * nome da chave. Toda adivinhação já errou em produção — a mais cara delas
+ * nomeou meses de entrega com `reels-9-16` onde devia estar `influ`.
  */
-export function campoDeFrentes<T extends { key: string; options?: string | null }>(
-  fields: T[]
-): T | null {
-  let melhor: T | null = null;
-  let melhorPlacar = 0;
-
-  for (const campo of fields) {
-    let placar = 0;
-    try {
-      const parsed = JSON.parse(campo.options || "[]");
-      const valores: string[] = Array.isArray(parsed)
-        ? parsed.filter((o): o is string => typeof o === "string")
-        : Object.values(parsed as Record<string, unknown>)
-            .flat()
-            .filter((o): o is string => typeof o === "string");
-      placar = valores.filter((v) => v in FRENTE_CODIGOS).length;
-    } catch {
-      placar = 0;
-    }
-
-    if (placar > melhorPlacar) {
-      melhorPlacar = placar;
-      melhor = campo;
-    }
-  }
-
-  return melhor;
-}
+export const CHAVE_FRENTE = "frente";
+export const CHAVE_PARCEIRO = "parceiro";
+export const CHAVE_VOLUMETRIA = "quantidade";
 
 /**
  * As frentes respondidas neste card, prontas para `montarNomeArquivo`.
  *
- * Uma função, e não a mesma leitura escrita em cada lugar: a entrega e o vídeo
- * bruto precisam concordar sobre qual campo é a frente, e foi justamente por
- * lerem coisas diferentes que um saía com `influ` e o outro com `reels-9-16`.
+ * Lê a pergunta de fábrica pela chave, e ponto. Já foi um adivinhador — a
+ * entrega procurava, entre os campos do quadro, aquele cujas opções mais
+ * pareciam frentes — e o adivinhador existia porque a pergunta era um campo
+ * personalizado como outro qualquer: dava para renomeá-la, reaproveitá-la ou
+ * apagá-la, e foi o que aconteceu ("Frente" virou "Formato" e ficou com a
+ * chave dela, um "Frente" novo nasceu ao lado com outra chave, e meses de
+ * arquivos saíram com `reels-9-16` no lugar de `influ`, sem erro nenhum em
+ * lugar algum).
+ *
+ * Com a pergunta de fábrica não há mais nada a adivinhar: a chave é a mesma em
+ * todo quadro e ninguém a apaga pela tela. Ver `CAMPOS_DE_FABRICA`.
  */
-export function frentesDoCard<T extends { key: string; options?: string | null }>(
-  fields: T[],
-  values: Record<string, unknown>
-): string[] {
-  const campo = campoDeFrentes(fields);
-  if (!campo) return [];
-
-  const resposta = values[campo.key];
+export function frentesDoCard(values: Record<string, unknown>): string[] {
+  const resposta = values[CHAVE_FRENTE];
   if (Array.isArray(resposta)) return resposta.filter((v): v is string => typeof v === "string");
   return typeof resposta === "string" && resposta ? [resposta] : [];
 }
@@ -250,25 +221,20 @@ export function contextoBruto(nomeInfluenciador: string | null | undefined): str
 }
 
 /**
- * Qual campo do quadro pergunta o nome do parceiro, e o que ele respondeu.
+ * O nome do parceiro respondido neste card.
  *
- * Achado pelo RÓTULO, e não pela chave — a chave de um campo renomeado deixa de
- * descrevê-lo, que é exatamente como a entrega passou a nomear com
- * `reels-9-16` (ver `campoDeFrentes`). Aqui não dá para usar a régua do
- * conteúdo, porque é um campo de texto livre: não há lista de opções para
- * reconhecer. O rótulo é o melhor sinal disponível, e os três termos cobrem
- * como a equipe escreve essa pergunta.
+ * Era procurado por PALAVRA NO RÓTULO — o primeiro campo cujo nome falasse de
+ * influenciador, embaixador ou parceiro. Texto livre não tem lista de opções
+ * para reconhecer, então não havia régua melhor enquanto a pergunta fosse um
+ * campo personalizado: renomeá-la para "Quem é o criador?" bastava para o
+ * nome do vídeo bruto sair `bruto` pelado, sem parceiro nenhum.
  *
- * Uma função só, usada pela entrega e pelo bruto, porque os dois precisam pôr o
- * MESMO parceiro no nome de arquivos da mesma demanda.
+ * Como pergunta de fábrica, a chave responde. Uma função só, usada pela
+ * entrega e pelo bruto, porque os dois precisam pôr o MESMO parceiro no nome
+ * de arquivos da mesma demanda.
  */
-export function nomeDoParceiro<T extends { key: string; label: string }>(
-  fields: T[],
-  values: Record<string, unknown>
-): string {
-  const campo = fields.find((f) => /influenc|embaixador|parceir/i.test(f.label));
-  if (!campo) return "";
-  const resposta = values[campo.key];
+export function nomeDoParceiro(values: Record<string, unknown>): string {
+  const resposta = values[CHAVE_PARCEIRO];
   return typeof resposta === "string" ? resposta.trim() : "";
 }
 

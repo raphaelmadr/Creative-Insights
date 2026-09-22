@@ -14,11 +14,17 @@ import { CREATOR_ONLY_ERROR } from "@/lib/roles";
 import {
   isFieldType,
   uniqueFieldKey,
+  slugifyFieldKey,
+  parseValues,
+  renomearChaveNasRespostas,
+  CHAVES_DE_FABRICA,
+  CAMPOS_DE_FABRICA,
   FIELD_TYPES_WITH_OPTIONS,
   FIELD_TYPES_WITH_UPLOAD,
   FIELD_TYPES_AS_TRIGGER,
   type FieldType,
 } from "@/lib/kanban";
+import type { BoardField, Prisma } from "@prisma/client";
 
 /** Uma lista de opções, limpa: sem vazias, sem repetidas. */
 function limpar(raw: unknown): string[] {
@@ -123,10 +129,19 @@ async function validarGatilho(
   if (showWhenKey === null || showWhenKey === "") return { ok: true, key: null, values: null };
   if (typeof showWhenKey !== "string") return { ok: false, error: "Campo revelador inválido." };
 
-  const gatilho = await prisma.boardField.findFirst({
-    where: { boardId, key: showWhenKey },
-    select: { id: true, type: true, label: true },
-  });
+  /*
+   * O revelador pode ser uma pergunta de FÁBRICA — "só quando a frente for
+   * Unboxing" é uma regra legítima, e a tela já oferece a frente na lista de
+   * reveladores (ela chega em `fields` como qualquer outra). Procurar só no
+   * banco devolveria "não existe neste quadro" para uma pergunta que está na
+   * tela, bem à vista de quem escreveu a regra.
+   */
+  const gatilho =
+    CAMPOS_DE_FABRICA.find((c) => c.key === showWhenKey) ??
+    (await prisma.boardField.findFirst({
+      where: { boardId, key: showWhenKey },
+      select: { id: true, type: true, label: true },
+    }));
 
   if (!gatilho) {
     return { ok: false, error: "O campo que revelaria este não existe neste quadro." };
@@ -186,6 +201,63 @@ async function validarGatilho(
   return { ok: true, key: showWhenKey, values: JSON.stringify(respostas) };
 }
 
+/**
+ * Troca a chave de um campo — e leva junto tudo que aponta para ela.
+ *
+ * São TRÊS coisas amarradas na mesma chave, e trocar só a primeira deixaria o
+ * quadro pior do que estava: as respostas gravadas em cada card, as regras dos
+ * outros campos que apontam para este (`dependsOn`, `showWhenKey`,
+ * `uploadWhenKey`) e a chave em si. Meio caminho é o que dá medo: a chave nova
+ * no campo e as respostas na velha é exatamente o estrago que esta rota existe
+ * para consertar.
+ *
+ * Por isso uma transação, e não uma sequência de gravações. Ela percorre card
+ * a card porque o valor é um JSON de texto — não há UPDATE que renomeie uma
+ * propriedade dentro dele —, e a lista já vem estreitada aos cards que citam a
+ * chave. O quadro real tem dezenas de cards; num de dezenas de milhares isto
+ * vira trabalho de fila, e não de requisição.
+ *
+ * Os arquivados entram: a resposta deles é registro, e registro com a chave
+ * velha some da tela do arquivo tão silenciosamente quanto sumiria a do quadro.
+ */
+async function trocarChave(
+  campo: BoardField,
+  para: string,
+  dados: Prisma.BoardFieldUpdateInput
+): Promise<BoardField> {
+  const de = campo.key;
+
+  return prisma.$transaction(
+    async (tx) => {
+      const cards = await tx.boardCard.findMany({
+        // `contains` é só a peneira: a chave também pode aparecer como texto de
+        // uma resposta qualquer, e quem decide é o `de in values` lá embaixo.
+        where: { boardId: campo.boardId, values: { contains: `"${de}"` } },
+        select: { id: true, values: true },
+      });
+
+      for (const card of cards) {
+        const values = parseValues(card.values);
+        if (!(de in values)) continue;
+        await tx.boardCard.update({
+          where: { id: card.id },
+          data: { values: JSON.stringify(renomearChaveNasRespostas(values, de, para)) },
+        });
+      }
+
+      for (const coluna of ["dependsOn", "showWhenKey", "uploadWhenKey"] as const) {
+        await tx.boardField.updateMany({
+          where: { boardId: campo.boardId, [coluna]: de },
+          data: { [coluna]: para },
+        });
+      }
+
+      return tx.boardField.update({ where: { id: campo.id }, data: { ...dados, key: para } });
+    },
+    { timeout: 20000 }
+  );
+}
+
 export async function POST(request: Request) {
   const user = await getCurrentCreator();
   if (!user) return NextResponse.json({ error: CREATOR_ONLY_ERROR }, { status: 403 });
@@ -225,6 +297,11 @@ export async function POST(request: Request) {
       );
     }
 
+    /* As chaves de fábrica entram como ocupadas: uma pergunta chamada "Frente"
+       geraria a chave `frente`, que é a da pergunta de fábrica de mesmo nome —
+       e duas perguntas com a mesma chave gravam uma por cima da outra. Com
+       elas na lista, a nova nasce `frente_2` e continua sendo dela a resposta.
+       Ver `CAMPOS_DE_FABRICA`. */
     const existing = await prisma.boardField.findMany({ where: { boardId }, select: { key: true } });
     const last = await prisma.boardField.findFirst({
       where: { boardId },
@@ -235,7 +312,7 @@ export async function POST(request: Request) {
     const field = await prisma.boardField.create({
       data: {
         boardId,
-        key: uniqueFieldKey(label, existing.map((f) => f.key)),
+        key: uniqueFieldKey(label, [...CHAVES_DE_FABRICA, ...existing.map((f) => f.key)]),
         label: label.trim(),
         type,
         options: serialized,
@@ -295,7 +372,7 @@ export async function PUT(request: Request) {
       return NextResponse.json({ success: true });
     }
 
-    const { id, label, type, options, placeholder, helpText, required, showOnCard, dependsOn,
+    const { id, key, label, type, options, placeholder, helpText, required, showOnCard, dependsOn,
       showWhenKey, showWhenValues, uploadWhenKey, uploadWhenValues } = body;
     if (!id) return NextResponse.json({ error: "ID do campo é obrigatório." }, { status: 400 });
 
@@ -308,11 +385,19 @@ export async function PUT(request: Request) {
     }
 
     /*
-     * A chave NÃO é recalculada ao renomear.
+     * A chave NÃO é recalculada ao renomear o RÓTULO — mas pode ser trocada de
+     * propósito.
      *
-     * É a única coisa que liga a pergunta às respostas já gravadas nos cards.
-     * Recalculá-la a partir do novo rótulo faria "Prazo" virar "data_de_entrega"
-     * e deixaria para trás, invisível, tudo que já foi respondido.
+     * Ela é a única coisa que liga a pergunta às respostas já gravadas nos
+     * cards. Recalculá-la a partir do novo rótulo faria "Prazo" virar
+     * "data_de_entrega" e deixaria para trás, invisível, tudo que já foi
+     * respondido — por isso o rótulo não a move.
+     *
+     * Trocá-la de propósito é outra coisa, e faltava: uma pergunta
+     * REAPROVEITADA (renomeada e com a lista de opções trocada) fica com a
+     * chave de uma pergunta que não é mais a dela, e o quadro não tinha como
+     * desfazer. Ver `renomearChaveNasRespostas`, que é quem leva as respostas
+     * junto — sem isso, trocar a chave seria apagar todas elas.
      */
     const pai = await validarPai(current.boardId, dependsOn, id);
     if (!pai.ok) return NextResponse.json({ error: pai.error }, { status: 400 });
@@ -357,9 +442,41 @@ export async function PUT(request: Request) {
       );
     }
 
-    const field = await prisma.boardField.update({
-      where: { id },
-      data: {
+    /*
+     * A chave pedida, já no formato de chave.
+     *
+     * Passa pelo mesmo `slugifyFieldKey` da criação em vez de ser aceita
+     * literalmente: a chave viaja em JSON e em nome de campo de formulário, e
+     * uma digitada com acento ou espaço voltaria a dar problema onde a gerada
+     * nunca deu. Em branco — ou ausente — é "deixe como está".
+     */
+    const proximaChave =
+      typeof key === "string" && key.trim() ? slugifyFieldKey(key) : current.key;
+
+    if (CHAVES_DE_FABRICA.has(proximaChave)) {
+      const daFabrica = CAMPOS_DE_FABRICA.find((c) => c.key === proximaChave);
+      return NextResponse.json(
+        {
+          error: `A chave "${proximaChave}" é da pergunta de fábrica "${daFabrica?.label}" — ela existe em todo quadro e não se reaproveita.`,
+        },
+        { status: 400 }
+      );
+    }
+
+    if (proximaChave !== current.key) {
+      const ocupada = await prisma.boardField.findFirst({
+        where: { boardId: current.boardId, key: proximaChave, NOT: { id } },
+        select: { label: true },
+      });
+      if (ocupada) {
+        return NextResponse.json(
+          { error: `A chave "${proximaChave}" já é de "${ocupada.label}" neste quadro.` },
+          { status: 400 }
+        );
+      }
+    }
+
+    const dados = {
         ...(label !== undefined ? { label: String(label).trim() } : {}),
         type: nextType,
         // Trocar para um tipo sem opções limpa a lista: deixá-la gravada faria
@@ -383,8 +500,12 @@ export async function PUT(request: Request) {
         ...(helpText !== undefined ? { helpText: String(helpText).trim() || null } : {}),
         ...(required !== undefined ? { required: !!required } : {}),
         ...(showOnCard !== undefined ? { showOnCard: !!showOnCard } : {}),
-      },
-    });
+    };
+
+    const field =
+      proximaChave === current.key
+        ? await prisma.boardField.update({ where: { id }, data: dados })
+        : await trocarChave(current, proximaChave, dados);
 
     return NextResponse.json({ success: true, field });
   } catch (error: any) {

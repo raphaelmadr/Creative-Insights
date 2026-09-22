@@ -9,7 +9,14 @@
 
 import { createHash } from "node:crypto";
 import prisma from "./prisma";
-import { DEFAULT_BOARD, parseAssignees, startOfCurrentMonth, uniqueFieldKey } from "./kanban";
+import {
+  DEFAULT_BOARD,
+  camposDoQuadro,
+  type CampoDoQuadro,
+  parseAssignees,
+  startOfCurrentMonth,
+  uniqueFieldKey,
+} from "./kanban";
 
 /** O quadro inteiro, do jeito que a tela consome. */
 export const BOARD_INCLUDE = {
@@ -17,6 +24,21 @@ export const BOARD_INCLUDE = {
   fields: { orderBy: { position: "asc" } },
   groups: { orderBy: { position: "asc" } },
 } as const;
+
+/**
+ * O quadro como toda tela deve recebê-lo: com as perguntas de fábrica dentro.
+ *
+ * `BOARD_INCLUDE` traz só as linhas de `BoardField`, e as de fábrica não são
+ * linhas — moram em código, justamente para não poderem ser apagadas (ver
+ * `CAMPOS_DE_FABRICA`). Somá-las em cada rota que devolve um quadro seria
+ * esperar que ninguém esquecesse; esquecido um lugar, o formulário de lá
+ * simplesmente para de perguntar a frente, e a entrega perde o nome.
+ */
+export function comCamposDeFabrica<T extends { fields: { key: string }[] }>(
+  board: T | null
+): (Omit<T, "fields"> & { fields: (T["fields"][number] | CampoDoQuadro)[] }) | null {
+  return board ? { ...board, fields: camposDoQuadro(board.fields) } : null;
+}
 
 /**
  * Cria o quadro inicial quando ainda não existe nenhum.

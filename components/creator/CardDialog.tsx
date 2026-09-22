@@ -925,7 +925,6 @@ export default function CardDialog({
           code={card.code}
           assignees={card.assignees}
           values={values}
-          fields={fields}
           people={people}
           emProducao={emProducao}
           onUploaded={onChanged}
