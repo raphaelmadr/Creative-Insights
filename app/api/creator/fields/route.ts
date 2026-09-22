@@ -15,6 +15,8 @@ import {
   isFieldType,
   uniqueFieldKey,
   FIELD_TYPES_WITH_OPTIONS,
+  FIELD_TYPES_WITH_UPLOAD,
+  FIELD_TYPES_AS_TRIGGER,
   type FieldType,
 } from "@/lib/kanban";
 
@@ -93,13 +95,104 @@ async function validarPai(
   return { ok: true, key: dependsOn };
 }
 
+/**
+ * A regra que faz um campo APARECER — campo revelador e respostas que o revelam.
+ *
+ * Outro eixo que `validarPai`, e por isso uma função separada: lá se decide de
+ * onde saem as OPÇÕES deste campo, aqui se decide se ele existe na tela. O
+ * mesmo campo pode ter os dois, e um revelador pode ser de qualquer tipo com
+ * lista — inclusive escolha múltipla, que não serve de pai (ver
+ * `FIELD_TYPES_AS_TRIGGER`).
+ *
+ * Regra com revelador e NENHUMA resposta marcada é recusada em vez de aceita e
+ * ignorada: gravá-la deixaria o campo visível para sempre, que é o oposto do
+ * que quem a escreveu pediu, e sem nada em lugar nenhum dizendo que a regra não
+ * pegou.
+ */
+async function validarGatilho(
+  boardId: string,
+  showWhenKey: unknown,
+  showWhenValues: unknown,
+  selfId?: string,
+  selfKey?: string
+): Promise<
+  | { ok: true; key: string | null; values: string | null }
+  | { ok: false; error: string }
+> {
+  if (showWhenKey === undefined) return { ok: true, key: null, values: null };
+  if (showWhenKey === null || showWhenKey === "") return { ok: true, key: null, values: null };
+  if (typeof showWhenKey !== "string") return { ok: false, error: "Campo revelador inválido." };
+
+  const gatilho = await prisma.boardField.findFirst({
+    where: { boardId, key: showWhenKey },
+    select: { id: true, type: true, label: true },
+  });
+
+  if (!gatilho) {
+    return { ok: false, error: "O campo que revelaria este não existe neste quadro." };
+  }
+  if (gatilho.id === selfId) {
+    return { ok: false, error: "Um campo não pode depender da própria resposta para aparecer." };
+  }
+  if (!FIELD_TYPES_AS_TRIGGER.includes(gatilho.type as FieldType)) {
+    return {
+      ok: false,
+      error: "Só um campo de escolha — única ou múltipla — pode fazer outro aparecer.",
+    };
+  }
+
+  /*
+   * Nenhum ciclo na cadeia de revelação.
+   *
+   * A tela não restringe mais quem pode revelar quem — a ordem do formulário é
+   * derivada da regra, então o revelador pode estar em qualquer posição. O que
+   * ela NÃO pode é fechar um laço: "A aparece quando B" e "B aparece quando A"
+   * deixa os dois escondidos para sempre, e nenhuma resposta possível os traz
+   * de volta. `ordenarCampos` sobrevive a isso sem quebrar a tela, mas o par de
+   * campos fica inalcançável — melhor recusar a regra que o cria.
+   *
+   * Sobe a cadeia a partir do revelador proposto: chegar de volta a este campo
+   * é a definição do laço.
+   */
+  if (selfKey) {
+    const doQuadro = await prisma.boardField.findMany({
+      where: { boardId },
+      select: { key: true, showWhenKey: true },
+    });
+    const acima = new Map(doQuadro.map((f) => [f.key, f.showWhenKey]));
+
+    let subindo: string | null | undefined = showWhenKey;
+    const visitados = new Set<string>();
+    while (subindo && !visitados.has(subindo)) {
+      if (subindo === selfKey) {
+        return {
+          ok: false,
+          error: `"${gatilho.label}" já depende deste campo para aparecer — um não pode revelar o outro nos dois sentidos.`,
+        };
+      }
+      visitados.add(subindo);
+      subindo = acima.get(subindo);
+    }
+  }
+
+  const respostas = limpar(showWhenValues);
+  if (!respostas.length) {
+    return {
+      ok: false,
+      error: `Escolha ao menos uma resposta de "${gatilho.label}" que faz este campo aparecer.`,
+    };
+  }
+
+  return { ok: true, key: showWhenKey, values: JSON.stringify(respostas) };
+}
+
 export async function POST(request: Request) {
   const user = await getCurrentCreator();
   if (!user) return NextResponse.json({ error: CREATOR_ONLY_ERROR }, { status: 403 });
 
   try {
-    const { boardId, label, type, options, placeholder, helpText, required, showOnCard, dependsOn } =
-      await request.json();
+    const { boardId, label, type, options, placeholder, helpText, required, showOnCard, dependsOn,
+      showWhenKey, showWhenValues, uploadWhenKey, uploadWhenValues } = await request.json();
 
     if (!boardId || !label?.trim()) {
       return NextResponse.json({ error: "Quadro e rótulo são obrigatórios." }, { status: 400 });
@@ -110,6 +203,15 @@ export async function POST(request: Request) {
 
     const pai = await validarPai(boardId, dependsOn);
     if (!pai.ok) return NextResponse.json({ error: pai.error }, { status: 400 });
+
+    const gatilho = await validarGatilho(boardId, showWhenKey, showWhenValues);
+    if (!gatilho.ok) return NextResponse.json({ error: gatilho.error }, { status: 400 });
+
+    /* A regra do ENVIO passa pela mesma validação, e sem checagem de ciclo: ela
+       não decide se o campo existe na tela, só se o botão de subir arquivo
+       aparece dentro dele — não há laço possível. */
+    const envio = await validarGatilho(boardId, uploadWhenKey, uploadWhenValues);
+    if (!envio.ok) return NextResponse.json({ error: envio.error }, { status: 400 });
 
     const serialized = normalizeOptions(type, options, pai.key);
     if (FIELD_TYPES_WITH_OPTIONS.includes(type) && !serialized) {
@@ -138,6 +240,13 @@ export async function POST(request: Request) {
         type,
         options: serialized,
         dependsOn: pai.key,
+        showWhenKey: gatilho.key,
+        showWhenValues: gatilho.values,
+        // Só o tipo que aceita envio guarda a regra do envio: gravá-la num
+        // campo de texto deixaria a condição viva, invisível, esperando o dia
+        // em que alguém trocasse o tipo.
+        uploadWhenKey: FIELD_TYPES_WITH_UPLOAD.includes(type) ? envio.key : null,
+        uploadWhenValues: FIELD_TYPES_WITH_UPLOAD.includes(type) ? envio.values : null,
         placeholder: placeholder?.trim() || null,
         helpText: helpText?.trim() || null,
         required: !!required,
@@ -186,7 +295,8 @@ export async function PUT(request: Request) {
       return NextResponse.json({ success: true });
     }
 
-    const { id, label, type, options, placeholder, helpText, required, showOnCard, dependsOn } = body;
+    const { id, label, type, options, placeholder, helpText, required, showOnCard, dependsOn,
+      showWhenKey, showWhenValues, uploadWhenKey, uploadWhenValues } = body;
     if (!id) return NextResponse.json({ error: "ID do campo é obrigatório." }, { status: 400 });
 
     const current = await prisma.boardField.findUnique({ where: { id } });
@@ -209,6 +319,27 @@ export async function PUT(request: Request) {
 
     // `dependsOn` ausente no corpo não mexe no que está gravado.
     const proximoPai = dependsOn === undefined ? current.dependsOn : pai.key;
+
+    const gatilho = await validarGatilho(
+      current.boardId, showWhenKey, showWhenValues, id, current.key
+    );
+    if (!gatilho.ok) return NextResponse.json({ error: gatilho.error }, { status: 400 });
+
+    // Mesma regra do pai: ausente no corpo, fica como está. A chave e as
+    // respostas andam JUNTAS — guardar uma sem a outra é a regra pela metade,
+    // que `camposVisiveis` lê como "sem regra".
+    const proximoGatilho =
+      showWhenKey === undefined
+        ? { key: current.showWhenKey, values: current.showWhenValues }
+        : { key: gatilho.key, values: gatilho.values };
+
+    const envio = await validarGatilho(current.boardId, uploadWhenKey, uploadWhenValues, id);
+    if (!envio.ok) return NextResponse.json({ error: envio.error }, { status: 400 });
+
+    const proximoEnvio =
+      uploadWhenKey === undefined
+        ? { key: current.uploadWhenKey, values: current.uploadWhenValues }
+        : { key: envio.key, values: envio.values };
 
     const serialized =
       options !== undefined
@@ -237,6 +368,17 @@ export async function PUT(request: Request) {
         // Tipo sem opções não tem pai: a dependência só existe para filtrar
         // uma lista de escolhas que este campo deixou de ter.
         dependsOn: FIELD_TYPES_WITH_OPTIONS.includes(nextType) ? proximoPai : null,
+        /* A regra de exibição sobrevive à troca de tipo, ao contrário das
+           opções e do pai: ela não fala do que ESTE campo oferece, e sim de
+           quando ele é perguntado — trocar "texto curto" por "data" não muda
+           nada sobre isso. */
+        showWhenKey: proximoGatilho.key,
+        showWhenValues: proximoGatilho.key ? proximoGatilho.values : null,
+        // A regra do envio morre com a troca para um tipo que não aceita envio
+        // — é o mesmo critério das opções e do pai, logo acima.
+        uploadWhenKey: FIELD_TYPES_WITH_UPLOAD.includes(nextType) ? proximoEnvio.key : null,
+        uploadWhenValues:
+          FIELD_TYPES_WITH_UPLOAD.includes(nextType) && proximoEnvio.key ? proximoEnvio.values : null,
         ...(placeholder !== undefined ? { placeholder: String(placeholder).trim() || null } : {}),
         ...(helpText !== undefined ? { helpText: String(helpText).trim() || null } : {}),
         ...(required !== undefined ? { required: !!required } : {}),
@@ -273,7 +415,39 @@ export async function DELETE(request: Request) {
      * aba aberta em outra janela — devolvia um erro de banco cru, com nome de
      * arquivo compilado e número de linha, para dizer que deu certo duas vezes.
      */
-    const { count } = await prisma.boardField.deleteMany({ where: { id } });
+    /*
+     * A regra de exibição some junto com o campo que a alimentava.
+     *
+     * `camposVisiveis` já trata revelador inexistente como "mostre o campo" —
+     * a queda segura, para que nada fique preso em invisível. Mas deixar a
+     * regra gravada apontando para o nada faria a tela de configuração exibir
+     * uma condição que não vale mais, e ela voltaria a valer sozinha no dia em
+     * que alguém recriasse uma pergunta com a mesma chave. Limpar aqui é dizer
+     * o que de fato aconteceu: a condição deixou de existir.
+     *
+     * Antes da remoção, e na mesma transação: apagado o campo, já não há como
+     * descobrir qual era a chave dele.
+     */
+    const alvo = await prisma.boardField.findUnique({
+      where: { id },
+      select: { boardId: true, key: true },
+    });
+
+    const [{ count }] = await prisma.$transaction([
+      prisma.boardField.deleteMany({ where: { id } }),
+      ...(alvo
+        ? [
+            prisma.boardField.updateMany({
+              where: { boardId: alvo.boardId, showWhenKey: alvo.key },
+              data: { showWhenKey: null, showWhenValues: null },
+            }),
+            prisma.boardField.updateMany({
+              where: { boardId: alvo.boardId, uploadWhenKey: alvo.key },
+              data: { uploadWhenKey: null, uploadWhenValues: null },
+            }),
+          ]
+        : []),
+    ]);
 
     return NextResponse.json({ success: true, removidos: count });
   } catch (error: unknown) {

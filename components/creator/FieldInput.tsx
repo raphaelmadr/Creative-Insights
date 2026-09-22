@@ -4,12 +4,16 @@ import React from "react";
 import {
   optionsFor,
   unidadeDoCampo,
+  envioLiberado,
+  parseShowWhenValues,
   OPCAO_OUTROS,
   RANGE_MAX,
   RANGE_MIN,
   type FieldType,
 } from "@/lib/kanban";
 import DatePicker from "@/components/DatePicker";
+import RawVideoField from "./RawVideoField";
+import type { RawVideo } from "@/lib/raw-videos";
 
 /**
  * Um campo definível, desenhado.
@@ -29,6 +33,14 @@ export interface FieldDefinition {
   options: string | null;
   /** A chave do campo de que este depende — ver `optionsFor`. */
   dependsOn?: string | null;
+  /** A chave do campo cuja resposta REVELA este — ver `camposVisiveis`. */
+  showWhenKey?: string | null;
+  /** As respostas que o revelam, em JSON. */
+  showWhenValues?: string | null;
+  /** A chave do campo que libera o ENVIO de arquivo — ver `envioLiberado`. */
+  uploadWhenKey?: string | null;
+  /** As respostas que liberam o envio, em JSON. */
+  uploadWhenValues?: string | null;
   placeholder: string | null;
   helpText: string | null;
   required: boolean;
@@ -36,11 +48,28 @@ export interface FieldDefinition {
   position: number;
 }
 
+/**
+ * O texto miúdo sob o botão de envio, dizendo a quem ele se aplica.
+ *
+ * Sai da PRÓPRIA regra do campo — "Exclusivo Influenciadores/Embaixadores" é a
+ * regra lida em voz alta. Escrito à mão em algum lugar, ele continuaria dizendo
+ * "Influenciadores" no dia em que a regra passasse a valer também para
+ * Unboxing, e quem lesse a tela concluiria, com razão, que o botão está errado.
+ */
+function legendaDoEnvio(field: FieldDefinition): string {
+  const valores = parseShowWhenValues(field.uploadWhenValues);
+  if (!field.uploadWhenKey || valores.length === 0) {
+    return "O arquivo sobe para a pasta do Drive já renomeado pelo padrão.";
+  }
+  return `Exclusivo ${valores.join("/")}`;
+}
+
 export default function FieldInput({
   field,
   value,
   values = {},
   parentLabel,
+  upload,
   onChange,
 }: {
   field: FieldDefinition;
@@ -54,6 +83,24 @@ export default function FieldInput({
   values?: Record<string, unknown>;
   /** O RÓTULO do campo pai, para a dica falar como a tela e não como o banco. */
   parentLabel?: string;
+  /**
+   * O que um campo de envio precisa saber, e nenhum outro tipo usa.
+   *
+   * Num objeto só, e opcional, porque é contexto do CARD — não da pergunta.
+   * Ausente, o campo continua desenhando a caixa de link: é o que acontece no
+   * formulário de abertura, onde a demanda ainda não tem número e portanto não
+   * há como nomear arquivo nenhum.
+   */
+  upload?: {
+    cardId: string | null;
+    /** Os campos do quadro — `envioLiberado` precisa achar o gatilho. */
+    fields: FieldDefinition[];
+    videos: RawVideo[];
+    onVideos?: (videos: RawVideo[]) => void;
+    /** Os arquivos à espera da demanda, por chave de campo. */
+    fila?: Record<string, File[]>;
+    onFila?: (fieldKey: string, arquivos: File[]) => void;
+  };
   onChange: (value: unknown) => void;
 }) {
   const options = optionsFor(field, values);
@@ -327,6 +374,36 @@ export default function FieldInput({
           />
           {hint}
         </div>
+      );
+
+    /*
+     * Link E arquivo, na mesma pergunta.
+     *
+     * O envio é a única parte condicional: a caixa de link vale para qualquer
+     * demanda em que o campo apareça, e o botão só surge quando a regra do
+     * campo bate com as respostas (ver `envioLiberado`). É por isso que o tipo
+     * existe em vez de dois campos — no quadro real as duas condições são
+     * diferentes: "Arquivos Brutos" aparece para o canal Parcerias, e subir
+     * vídeo só vale para Influenciadores/Embaixadores.
+     */
+    case "DRIVE_VIDEO":
+      return (
+        <RawVideoField
+          id={id}
+          label={label}
+          hint={hint}
+          value={typeof value === "string" ? value : ""}
+          placeholder={field.placeholder || ""}
+          fieldKey={field.key}
+          podeEnviar={!!upload && envioLiberado(field, upload.fields, values)}
+          legendaEnvio={legendaDoEnvio(field)}
+          cardId={upload?.cardId ?? null}
+          videos={upload?.videos ?? []}
+          fila={upload?.fila?.[field.key] ?? []}
+          onVideos={upload?.onVideos}
+          onFila={upload?.onFila ? (arquivos) => upload.onFila!(field.key, arquivos) : undefined}
+          onChange={onChange}
+        />
       );
 
     default:

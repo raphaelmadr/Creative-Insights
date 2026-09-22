@@ -20,7 +20,7 @@ import {
 } from "@/lib/creator-copy";
 import { copyTargetBoard, groupIntake, topPosition, logActivity } from "@/lib/kanban-store";
 import { isPriority, matchOption, optionsFor, parseDueDate, serializeAssignees,
-  criarCardComCodigo, validateValues, camposObrigatoriosFaltando,
+  criarCardComCodigo, validateValues, camposObrigatoriosFaltando, camposVisiveis,
 } from "@/lib/kanban";
 import {
   buildCopyCardTitle,
@@ -38,7 +38,20 @@ import { parseCopyVariations } from "@/lib/copy-parse";
 import { findAlluProduct, describePricing } from "@/lib/allu-catalog";
 import { findMetaAudience } from "@/lib/meta-audiences";
 
-type CampoQuadro = { key: string; label: string; type: string; required: boolean };
+/* A forma inteira do campo, e não só o que este arquivo lê: `camposVisiveis`
+   precisa das opções e da regra de exibição para decidir o que ainda vale
+   perguntar. É `FieldShape` de `lib/kanban`, com os nomes escritos aqui porque
+   as linhas do Prisma já os têm todos. */
+type CampoQuadro = {
+  key: string;
+  label: string;
+  type: string;
+  required: boolean;
+  options?: string | null;
+  dependsOn?: string | null;
+  showWhenKey?: string | null;
+  showWhenValues?: string | null;
+};
 
 /**
  * Os campos obrigatórios deste quadro que o gerador NÃO sabe preencher por
@@ -127,10 +140,20 @@ export async function GET() {
      */
     const missingFields = target
       ? camposExtrasDoGerador(
-          await prisma.boardField.findMany({
-            where: { boardId: target.board.id },
-            orderBy: { position: "asc" },
-          })
+          /*
+           * Sem nenhuma resposta ainda, campo condicional não entra: anunciá-lo
+           * na abertura perguntaria o nome do evento a quem talvez nem vá pedir
+           * um. Ele é cobrado depois, no envio, se a frente que o gerador
+           * deduziu do briefing acender a regra — e aí volta em `missingFields`
+           * do 400, que é o caminho por onde esta tela já sabe perguntar.
+           */
+          camposVisiveis(
+            await prisma.boardField.findMany({
+              where: { boardId: target.board.id },
+              orderBy: { position: "asc" },
+            }),
+            {}
+          )
         )
       : [];
 
@@ -479,7 +502,15 @@ export async function POST(request: Request) {
      * genérico do `validateValues`, mais abaixo) e nenhum jeito de responder
      * pelo próprio gerador — a demanda simplesmente não chegava no quadro.
      */
-    const faltando = camposObrigatoriosFaltando(camposExtrasDoGerador(camposDoQuadro), respostas);
+    /*
+     * Só o que este quadro ainda pergunta, dadas as respostas que o gerador já
+     * deduziu — o canal e o formato saem do briefing, e é justamente deles que
+     * um campo condicional costuma depender ("Nome do evento" só quando a
+     * frente for "Evento"). Cobrar um campo que a regra esconde travaria o
+     * envio apontando para uma pergunta que a tela nunca mostrou.
+     */
+    const visiveis = camposVisiveis(camposDoQuadro, respostas);
+    const faltando = camposObrigatoriosFaltando(camposExtrasDoGerador(visiveis), respostas);
     if (faltando.length) {
       return NextResponse.json(
         {

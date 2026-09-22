@@ -181,6 +181,9 @@ export default function BoardSetupDialog({
       attachments: JSON.stringify([
         { url: "https://exemplo/arte.png", name: "arte.png", mime: "image/png" },
       ]),
+      // Sem vídeo bruto no exemplo: ele não tem interruptor na tela de
+      // configuração, então um vídeo aqui não ilustraria escolha nenhuma.
+      rawVideos: null,
       linkUrl: "https://drive.google.com/drive/folders/exemplo",
       // Preenchido no exemplo para que o selo "Entrega" possa ser
       // visto ao ser ligado — um card de amostra sem entrega deixaria a opção

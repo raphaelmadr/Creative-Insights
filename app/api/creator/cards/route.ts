@@ -466,7 +466,13 @@ export async function PUT(request: Request) {
     let mudancaDeRespostas: string | null = null;
 
     if (body.values !== undefined) {
-      const fields = await prisma.boardField.findMany({ where: { boardId: current.boardId } });
+      /* Ordenados por posição: `validateValues` decide visibilidade percorrendo
+         o formulário na ordem em que ele é preenchido, e uma lista embaralhada
+         faria um campo condicional ler o revelador como ainda em branco. */
+      const fields = await prisma.boardField.findMany({
+        where: { boardId: current.boardId },
+        orderBy: { position: "asc" },
+      });
 
       /*
        * A edição preserva o que não foi enviado.

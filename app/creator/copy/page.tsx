@@ -16,6 +16,7 @@ import {
   type CopyVariation,
 } from "@/lib/copy-parse";
 import { type CardAttachment } from "@/lib/attachments";
+import { camposVisiveis, limparRespostasOcultas } from "@/lib/kanban";
 import {
   COPY_TONES,
   MAX_VARIATIONS,
@@ -1080,13 +1081,20 @@ export default function CopyPage() {
                     <span className="field-label" style={{ marginBottom: "0.5rem", display: "block" }}>
                       Este quadro também pergunta:
                     </span>
-                    {camposFaltando.map((campo) => (
+                    {/* Filtrado pela regra de exibição como em qualquer outro
+                        formulário: se um campo condicional chegou aqui, ele só
+                        aparece depois que a resposta que o revela for dada. */}
+                    {camposVisiveis(camposFaltando, respostasExtras).map((campo) => (
                       <FieldInput
                         key={campo.key}
                         field={campo}
                         value={respostasExtras[campo.key]}
                         values={respostasExtras}
-                        onChange={(v) => setRespostasExtras((atual) => ({ ...atual, [campo.key]: v }))}
+                        onChange={(v) =>
+                          setRespostasExtras((atual) =>
+                            limparRespostasOcultas(camposFaltando, { ...atual, [campo.key]: v })
+                          )
+                        }
                       />
                     ))}
                   </div>

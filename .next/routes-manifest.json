@@ -139,6 +139,24 @@
       "namedRegex": "^/api/creator/cards/purge(?:/)?$"
     },
     {
+      "page": "/api/creator/cards/raw-video/complete",
+      "regex": "^/api/creator/cards/raw\\-video/complete(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/api/creator/cards/raw\\-video/complete(?:/)?$"
+    },
+    {
+      "page": "/api/creator/cards/raw-video/download",
+      "regex": "^/api/creator/cards/raw\\-video/download(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/api/creator/cards/raw\\-video/download(?:/)?$"
+    },
+    {
+      "page": "/api/creator/cards/raw-video/folder",
+      "regex": "^/api/creator/cards/raw\\-video/folder(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/api/creator/cards/raw\\-video/folder(?:/)?$"
+    },
+    {
       "page": "/api/creator/catalog",
       "regex": "^/api/creator/catalog(?:/)?$",
       "routeKeys": {},

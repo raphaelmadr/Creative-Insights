@@ -17,7 +17,7 @@
 import prisma from "../lib/prisma";
 import { COPY_CHANNELS, formatsForChannel } from "../lib/copy-options";
 import { parseCopyVariations } from "../lib/copy-parse";
-import { serializeAssignees, PRIORITIES } from "../lib/kanban";
+import { serializeAssignees, PRIORITIES, proximoCardCode } from "../lib/kanban";
 
 const OBJETIVOS = [
   "Reativar base inativa há 90 dias com foco em plano anual.",
@@ -114,7 +114,9 @@ export async function semearDemo() {
     .map((u) => u.email)
     .filter((e): e is string => !!e && e !== "dev@allugator.com");
 
-  const base = (await prisma.boardCard.aggregate({ _max: { code: true } }))._max.code ?? 0;
+  /* Menos 1 porque daqui para baixo o card `i` é `base + 1 + i`: `base` é o
+     último usado, não o primeiro a usar. */
+  const base = proximoCardCode((await prisma.boardCard.aggregate({ _max: { code: true } }))._max.code) - 1;
   const hoje = new Date();
 
   const dados = [];
@@ -197,7 +199,7 @@ export async function semearIA() {
     .map((u) => u.email!)
     .filter((e) => e && e !== "dev@allugator.com");
 
-  let code = ((await prisma.boardCard.aggregate({ _max: { code: true } }))._max.code ?? 0) + 1;
+  let code = proximoCardCode((await prisma.boardCard.aggregate({ _max: { code: true } }))._max.code);
   const prazo = new Date(Date.now() + 9 * 86400000);
   prazo.setUTCHours(12, 0, 0, 0);
 

@@ -3,12 +3,15 @@
 import React, { useEffect, useState } from "react";
 import Modal from "@/components/Modal";
 import { fetchJson } from "@/lib/fetch-json";
+import { enviarVideosBrutos } from "@/lib/drive-upload-client";
 import DatePicker from "@/components/DatePicker";
 import CardLinkField from "./CardLinkField";
 import FieldInput, { type FieldDefinition } from "./FieldInput";
 import {
   PRIORITIES,
   PRIORITY_LABEL,
+  camposVisiveis,
+  limparRespostasOcultas,
   parseAssignees,
   type Priority,
   type FormBuiltinKey,
@@ -77,7 +80,7 @@ export default function DemandDialog({
    */
   builtins: FormBuiltinKey[];
   /** Recebe o card recém-criado — o quadro recarrega, a barra do topo confirma. */
-  onCreated: (card: { code: number | null; title: string }) => void;
+  onCreated: (card: { id?: string | null; code: number | null; title: string }) => void;
 }) {
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
@@ -86,6 +89,14 @@ export default function DemandDialog({
   const [groupId, setGroupId] = useState("");
   const [linkUrl, setLinkUrl] = useState<string | null>(null);
   const [values, setValues] = useState<Record<string, unknown>>({});
+
+  /*
+   * Os vídeos escolhidos aqui só podem subir DEPOIS da criação — o nome do
+   * arquivo leva o número da demanda. Ficam nesta fila, por campo, e sobem
+   * assim que o card existe. Ver `enviarVideosBrutos`.
+   */
+  const [filaDeVideos, setFilaDeVideos] = useState<Record<string, File[]>>({});
+  const [subindo, setSubindo] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -100,6 +111,8 @@ export default function DemandDialog({
     setGroupId("");
     setLinkUrl(null);
     setValues({});
+    setFilaDeVideos({});
+    setSubindo(null);
     setError(null);
   }, [open]);
 
@@ -167,7 +180,45 @@ export default function DemandDialog({
         return;
       }
 
-      onCreated(data.card ?? { code: null, title });
+      /*
+       * A demanda existe; agora os vídeos sobem.
+       *
+       * Depois do `onCreated` e ANTES do `onClose`: o quadro já pode recarregar
+       * e mostrar a demanda enquanto os arquivos sobem, mas o diálogo fica
+       * aberto até o fim — fechá-lo interromperia o envio, e um vídeo pela
+       * metade não deixa rastro nenhum de que existiu.
+       */
+      const criado = data.card ?? { id: null, code: null, title };
+      onCreated(criado);
+
+      const pendentes = Object.entries(filaDeVideos).filter(([, arquivos]) => arquivos.length);
+      if (criado.id && pendentes.length) {
+        for (const [chave, arquivos] of pendentes) {
+          try {
+            await enviarVideosBrutos({
+              cardId: criado.id,
+              fieldKey: chave,
+              files: arquivos,
+              onProgresso: (nome, pct) => setSubindo(`${nome} — ${pct}%`),
+            });
+          } catch (e) {
+            /*
+             * A demanda JÁ FOI ABERTA quando isto falha, e é isso que a
+             * mensagem precisa dizer. Tratar como erro da abertura faria a
+             * pessoa clicar em "Abrir" de novo e criar uma segunda demanda —
+             * o pior desfecho possível para um envio que não deu certo.
+             */
+            setSubindo(null);
+            setError(
+              `A demanda ${criado.code ? `MKT-${criado.code}` : ""} foi aberta, mas o vídeo não subiu: ` +
+                `${e instanceof Error ? e.message : "falha no envio"}. Abra o card e envie por lá.`
+            );
+            return;
+          }
+        }
+        setSubindo(null);
+      }
+
       onClose();
     } catch (e) {
       /*
@@ -193,7 +244,11 @@ export default function DemandDialog({
             Cancelar
           </button>
           <button type="button" className="btn btn-primary" onClick={submit} disabled={saving}>
-            {saving ? "Enviando…" : "Abrir demanda"}
+            {/* Enquanto o vídeo sobe, o botão diz o ARQUIVO e a porcentagem: um
+                "Enviando…" parado por três minutos num vídeo de meio giga faz
+                qualquer pessoa concluir que travou e fechar o diálogo — que é
+                justamente o que interrompe o envio. */}
+            {subindo ?? (saving ? "Enviando…" : "Abrir demanda")}
           </button>
         </>
       }
@@ -330,13 +385,28 @@ export default function DemandDialog({
         />
       )}
 
-      {fields.map((field) => (
+      {/* Só o que a resposta de agora justifica perguntar — ver `camposVisiveis`.
+          Recalculado a cada tecla de propósito: é marcar a opção e o campo
+          novo nascer ali, sem passo intermediário nenhum. */}
+      {camposVisiveis(fields, values).map((field) => (
         <FieldInput
           key={field.id}
           field={field}
           value={values[field.key]}
           values={values}
           parentLabel={fields.find((f) => f.key === field.dependsOn)?.label}
+          /* `cardId` nulo: a demanda ainda não existe, e o nome do arquivo leva
+             o número dela. O campo mostra o botão desabilitado com o motivo em
+             vez de esconder o recurso — quem está abrindo precisa saber que ele
+             existe, senão vai procurar outro caminho para o vídeo. */
+          upload={{
+            cardId: null,
+            fields,
+            videos: [],
+            fila: filaDeVideos,
+            onFila: (chave, arquivos) =>
+              setFilaDeVideos((atual) => ({ ...atual, [chave]: arquivos })),
+          }}
           onChange={(v) =>
             setValues((prev) => {
               const proximo = { ...prev, [field.key]: v };
@@ -352,7 +422,10 @@ export default function DemandDialog({
               for (const outro of fields) {
                 if (outro.dependsOn === field.key) delete proximo[outro.key];
               }
-              return proximo;
+              /* E o que esta resposta acabou de esconder sai junto: uma
+                 resposta invisível no formulário chegaria ao servidor como se
+                 ainda valesse. */
+              return limparRespostasOcultas(fields, proximo);
             })
           }
         />
