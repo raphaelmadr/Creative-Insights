@@ -5,6 +5,7 @@ import { buildIntegrationStatuses } from "@/lib/integrations";
 import { DEFAULT_ANDROMEDA_PROMPT, DEFAULT_HYPOTHESIS_PROMPT } from "@/lib/ai-prompts";
 import { getCurrentAdmin, getCurrentUser } from "@/lib/auth";
 import { toPublicSettings } from "@/lib/settings-visibility";
+import { serializeAiProviderOrder } from "@/lib/ai-providers";
 
 export const dynamic = 'force-dynamic';
 
@@ -138,6 +139,7 @@ export async function POST(request: Request) {
       metaAdAccountId, metaAccessToken, geminiApiKey, 
       openaiApiKey, anthropicApiKey, tavilyApiKey,
       groqApiKey, openRouterApiKey, cohereApiKey, huggingFaceApiKey,
+      aiProviderOrder,
       slackBotToken, slackChannelId,
       driveServiceAccountJson, driveRootFolderId,
       teamCreativeGoal, cronSyncEnabled, cronSyncInterval,
@@ -185,6 +187,16 @@ export async function POST(request: Request) {
     if (groqApiKey !== undefined) updateData.groqApiKey = groqApiKey;
     if (openRouterApiKey !== undefined) updateData.openRouterApiKey = openRouterApiKey;
     if (cohereApiKey !== undefined) updateData.cohereApiKey = cohereApiKey;
+    /*
+     * A ordem da cadeia de IA é normalizada ANTES de descer ao banco: id
+     * desconhecido cai fora, repetido conta uma vez e provedor não citado entra
+     * no fim. O que chega aqui é uma lista montada por arrastar linhas numa
+     * tela, e a cadeia de fallback é o caminho de toda análise do produto —
+     * gravar a lista crua faria um envio malformado derrubar o gerador inteiro.
+     */
+    if (aiProviderOrder !== undefined) {
+      updateData.aiProviderOrder = serializeAiProviderOrder(aiProviderOrder);
+    }
     if (huggingFaceApiKey !== undefined) updateData.huggingFaceApiKey = huggingFaceApiKey;
     if (slackBotToken !== undefined) updateData.slackBotToken = slackBotToken;
     if (slackChannelId !== undefined) updateData.slackChannelId = slackChannelId;
@@ -239,6 +251,7 @@ export async function POST(request: Request) {
         ...(openRouterApiKey !== undefined && { openRouterApiKey }),
         ...(cohereApiKey !== undefined && { cohereApiKey }),
         ...(huggingFaceApiKey !== undefined && { huggingFaceApiKey }),
+        ...(aiProviderOrder !== undefined && { aiProviderOrder: serializeAiProviderOrder(aiProviderOrder) }),
         ...(cronSyncEnabled !== undefined && { cronSyncEnabled: Boolean(cronSyncEnabled) }),
         ...(cronSyncInterval !== undefined && { cronSyncInterval: parseInt(cronSyncInterval) || 120 }),
         ...(cpanelUploadUrl !== undefined && { cpanelUploadUrl }),

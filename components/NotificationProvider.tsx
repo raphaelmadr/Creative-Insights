@@ -329,9 +329,24 @@ export default function NotificationProvider({ children }: { children: ReactNode
                 calculateUnread(data.updates || []);
                 setIsSearching(false);
                 
-                // Dispara o Toast de aviso!
+                /*
+                 * O aviso diz POR QUE não veio nada. "Nenhuma novidade
+                 * encontrada hoje" cobria situações opostas: a busca não estar
+                 * configurada, os resultados já estarem todos no acervo, e a IA
+                 * ter descartado tudo por não conter hack aplicável. A rota agora
+                 * manda os números; aqui eles viram frase.
+                 */
+                const s = data.stats || {};
                 if (data.newCount > 0) {
-                  setToastMsg({ id: "search-updates", title: `🎉 ${data.newCount} Novidades encontradas!`, isNew: true });
+                  setToastMsg({ id: "search-updates", title: `🎉 ${data.newCount} ${data.newCount === 1 ? "novidade encontrada" : "novidades encontradas"}!`, isNew: true });
+                } else if (s.semIa) {
+                  setToastMsg({ id: "search-updates", title: "Nenhuma IA configurada — veja Configurações › IA.", isNew: false, isError: true });
+                } else if (s.semTavily) {
+                  setToastMsg({ id: "search-updates", title: "Busca web não configurada — falta a chave da Tavily.", isNew: false, isError: true });
+                } else if (s.jaConhecidos && s.jaConhecidos === s.encontrados) {
+                  setToastMsg({ id: "search-updates", title: "Nada novo: esta busca só trouxe artigos já salvos.", isNew: false });
+                } else if (s.ignorados) {
+                  setToastMsg({ id: "search-updates", title: `${s.ignorados} ${s.ignorados === 1 ? "artigo novo foi lido" : "artigos novos foram lidos"}, nenhum com hack aplicável.`, isNew: false });
                 } else {
                   setToastMsg({ id: "search-updates", title: "Nenhuma novidade encontrada hoje.", isNew: false });
                 }
@@ -340,7 +355,19 @@ export default function NotificationProvider({ children }: { children: ReactNode
                   setToastMsg(null);
                 }, 5000);
               } else if (data.type === 'error') {
+                /*
+                 * O erro ia só para o console do navegador: a busca simplesmente
+                 * parava, sem explicação em tela. A mensagem que chega aqui já vem
+                 * traduzida e sem credencial dentro (ver `friendlyFailureMessage`).
+                 */
                 console.error("API Stream Error:", data.error);
+                setToastMsg({
+                  id: "search-updates",
+                  title: data.error || "A busca de insights falhou. Veja Configurações › Logs.",
+                  isNew: false,
+                  isError: true,
+                });
+                setTimeout(() => setToastMsg(null), 8000);
                 setIsSearching(false);
               }
             } catch (e) {

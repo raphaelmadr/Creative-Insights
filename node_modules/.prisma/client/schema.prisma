@@ -230,6 +230,12 @@ model SystemSettings {
   nextAuthSecret     String? @db.Text
   nextAuthUrl        String?
 
+  /// A ordem em que os provedores de IA são tentados — JSON com os ids de
+  /// `lib/ai-providers.ts` (`["gemini","groq",...]`), editável em
+  /// Configurações › IA. Em branco vale a ordem padrão daquele arquivo. Um id
+  /// ausente da lista não é excluído da cadeia: entra no fim.
+  aiProviderOrder String? @db.Text
+
   geminiApiKey      String? @db.Text
   openaiApiKey      String? @db.Text
   anthropicApiKey   String? @db.Text

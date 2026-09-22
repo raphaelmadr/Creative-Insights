@@ -3,6 +3,12 @@ import Anthropic from "@anthropic-ai/sdk";
 import OpenAI from "openai";
 import prisma from "./prisma";
 import { friendlyFailureMessage, logExternalFailure } from "./external-log";
+import {
+  aiProviderById,
+  resolveAiProviderOrder,
+  type AiProviderId,
+  type AiProviderMeta,
+} from "./ai-providers";
 
 export type AiImageInput = {
   base64: string;
@@ -154,6 +160,50 @@ async function getBestHuggingFaceModel(): Promise<string> {
 }
 
 /**
+ * A função que fala com cada provedor, junto do que ele é.
+ *
+ * Os metadados (id, nome, coluna da chave) vivem em `lib/ai-providers.ts`, sem
+ * SDK nenhum, porque a tela de configuração também os lê. O que mora aqui é a
+ * única parte que precisa do servidor: a chamada em si.
+ */
+type AiRunner = (prompt: string, apiKey: string, images?: AiImageInput[]) => Promise<string | null>;
+
+const RUNNERS: Record<AiProviderId, AiRunner> = {
+  gemini: tryGemini,
+  groq: tryGroq,
+  openrouter: tryOpenRouter,
+  openai: tryOpenAI,
+  anthropic: tryAnthropic,
+  cohere: tryCohere,
+  huggingface: tryHuggingFace,
+};
+
+type SettingsRow = Awaited<ReturnType<typeof prisma.systemSettings.findUnique>>;
+
+/** A chave gravada para um provedor, ou `null` quando o campo está em branco. */
+function keyOf(settings: SettingsRow, provider: AiProviderMeta): string | null {
+  const raw = settings?.[provider.keyField];
+  return typeof raw === "string" && raw.trim() ? raw.trim() : null;
+}
+
+/**
+ * A fila EFETIVA desta execução: os provedores com chave, na ordem configurada.
+ *
+ * Provedor sem chave sai da fila aqui, e não lá dentro. Antes cada `tryX`
+ * começava com um `if (!apiKey) return null`, o que significava que a cadeia
+ * "tentava" sete provedores para descobrir que cinco estavam vazios — e um
+ * `null` devolvido por falta de chave era indistinguível, para quem lia o
+ * código, de um `null` devolvido por resposta vazia do modelo.
+ */
+export async function resolveAiChain(settings: SettingsRow) {
+  return resolveAiProviderOrder(settings?.aiProviderOrder)
+    .map((id) => aiProviderById(id))
+    .filter((p): p is AiProviderMeta => !!p)
+    .map((provider) => ({ provider, apiKey: keyOf(settings, provider) }))
+    .filter((item): item is { provider: AiProviderMeta; apiKey: string } => !!item.apiKey);
+}
+
+/**
  * Há alguma chave de IA configurada?
  *
  * Lê apenas o painel, porque é só o painel que `generateWithFallback` consulta.
@@ -163,20 +213,22 @@ async function getBestHuggingFaceModel(): Promise<string> {
  */
 export async function isAiConfigured(): Promise<boolean> {
   const settings = await prisma.systemSettings.findUnique({ where: { id: 1 } });
-  return [
-    settings?.geminiApiKey,
-    settings?.anthropicApiKey,
-    settings?.openaiApiKey,
-    settings?.groqApiKey,
-    settings?.openRouterApiKey,
-    settings?.cohereApiKey,
-    settings?.huggingFaceApiKey,
-  ].some((key) => !!(key && key.trim()));
+  return (await resolveAiChain(settings)).length > 0;
 }
 
+export const NO_AI_CONFIGURED_MESSAGE =
+  "Nenhuma inteligência artificial configurada no sistema. O sistema está funcionando em modo de fallback seguro. Para habilitar a geração de insights e hipóteses, adicione pelo menos uma chave de API no painel de configurações ou nas variáveis de ambiente.";
+
 /**
- * Generates text from prompt, with optional images, using a fallback mechanism.
- * Order of fallback: Gemini -> OpenAI -> Claude
+ * Gera texto a partir do prompt — com imagens, quando o provedor da vez as lê —
+ * percorrendo a cadeia de fallback até alguém responder.
+ *
+ * A ORDEM vem do banco (`SystemSettings.aiProviderOrder`), configurável em
+ * Configurações › IA. Era uma sequência fixa de sete blocos `try/catch`
+ * copiados, com o Gemini sempre à frente: trocar a preferência exigia editar e
+ * publicar código, e quem olhava a tela via uma lista numerada que era só
+ * decoração. `resolveAiProviderOrder` garante que qualquer provedor não citado
+ * na configuração entre no fim da fila, em vez de sumir.
  */
 export async function generateWithFallback(
   prompt: string,
@@ -185,25 +237,32 @@ export async function generateWithFallback(
   operation = "gerar resposta de IA"
 ): Promise<string> {
   const settings = await prisma.systemSettings.findUnique({ where: { id: 1 } });
-  
-  const geminiKey = settings?.geminiApiKey;
-  const groqKey = settings?.groqApiKey;
-  const openRouterKey = settings?.openRouterApiKey;
-  const openaiKey = settings?.openaiApiKey;
-  const anthropicKey = settings?.anthropicApiKey;
-  const cohereKey = settings?.cohereApiKey;
-  const huggingFaceKey = settings?.huggingFaceApiKey;
+  const comChave = await resolveAiChain(settings);
 
-  const hasGemini = !!geminiKey;
-  const hasGroq = !!groqKey;
-  const hasOpenRouter = !!openRouterKey;
-  const hasOpenAI = !!openaiKey;
-  const hasAnthropic = !!anthropicKey;
-  const hasCohere = !!cohereKey;
-  const hasHuggingFace = !!huggingFaceKey;
+  if (comChave.length === 0) {
+    return NO_AI_CONFIGURED_MESSAGE;
+  }
 
-  if (!hasGemini && !hasGroq && !hasOpenRouter && !hasOpenAI && !hasAnthropic && !hasCohere && !hasHuggingFace) {
-    return "Nenhuma inteligência artificial configurada no sistema. O sistema está funcionando em modo de fallback seguro. Para habilitar a geração de insights e hipóteses, adicione pelo menos uma chave de API no painel de configurações ou nas variáveis de ambiente.";
+  /*
+   * Pedido COM IMAGEM só vai a quem lê imagem.
+   *
+   * Cohere e HuggingFace não recusam a imagem: recebem o prompt, descartam o
+   * anexo com um `console.warn` e respondem com sucesso — sobre nada. Na
+   * transcrição visual isso gravava uma descrição inventada no lugar do que
+   * estava na peça, e o gerador de copy passava a citar como referência um
+   * texto que nenhum anúncio teve. Enquanto a ordem era fixa, os dois ficavam
+   * no fim da fila e o caso era raro; com a ordem configurável, basta alguém
+   * promovê-los. Não poder ler a imagem é não poder atender: passa a vez.
+   */
+  const precisaDeVisao = !!(images && images.length > 0);
+  const chain = precisaDeVisao ? comChave.filter(({ provider }) => provider.vision) : comChave;
+
+  if (chain.length === 0) {
+    const semVisao = comChave.map(({ provider }) => provider.label).join(", ");
+    throw new Error(
+      `Esta análise depende de ler a imagem do criativo, e nenhum provedor configurado faz isso (${semVisao} só processam texto). ` +
+        "Preencha a chave de um provedor com visão — Gemini, OpenAI, Anthropic, Groq ou OpenRouter — em Configurações › IA."
+    );
   }
 
   /*
@@ -214,88 +273,25 @@ export async function generateWithFallback(
    */
   const failures: { service: string; error: unknown }[] = [];
 
-  let finalResult: string | null = null;
+  for (const { provider, apiKey } of chain) {
+    try {
+      const resultado = await RUNNERS[provider.id](prompt, apiKey, images);
+      if (resultado && resultado.trim()) return cleanAiOutput(resultado);
 
-  // 1. Try Gemini
-  try {
-    finalResult = await tryGemini(prompt, geminiKey as string, images);
-    if (finalResult) return cleanAiOutput(finalResult);
-  } catch (error: any) {
-    console.error("[Fallback] Gemini failed:", error);
-    failures.push({ service: "Gemini", error });
-    // Registrado no painel de logs com o diagnóstico e a correção: uma
-    // chave morta na cadeia é invisível enquanto outro provedor cobre.
-    await logExternalFailure({ service: "Gemini", operation, error });
-  }
-
-  // 2. Try Groq
-  try {
-    finalResult = await tryGroq(prompt, groqKey as string, images);
-    if (finalResult) return cleanAiOutput(finalResult);
-  } catch (error: any) {
-    console.error("[Fallback] Groq failed:", error);
-    failures.push({ service: "Groq", error });
-    // Registrado no painel de logs com o diagnóstico e a correção: uma
-    // chave morta na cadeia é invisível enquanto outro provedor cobre.
-    await logExternalFailure({ service: "Groq", operation, error });
-  }
-
-  // 3. Try OpenRouter
-  try {
-    finalResult = await tryOpenRouter(prompt, openRouterKey as string, images);
-    if (finalResult) return cleanAiOutput(finalResult);
-  } catch (error: any) {
-    console.error("[Fallback] OpenRouter failed:", error);
-    failures.push({ service: "OpenRouter", error });
-    // Registrado no painel de logs com o diagnóstico e a correção: uma
-    // chave morta na cadeia é invisível enquanto outro provedor cobre.
-    await logExternalFailure({ service: "OpenRouter", operation, error });
-  }
-
-  // 4. Try OpenAI (GPT-4o)
-  try {
-    finalResult = await tryOpenAI(prompt, openaiKey as string, images);
-    if (finalResult) return cleanAiOutput(finalResult);
-  } catch (error: any) {
-    console.error("[Fallback] OpenAI failed:", error);
-    failures.push({ service: "OpenAI", error });
-    // Registrado no painel de logs com o diagnóstico e a correção: uma
-    // chave morta na cadeia é invisível enquanto outro provedor cobre.
-    await logExternalFailure({ service: "OpenAI", operation, error });
-  }
-
-  // 5. Try Anthropic (Claude 3.5 Sonnet)
-  try {
-    finalResult = await tryAnthropic(prompt, anthropicKey as string, images);
-    if (finalResult) return cleanAiOutput(finalResult);
-  } catch (error: any) {
-    console.error("[Fallback] Anthropic failed:", error);
-    failures.push({ service: "Anthropic", error });
-    // Registrado no painel de logs com o diagnóstico e a correção: uma
-    // chave morta na cadeia é invisível enquanto outro provedor cobre.
-    await logExternalFailure({ service: "Anthropic", operation, error });
-  }
-
-  // 6. Try Cohere
-  try {
-    finalResult = await tryCohere(prompt, cohereKey as string, images);
-    if (finalResult) return cleanAiOutput(finalResult);
-  } catch (error: any) {
-    console.error("[Fallback] Cohere failed:", error);
-    failures.push({ service: "Cohere", error });
-    // Registrado no painel de logs com o diagnóstico e a correção: uma
-    // chave morta na cadeia é invisível enquanto outro provedor cobre.
-    await logExternalFailure({ service: "Cohere", operation, error });
-  }
-
-  // 7. Try Hugging Face
-  try {
-    finalResult = await tryHuggingFace(prompt, huggingFaceKey as string, images);
-    if (finalResult) return cleanAiOutput(finalResult);
-  } catch (error: any) {
-    console.error("[Fallback] Hugging Face failed:", error);
-    failures.push({ service: "HuggingFace", error });
-    await logExternalFailure({ service: "HuggingFace", operation, error });
+      /*
+       * Respondeu vazio. Não é exceção, mas também não é sucesso: passar adiante
+       * em silêncio deixava a vez para o próximo sem que nada registrasse por
+       * que o preferido não produziu nada — o caso clássico é o modelo cortar a
+       * resposta inteira por filtro de conteúdo.
+       */
+      throw new Error("resposta vazia");
+    } catch (error) {
+      console.error(`[Fallback] ${provider.label} falhou:`, error);
+      failures.push({ service: provider.label, error });
+      // Registrado no painel de logs com o diagnóstico e a correção: uma
+      // chave morta na cadeia é invisível enquanto outro provedor cobre.
+      await logExternalFailure({ service: provider.label, operation, error });
+    }
   }
 
   /*
@@ -321,6 +317,7 @@ export async function generateWithFallback(
    */
   throw new Error(friendlyFailureMessage(failures, "Nenhuma IA"));
 }
+
 
 function cleanAiOutput(text: string): string {
   if (!text) return "";
@@ -403,11 +400,6 @@ export function normalizeAiOutput(raw: string): string {
 export const generateText = generateWithFallback;
 
 async function tryGemini(prompt: string, apiKey: string, images?: AiImageInput[]): Promise<string | null> {
-  if (!apiKey) {
-    console.warn("GEMINI_API_KEY not found. Skipping Gemini.");
-    return null;
-  }
-
   const modelId = await getCachedModel("gemini", () => getBestGeminiModel(apiKey), "gemini-3.6-flash");
   const genAI = new GoogleGenerativeAI(apiKey);
   const model = genAI.getGenerativeModel({
@@ -438,11 +430,6 @@ async function tryGemini(prompt: string, apiKey: string, images?: AiImageInput[]
 }
 
 async function tryOpenAI(prompt: string, apiKey: string, images?: AiImageInput[]): Promise<string | null> {
-  if (!apiKey) {
-    console.warn("OPENAI_API_KEY not found. Skipping OpenAI.");
-    return null;
-  }
-
   const modelId = await getCachedModel("openai", () => getBestOpenAIModel(apiKey), "gpt-4o-mini");
   const openai = new OpenAI({ apiKey });
 
@@ -477,11 +464,6 @@ async function tryOpenAI(prompt: string, apiKey: string, images?: AiImageInput[]
 }
 
 async function tryAnthropic(prompt: string, apiKey: string, images?: AiImageInput[]): Promise<string | null> {
-  if (!apiKey) {
-    console.warn("ANTHROPIC_API_KEY not found. Skipping Anthropic.");
-    return null;
-  }
-
   const modelId = await getCachedModel("anthropic", () => getBestAnthropicModel(apiKey), "claude-3-5-sonnet-20240620");
   const anthropic = new Anthropic({ apiKey });
 
@@ -520,11 +502,6 @@ async function tryAnthropic(prompt: string, apiKey: string, images?: AiImageInpu
 }
 
 async function tryGroq(prompt: string, apiKey: string, images?: AiImageInput[]): Promise<string | null> {
-  if (!apiKey) {
-    console.warn("GROQ_API_KEY not found. Skipping Groq.");
-    return null;
-  }
-  
   const modelId = await getCachedModel("groq", () => getBestGroqModel(apiKey), "qwen/qwen3.6-27b");
   const openai = new OpenAI({ apiKey, baseURL: "https://api.groq.com/openai/v1" });
   let messageContent: any[] = [{ type: "text", text: prompt }];
@@ -558,11 +535,6 @@ async function tryGroq(prompt: string, apiKey: string, images?: AiImageInput[]):
 }
 
 async function tryOpenRouter(prompt: string, apiKey: string, images?: AiImageInput[]): Promise<string | null> {
-  if (!apiKey) {
-    console.warn("OPENROUTER_API_KEY not found. Skipping OpenRouter.");
-    return null;
-  }
-
   const modelId = await getCachedModel("openrouter", () => getBestOpenRouterModel(), "nvidia/nemotron-3.5-lightning:free");
   const openai = new OpenAI({ 
     apiKey, 
@@ -604,11 +576,6 @@ async function tryOpenRouter(prompt: string, apiKey: string, images?: AiImageInp
 }
 
 async function tryCohere(prompt: string, apiKey: string, images?: AiImageInput[]): Promise<string | null> {
-  if (!apiKey) {
-    console.warn("COHERE_API_KEY not found. Skipping Cohere.");
-    return null;
-  }
-
   if (images && images.length > 0) {
     console.warn("Cohere doesn't support images in this fallback. Falling back to text-only mode.");
   }
@@ -638,11 +605,6 @@ async function tryCohere(prompt: string, apiKey: string, images?: AiImageInput[]
 }
 
 async function tryHuggingFace(prompt: string, apiKey: string, images?: AiImageInput[]): Promise<string | null> {
-  if (!apiKey) {
-    console.warn("HUGGINGFACE_API_KEY not found. Skipping Hugging Face.");
-    return null;
-  }
-
   if (images && images.length > 0) {
     console.warn("HuggingFace fallback doesn't support images currently. Falling back to text-only mode.");
   }
