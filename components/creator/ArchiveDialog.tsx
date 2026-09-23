@@ -40,6 +40,8 @@ export default function ArchiveDialog({
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  /** "2026-09", ou "" para o arquivo inteiro. */
+  const [mes, setMes] = useState("");
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -100,10 +102,17 @@ export default function ArchiveDialog({
    * filtro de "apenas arquivados". Esta tela não manda apagar nada além do
    * quadro que está aberto.
    */
-  const esvaziar = async () => {
+  /**
+   * Apaga o que está À VISTA — o arquivo inteiro, ou só o mês filtrado.
+   *
+   * Segue o filtro de propósito: um botão que diz "esvaziar" enquanto a tela
+   * mostra três de quarenta demandas apagaria trinta e sete que a pessoa não
+   * estava vendo. O texto da confirmação nomeia o alcance.
+   */
+  const apagar = async (alvos: CardData[], escopo: string) => {
     if (
       !confirm(
-        `Apagar em definitivo ${cards.length} demanda(s) do arquivo?\n\n` +
+        `Apagar em definitivo ${escopo}?\n\n` +
           `Briefing, copy, anexos e histórico vão junto. Não há como desfazer, ` +
           `e não há cópia em outro lugar.`
       )
@@ -111,23 +120,28 @@ export default function ArchiveDialog({
       return;
     }
 
-    setBusy("tudo");
+    const ids = alvos.map((c) => c.id);
+    setBusy(alvos.length === 1 ? ids[0] : "lote");
     setError(null);
     try {
       const res = await fetch("/api/creator/cards/purge", {
         method: "DELETE",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ boardId }),
+        /* A lista vai mesmo quando é o arquivo inteiro: o que a tela mostra é o
+           que ela carregou (as 200 mais recentes), e mandar "apague tudo"
+           alcançaria o que ela nunca exibiu. */
+        body: JSON.stringify({ boardId, cardIds: ids }),
       });
       const data = await res.json();
       if (!res.ok) {
-        setError(data.error || "Não foi possível esvaziar o arquivo.");
+        setError(data.error || "Não foi possível apagar.");
         return;
       }
-      setCards([]);
+      const apagados = new Set(ids);
+      setCards((prev) => prev.filter((c) => !apagados.has(c.id)));
       onChanged();
     } catch {
-      setError("Falha de conexão ao esvaziar o arquivo.");
+      setError("Falha de conexão ao apagar.");
     } finally {
       setBusy(null);
     }
@@ -135,6 +149,40 @@ export default function ArchiveDialog({
 
   const quando = (iso: string) =>
     new Date(iso).toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit", year: "2-digit" });
+
+  /*
+   * O mês de uma demanda arquivada é o da ENTREGA, e só na falta dele o da
+   * saída do quadro.
+   *
+   * É como a equipe pergunta — "as entregas de agosto" —, e as duas datas quase
+   * sempre caem no mesmo mês, porque a entrega sai do quadro na virada. Elas
+   * divergem justamente no caso que interessa: a entrega do dia 31, arquivada
+   * no dia 1º, pertence ao mês em que foi feita.
+   *
+   * Sem carimbo de entrega vale a saída do quadro — é o arquivamento à mão, e
+   * "quando saiu" é a única data que ele tem.
+   */
+  const mesDoCard = (card: CardData) => {
+    const d = new Date(card.completedAt ?? card.updatedAt);
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+  };
+
+  const rotuloDoMes = (chave: string) => {
+    const [ano, m] = chave.split("-").map(Number);
+    return new Date(ano, m - 1, 1).toLocaleDateString("pt-BR", { month: "long", year: "numeric" });
+  };
+
+  /* Os meses que EXISTEM no arquivo, do mais recente para o mais antigo — uma
+     lista fixa de doze meses ofereceria filtros que não filtram nada. */
+  const meses = Array.from(
+    cards.reduce((acc, c) => {
+      const chave = mesDoCard(c);
+      acc.set(chave, (acc.get(chave) ?? 0) + 1);
+      return acc;
+    }, new Map<string, number>())
+  ).sort((a, b) => b[0].localeCompare(a[0]));
+
+  const visiveis = mes ? cards.filter((c) => mesDoCard(c) === mes) : cards;
 
   return (
     <Modal
@@ -150,17 +198,32 @@ export default function ArchiveDialog({
             que apagar. Um botão vermelho encostado no "Fechar" cobra atenção
             justamente de quem só queria sair da tela.
           */}
-          {cards.length > 0 && (
+          {visiveis.length > 0 && (
             <button
               type="button"
               className="btn btn-danger"
-              onClick={esvaziar}
+              onClick={() =>
+                apagar(
+                  visiveis,
+                  mes
+                    ? `as ${visiveis.length} demanda(s) de ${rotuloDoMes(mes)}`
+                    : `${visiveis.length} demanda(s) do arquivo`
+                )
+              }
               disabled={busy !== null}
               style={{ marginRight: "auto" }}
-              title="Apagar em definitivo tudo o que está no arquivo"
+              title={
+                mes
+                  ? `Apagar em definitivo o que está arquivado em ${rotuloDoMes(mes)}`
+                  : "Apagar em definitivo tudo o que está no arquivo"
+              }
             >
               <Trash2 size={14} />
-              {busy === "tudo" ? "Apagando…" : "Esvaziar arquivo"}
+              {busy === "lote"
+                ? "Apagando…"
+                : mes
+                  ? `Apagar ${rotuloDoMes(mes)}`
+                  : "Esvaziar arquivo"}
             </button>
           )}
           <button type="button" className="btn btn-secondary" onClick={onClose} disabled={busy !== null}>
@@ -169,6 +232,35 @@ export default function ArchiveDialog({
         </>
       }
     >
+      {/*
+        O filtro aparece sempre que há arquivo, mesmo com um mês só.
+        
+        Com um mês, ele decide pouco — mas INFORMA: diz de quando é o que está
+        guardado, sem obrigar a ler a data de cada linha. E o botão de apagar
+        segue esta escolha, então esconder o seletor esconderia também a única
+        forma de apagar um mês inteiro de uma vez.
+      */}
+      {!loading && meses.length > 0 && (
+        <div className="field">
+          <label className="field-label" htmlFor="arquivo-mes">
+            Mês
+          </label>
+          <select
+            id="arquivo-mes"
+            className="field-input"
+            value={mes}
+            onChange={(e) => setMes(e.target.value)}
+          >
+            <option value="">Todos os meses ({cards.length})</option>
+            {meses.map(([chave, quantas]) => (
+              <option key={chave} value={chave}>
+                {rotuloDoMes(chave)} ({quantas})
+              </option>
+            ))}
+          </select>
+        </div>
+      )}
+
       {loading ? (
         [0, 1, 2].map((i) => (
           <Skeleton
@@ -178,7 +270,7 @@ export default function ArchiveDialog({
             style={{ background: "var(--surface-sunken)" }}
           />
         ))
-      ) : cards.length === 0 ? (
+      ) : visiveis.length === 0 ? (
         <div
           style={{
             display: "flex",
@@ -192,10 +284,10 @@ export default function ArchiveDialog({
           }}
         >
           <Archive size={26} />
-          Nada no arquivo ainda.
+          {mes ? `Nada arquivado em ${rotuloDoMes(mes)}.` : "Nada no arquivo ainda."}
         </div>
       ) : (
-        cards.map((card) => {
+        visiveis.map((card) => {
           const anexos = parseAttachments(card.attachments);
           const link = describeCardLink(card.linkUrl);
           const priority = (card.priority as Priority) || "MEDIA";
@@ -323,6 +415,23 @@ export default function ArchiveDialog({
                 <ArchiveRestore size={13} />
                 Restaurar
               </button>
+
+              {/*
+                Apagar uma só — sem ícone e sem texto juntos: a linha já tem o
+                botão de restaurar, e dois botões com palavra viram uma escolha
+                a mais de ler. O vermelho e a dica dizem o que ele faz.
+              */}
+              <button
+                type="button"
+                className="btn btn-icon"
+                disabled={busy !== null}
+                title={`Apagar "${card.title}" em definitivo`}
+                aria-label={`Apagar ${card.title} em definitivo`}
+                onClick={() => apagar([card], `a demanda "${card.title}"`)}
+                style={{ flexShrink: 0, color: "var(--danger)" }}
+              >
+                <Trash2 size={14} />
+              </button>
             </div>
           );
         })
@@ -330,7 +439,7 @@ export default function ArchiveDialog({
 
       {cards.length >= 200 && (
         <span className="field-hint">
-          Mostrando as 200 mais recentes.
+          O arquivo traz as 200 demandas mais recentes — o filtro de mês procura dentro delas.
         </span>
       )}
 

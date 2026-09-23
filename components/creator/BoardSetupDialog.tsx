@@ -165,6 +165,7 @@ export default function BoardSetupDialog({
     () => ({
       id: "exemplo",
       code: 42,
+      position: 0,
       boardId,
       columnId: columns[0]?.id ?? "",
       title: "Campanha de aniversário — 12 peças",

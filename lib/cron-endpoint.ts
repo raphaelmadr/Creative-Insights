@@ -44,6 +44,7 @@ import { runSync } from "./channels";
 import { describeMediaReport, runMetaMediaSync } from "./meta-media-sync";
 import { logInfo, logWarning, logError } from "./logger";
 import { AUTOMATIC_HOLDER, acquireSyncLock, releaseSyncLock, renewSyncLock } from "./sync-lock";
+import { arquivarEntregasVencidas } from "./kanban-store";
 
 const DEFAULT_INTERVAL_MINUTES = 120;
 
@@ -88,6 +89,27 @@ export async function handleCronRequest(req: Request) {
       update: { lastCronPingAt: startedAt },
       create: { id: 1, lastCronPingAt: startedAt },
     });
+
+    /*
+     * O arquivamento vem ANTES do portão da sincronização, e de propósito.
+     *
+     * Ele não é sincronização: não fala com a Meta, não gasta cota de API e não
+     * depende de credencial nenhuma. É a regra do quadro — a entrega sai quando
+     * o mês vira — precisando apenas de alguém que bata na porta à meia-noite.
+     * Depois do portão, desligar a sincronização das redes desligaria junto uma
+     * limpeza que não tem nada a ver com elas.
+     *
+     * Falha aqui não derruba a batida: a leitura do quadro faz a mesma passada,
+     * e perder uma janela é o card aparecer algumas horas a mais.
+     */
+    try {
+      const arquivados = await arquivarEntregasVencidas();
+      if (arquivados > 0) {
+        console.log(`[Cron] ${arquivados} entrega(s) de mês anterior arquivadas.`);
+      }
+    } catch (erro) {
+      console.error("[Cron] Falha ao arquivar entregas vencidas:", erro);
+    }
 
     if (!settings.cronSyncEnabled) {
       return NextResponse.json({

@@ -35,11 +35,16 @@ export async function GET(req: Request) {
     // Construir mapa com TODOS os criadores zerados inicialmente
     const rankingMap: Record<string, any> = {};
     allCreators.forEach(c => {
+      const pecas = pecasPorCriador.get(c.id);
       rankingMap[c.id] = {
         creatorId: c.id,
         name: c.name,
         acronym: c.acronym,
-        totalPieces: pecasPorCriador.get(c.id) ?? 0
+        /* A volumetria da pessoa é TUDO o que ela entregou; a meta global conta
+           só criativo de anúncio. São dois números de propósito — ver
+           `contaComoCriativo`. */
+        totalPieces: pecas?.total ?? 0,
+        creativePieces: pecas?.criativas ?? 0,
       };
     });
 
@@ -49,7 +54,19 @@ export async function GET(req: Request) {
       return b.totalPieces - a.totalPieces;
     });
 
-    return NextResponse.json({ success: true, ranking, teamCreativeGoal });
+    /*
+     * O numerador da meta global sai daqui pronto, e não da soma do ranking na
+     * tela: a soma do ranking é volumetria (tudo), e a meta é de criativos.
+     * Deixar a tela somar de novo abriria uma segunda conta para divergir desta.
+     */
+    let creativePieces = 0;
+    let totalPieces = 0;
+    for (const pecas of pecasPorCriador.values()) {
+      creativePieces += pecas.criativas;
+      totalPieces += pecas.total;
+    }
+
+    return NextResponse.json({ success: true, ranking, teamCreativeGoal, creativePieces, totalPieces });
   } catch (error: any) {
     console.error("Error fetching deliveries:", error);
     return NextResponse.json({ success: false, error: error.message }, { status: 500 });

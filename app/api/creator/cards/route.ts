@@ -656,6 +656,31 @@ export async function PUT(request: Request) {
       }
     }
 
+    /*
+     * O prazo entra no histórico pelo mesmo motivo do link: é combinado com
+     * quem pediu. Uma data que muda sem rastro transforma "atrasou" numa
+     * discussão sobre o que tinha sido combinado.
+     */
+    if (dueDate !== undefined) {
+      const nova = parseDueDate(dueDate);
+      const antes = current.dueDate;
+      const dia = (d: Date | null) => (d ? d.toISOString().slice(0, 10) : null);
+      if (dia(nova) !== dia(antes)) {
+        const legivel = (d: Date | null) =>
+          d ? d.toLocaleDateString("pt-BR", { timeZone: "America/Sao_Paulo" }) : null;
+        await logActivity(
+          id,
+          "UPDATED",
+          nova
+            ? antes
+              ? `mudou o prazo de ${legivel(antes)} para ${legivel(nova)}`
+              : `marcou o prazo para ${legivel(nova)}`
+            : "tirou o prazo da demanda",
+          user
+        );
+      }
+    }
+
     if (priority !== undefined && priority !== current.priority && isPriority(priority)) {
       await logActivity(
         id,

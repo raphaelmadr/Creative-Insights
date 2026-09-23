@@ -26,6 +26,8 @@ export const COPY_CHANNELS = [
   {
     id: "parcerias",
     label: "Parcerias",
+    /** Conta na meta global de criativos? Ver `contaComoCriativo`. */
+    criativo: false,
     /** O que o leilão e a superfície impõem à escrita, dito ao modelo. */
     guidance:
       "Peça para ação com parceiro — marca, criador ou veículo. Quem lê encontra a allu pela voz de outra pessoa, então o texto não pode soar como anúncio nosso colado no conteúdo dela.",
@@ -33,36 +35,48 @@ export const COPY_CHANNELS = [
   {
     id: "meta",
     label: "Meta (Facebook, Instagram, WhatsApp)",
+    /** Conta na meta global de criativos? Ver `contaComoCriativo`. */
+    criativo: true,
     guidance:
       "Meta Ads (Instagram, Facebook e WhatsApp). O texto principal fica acima do criativo e é cortado por \"ver mais\" perto dos 125 caracteres — a primeira linha precisa segurar sozinha.",
   },
   {
     id: "tiktok",
     label: "TikTok Ads",
+    /** Conta na meta global de criativos? Ver `contaComoCriativo`. */
+    criativo: true,
     guidance:
       "TikTok Ads. A legenda é curta e aparece sobre o vídeo, disputando espaço com a interface. Linguagem de quem está na plataforma, não de quem está anunciando nela.",
   },
   {
     id: "google",
     label: "Google (PMax)",
+    /** Conta na meta global de criativos? Ver `contaComoCriativo`. */
+    criativo: true,
     guidance:
       "Google Performance Max. O mesmo texto é remontado pela máquina em pesquisa, display, YouTube e Shopping — cada linha precisa se sustentar fora de ordem e sem as vizinhas.",
   },
   {
     id: "site",
     label: "Site",
+    /** Conta na meta global de criativos? Ver `contaComoCriativo`. */
+    criativo: false,
     guidance:
       "Peça do próprio site da allu. Quem lê já está na loja: não há marca a apresentar, e o clique leva direto para o produto.",
   },
   {
     id: "crm",
     label: "CRM",
+    /** Conta na meta global de criativos? Ver `contaComoCriativo`. */
+    criativo: false,
     guidance:
       "Disparo para a base própria — gente que já se cadastrou ou já alugou. Trate como conversa com quem conhece a marca, não como anúncio de primeira impressão.",
   },
   {
     id: "outros",
     label: "Outros",
+    /** Conta na meta global de criativos? Ver `contaComoCriativo`. */
+    criativo: false,
     guidance:
       "Canal fora da lista, descrito por quem abriu a demanda. Sem superfície conhecida, escreva de forma neutra e evite referências a leilão, feed ou assunto de e-mail.",
   },
@@ -72,6 +86,55 @@ export type CopyChannelId = (typeof COPY_CHANNELS)[number]["id"];
 
 export function findChannel(id: string | undefined | null) {
   return COPY_CHANNELS.find((c) => c.id === id) ?? null;
+}
+
+/** Sem acento, sem espaço, sem maiúscula — para comparar rótulo com rótulo. */
+const achatar = (texto: string) =>
+  texto
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "");
+
+/**
+ * O canal por trás de uma RESPOSTA do formulário — "Meta", "TikTok Ads", o que
+ * a equipe tiver escrito na opção do quadro.
+ *
+ * Comparação tolerante, e não igualdade: o quadro em produção lista "Meta",
+ * "Google" e "TikTok", enquanto este vocabulário diz "Meta (Facebook,
+ * Instagram, WhatsApp)", "Google (PMax)" e "TikTok Ads" — os rótulos do quadro
+ * foram encurtados à mão depois de criados. Exigir igualdade faria toda entrega
+ * do quadro real cair fora de qualquer canal, silenciosamente.
+ *
+ * A régua é o começo do rótulo, que é onde mora o nome do canal, mais o id como
+ * atalho. "Site" e "CRM" continuam batendo por igualdade, e um rótulo novo que
+ * comece pelo nome do canal passa a valer sem mexer aqui.
+ */
+export function canalPorResposta(resposta: string | null | undefined) {
+  const alvo = achatar(resposta ?? "");
+  if (!alvo) return null;
+
+  return (
+    COPY_CHANNELS.find((c) => achatar(c.id) === alvo || achatar(c.label) === alvo) ??
+    COPY_CHANNELS.find((c) => achatar(c.label).startsWith(alvo)) ??
+    null
+  );
+}
+
+/**
+ * Esta resposta de canal conta na META GLOBAL DE CRIATIVOS?
+ *
+ * A meta global é de criativo de anúncio: Meta, TikTok e Google, em qualquer
+ * formato deles. Decisão da equipe, e é a razão de a resposta viver na
+ * definição do canal e não numa lista à parte — um canal novo já nasce tendo de
+ * responder a esta pergunta.
+ *
+ * O que fica de fora — site, CRM, parceria — continua contando na VOLUMETRIA de
+ * quem entregou: é trabalho entregue, e o ranking individual soma tudo. O que
+ * ele não faz é ocupar uma casa numa meta que foi dimensionada para anúncios.
+ */
+export function contaComoCriativo(resposta: string | null | undefined): boolean {
+  return canalPorResposta(resposta)?.criativo === true;
 }
 
 /**

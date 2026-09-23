@@ -8,7 +8,12 @@
  * passarem a recusá-lo — ou, pior, aceitarem sem validar.
  */
 
-import { COPY_CHANNELS, MAX_VARIATIONS, formatsForChannel } from "./copy-options";
+import {
+  COPY_CHANNELS,
+  MAX_VARIATIONS,
+  canalPorResposta,
+  formatsForChannel,
+} from "./copy-options";
 import {
   FRENTE_CODIGOS,
   CHAVE_FRENTE,
@@ -120,6 +125,155 @@ export const FIELD_TYPES_WITH_OPTIONS: FieldType[] = ["SELECT", "MULTISELECT"];
 
 export function isFieldType(value: unknown): value is FieldType {
   return typeof value === "string" && (FIELD_TYPES as readonly string[]).includes(value);
+}
+
+/**
+ * Em que ordem os cards aparecem dentro de uma etapa.
+ *
+ * O quadro não tinha ordem: tinha histórico de arrastos. Soltar um card o
+ * jogava para o FIM da coluna de destino — não havia como escolher a posição —,
+ * então a fila que a equipe via era a sequência em que as coisas foram
+ * movidas, e não uma ordem de trabalho. O sintoma que trouxe isto: uma demanda
+ * aberta depois, com prazo antes, ficava no pé da coluna.
+ *
+ * A regra é da ETAPA, e não do quadro: o que vem primeiro num backlog é o
+ * prazo que vence antes; numa coluna de concluído, prazo não diz nada. Ver
+ * `BoardColumn.sortRule`.
+ */
+export const ORDENS_DA_ETAPA = [
+  {
+    id: "prazo",
+    label: "Prazo mais próximo",
+    hint: "O que vence antes fica no topo. Demanda sem prazo vai para o fim.",
+  },
+  {
+    id: "prioridade",
+    label: "Prioridade",
+    hint: "Urgente no topo, baixa no fim. Empate cai no prazo.",
+  },
+  {
+    id: "quantidade",
+    label: "Quantidade de peças",
+    hint: "Lote maior primeiro — é o que precisa começar mais cedo.",
+  },
+  {
+    id: "canal",
+    label: "Canal",
+    hint: "Agrupa por canal, em ordem alfabética. Dentro do canal, o prazo manda.",
+  },
+] as const;
+
+export type OrdemDaEtapa = (typeof ORDENS_DA_ETAPA)[number]["id"];
+
+/**
+ * A ordem de quem nunca escolheu — e a razão de este módulo existir.
+ *
+ * Prazo, e não "como estava antes": a ordem anterior era a dos arrastos, que
+ * ninguém controlava. Toda etapa nasce respondendo à pergunta que a equipe faz
+ * ao olhar a coluna — o que vence primeiro?
+ */
+export const ORDEM_PADRAO: OrdemDaEtapa = "prazo";
+
+export function isOrdemDaEtapa(value: unknown): value is OrdemDaEtapa {
+  return typeof value === "string" && ORDENS_DA_ETAPA.some((o) => o.id === value);
+}
+
+export function ordemDaEtapa(raw: string | null | undefined): OrdemDaEtapa {
+  return isOrdemDaEtapa(raw) ? raw : ORDEM_PADRAO;
+}
+
+/** O que a ordenação precisa saber de um card — nada além disto. */
+export interface CardOrdenavel {
+  dueDate: string | Date | null;
+  priority: string;
+  values: string | null;
+  position: number;
+  createdAt: string | Date;
+}
+
+/** Instante do prazo, ou `Infinity` — sem prazo é sempre o último. */
+function prazoEm(card: CardOrdenavel): number {
+  if (!card.dueDate) return Number.POSITIVE_INFINITY;
+  const t = new Date(card.dueDate).getTime();
+  return Number.isNaN(t) ? Number.POSITIVE_INFINITY : t;
+}
+
+/**
+ * Compara pelo prazo, e é também o DESEMPATE de todas as outras regras.
+ *
+ * Duas demandas da mesma prioridade, do mesmo canal ou do mesmo tamanho ainda
+ * precisam de uma ordem entre si, e a única que a equipe reconhece como justa é
+ * a do prazo. A posição fecha a conta para que a lista nunca embaralhe sozinha
+ * entre duas renderizações.
+ */
+function porPrazo(a: CardOrdenavel, b: CardOrdenavel): number {
+  return prazoEm(a) - prazoEm(b) || a.position - b.position;
+}
+
+/**
+ * Os cards de uma etapa, na ordem que ela pede.
+ *
+ * Pura e fora da tela porque é a mesma pergunta em dois lugares: o quadro
+ * desenha a coluna e o card arquivado não pode divergir dela. Não muda a lista
+ * recebida — a tela memoriza o resultado, e mutar a entrada faria o React ver
+ * a lista velha como se fosse a nova.
+ */
+export function ordenarCardsDaEtapa<T extends CardOrdenavel>(
+  cards: T[],
+  ordem: OrdemDaEtapa
+): T[] {
+  const copia = [...cards];
+
+  if (ordem === "prioridade") {
+    const peso = (c: T) => {
+      const i = (PRIORITIES as readonly string[]).indexOf(c.priority);
+      // Prioridade desconhecida vale como média: some no meio da lista em vez
+      // de liderar a coluna por ser o índice -1.
+      return i === -1 ? PRIORITIES.indexOf("MEDIA") : i;
+    };
+    // Descendente: URGENTE é o último da lista de prioridades e o primeiro aqui.
+    return copia.sort((a, b) => peso(b) - peso(a) || porPrazo(a, b));
+  }
+
+  if (ordem === "quantidade") {
+    const qtd = (c: T) => {
+      const bruto = parseValues(c.values)[CHAVE_VOLUMETRIA];
+      const n = typeof bruto === "number" ? bruto : Number(String(bruto ?? "").trim());
+      return Number.isFinite(n) ? n : 0;
+    };
+    return copia.sort((a, b) => qtd(b) - qtd(a) || porPrazo(a, b));
+  }
+
+  if (ordem === "canal") {
+    /*
+     * O canal é lido do card pelo CONTEÚDO da resposta, e não por uma chave
+     * fixa: `canal` é campo personalizado do quadro, e chave de campo já
+     * mudou de dono aqui uma vez. Basta reconhecer a resposta como canal —
+     * `canalPorResposta` aceita tanto "Meta" quanto o rótulo longo.
+     */
+    const canal = (c: T) => {
+      for (const valor of Object.values(parseValues(c.values))) {
+        if (typeof valor !== "string") continue;
+        const achado = canalPorResposta(valor);
+        if (achado) return achado.label;
+      }
+      return null;
+    };
+    return copia.sort((a, b) => {
+      const ca = canal(a);
+      const cb = canal(b);
+      // Sem canal vai para o fim: é demanda que não diz onde roda, e liderar a
+      // coluna por causa de uma resposta em branco seria o oposto do pedido.
+      if (ca !== cb) {
+        if (!ca) return 1;
+        if (!cb) return -1;
+        return ca.localeCompare(cb, "pt-BR");
+      }
+      return porPrazo(a, b);
+    });
+  }
+
+  return copia.sort(porPrazo);
 }
 
 /**
@@ -1407,6 +1561,16 @@ export const CARD_PANEL_SECTIONS = [
     label: "Prioridade",
     hint: "Baixa, média, alta ou urgente.",
     fonte: "priority",
+    default: true,
+    edita: true,
+  },
+  {
+    key: "dueDate",
+    label: "Prazo",
+    hint: "A data de entrega, editável no painel — o mesmo calendário da abertura.",
+    /* Presa à pergunta: sem "Prazo" no formulário não há data para corrigir, e
+       a seção some das preferências em vez de virar interruptor sem efeito. */
+    fonte: "dueDate",
     default: true,
     edita: true,
   },

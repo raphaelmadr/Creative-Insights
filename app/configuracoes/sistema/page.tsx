@@ -5,6 +5,7 @@ import { Save, Loader2, Copy, Check, AlertTriangle, Eye, EyeOff, ShieldCheck, Sh
 import { FieldGrid, SettingsField, SettingsModal, SettingsSaveProvider, SettingsSection } from "@/components/SettingsUI";
 import { SyncStatusView } from "@/components/SyncStatusView";
 import { useNotifications } from "@/components/NotificationProvider";
+import { lerConfiguracoes, esquecerConfiguracoes } from "../configuracoes-compartilhadas";
 
 /*
  * Cadência do disparador externo: bate sempre, o painel filtra.
@@ -115,7 +116,7 @@ export default function SistemaPage() {
 
   const loadAll = React.useCallback(() => {
     return Promise.all([
-      fetch("/api/settings").then(r => r.json()),
+      lerConfiguracoes(),
       fetch("/api/settings/cron-trigger").then(r => r.json()),
     ]).then(([settingsRes, cronRes]) => {
       /*
@@ -188,6 +189,9 @@ export default function SistemaPage() {
     if (e) e.preventDefault();
     setSavingSettings(true);
     try {
+      /* Gravou: a leitura compartilhada entre as abas precisa ser refeita, ou a
+         aba seguinte mostraria o valor anterior. Ver `configuracoes-compartilhadas`. */
+      esquecerConfiguracoes();
       const res = await fetch("/api/settings", {
         method: "POST",
         headers: { "Content-Type": "application/json" },

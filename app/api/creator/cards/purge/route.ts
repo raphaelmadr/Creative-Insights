@@ -27,9 +27,26 @@ export async function DELETE(request: Request) {
   }
 
   try {
-    const { boardId } = await request.json();
+    const { boardId, cardIds } = await request.json();
     if (!boardId) {
       return NextResponse.json({ error: "boardId é obrigatório." }, { status: 400 });
+    }
+
+    /*
+     * Uma lista de ids apaga só aquelas; sem lista, o arquivo inteiro.
+     *
+     * É a mesma operação em duas escalas — apagar uma demanda e apagar o mês
+     * todo —, e uma rota só é o que garante que as duas passem pelas mesmas
+     * três garantias: administrador, quadro certo e SÓ ARQUIVADOS. Uma rota
+     * separada para o caso individual seria a quarta chance de esquecer o
+     * `archived: true`.
+     */
+    const escolhidos = Array.isArray(cardIds)
+      ? cardIds.filter((id): id is string => typeof id === "string" && !!id)
+      : null;
+
+    if (escolhidos && !escolhidos.length) {
+      return NextResponse.json({ error: "Nenhuma demanda selecionada." }, { status: 400 });
     }
 
     /*
@@ -38,7 +55,7 @@ export async function DELETE(request: Request) {
      * e não confiada ao que a tela mandar.
      */
     const { count } = await prisma.boardCard.deleteMany({
-      where: { boardId, archived: true },
+      where: { boardId, archived: true, ...(escolhidos ? { id: { in: escolhidos } } : {}) },
     });
 
     /*
@@ -51,7 +68,9 @@ export async function DELETE(request: Request) {
      */
     await logWarning(
       "KANBAN",
-      `${admin.name || admin.email} esvaziou o arquivo do quadro ${boardId}: ${count} demanda(s) apagada(s) em definitivo.`,
+      escolhidos
+        ? `${admin.name || admin.email} apagou em definitivo ${count} demanda(s) do arquivo do quadro ${boardId}.`
+        : `${admin.name || admin.email} esvaziou o arquivo do quadro ${boardId}: ${count} demanda(s) apagada(s) em definitivo.`,
       "/api/creator/cards/purge"
     );
 

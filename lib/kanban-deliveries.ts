@@ -22,6 +22,8 @@
 
 import prisma from "./prisma";
 import { logWarning } from "./logger";
+import { parseOptions, parseValues } from "./kanban";
+import { canalPorResposta, contaComoCriativo } from "./copy-options";
 
 /**
  * Credita a entrega a quem a registrou no módulo.
@@ -140,15 +142,80 @@ export async function avisarEntregaSemRegistro(params: {
  * origem — o que veio do módulo hoje e o que ficou de registros anteriores.
  * Uma entrega é uma entrega.
  */
+export interface PecasDoCriador {
+  /** Tudo o que a pessoa entregou — criativo de anúncio, site, CRM, parceria. */
+  total: number;
+  /** Só o que conta na meta global de criativos. Ver `contaComoCriativo`. */
+  criativas: number;
+}
+
 export async function pecasEntreguesPorCriador(
   startDate: Date,
   endDate: Date
-): Promise<Map<string, number>> {
-  const linhas = await prisma.delivery.groupBy({
-    by: ["creatorId"],
+): Promise<Map<string, PecasDoCriador>> {
+  const entregas = await prisma.delivery.findMany({
     where: { date: { gte: startDate, lte: endDate } },
-    _sum: { pieces: true },
+    select: { creatorId: true, pieces: true, cardId: true },
   });
 
-  return new Map(linhas.map((l) => [l.creatorId, l._sum.pieces ?? 0]));
+  /*
+   * O canal sai do CARD, e não de uma coluna da entrega.
+   *
+   * Duplicar o canal na linha de entrega seria gravar de novo uma resposta que
+   * já está no card — e as duas divergiriam no dia em que alguém corrigisse a
+   * demanda. Lido daqui, o número acompanha a correção.
+   *
+   * Qual campo é o canal se descobre pelo CONTEÚDO, como a frente da entrega:
+   * vence quem oferecer opções que este vocabulário reconhece como canal. A
+   * chave `canal` seria o caminho óbvio e é exatamente o que já quebrou uma vez
+   * — chave não muda quando alguém renomeia ou reaproveita a pergunta.
+   */
+  const idsDeCard = [...new Set(entregas.map((e) => e.cardId).filter((id): id is string => !!id))];
+
+  const cards = idsDeCard.length
+    ? await prisma.boardCard.findMany({
+        where: { id: { in: idsDeCard } },
+        select: { id: true, boardId: true, values: true },
+      })
+    : [];
+
+  const campos = cards.length
+    ? await prisma.boardField.findMany({
+        where: { boardId: { in: [...new Set(cards.map((c) => c.boardId))] } },
+        select: { boardId: true, key: true, options: true },
+      })
+    : [];
+
+  /** A chave do campo de canal, por quadro. */
+  const chaveDoCanal = new Map<string, string>();
+  for (const campo of campos) {
+    if (chaveDoCanal.has(campo.boardId)) continue;
+    const reconhecidas = parseOptions(campo.options).filter((o) => canalPorResposta(o));
+    // Dois é o mínimo que distingue "a pergunta do canal" de um campo qualquer
+    // que por acaso ofereça uma palavra igual à de um canal.
+    if (reconhecidas.length >= 2) chaveDoCanal.set(campo.boardId, campo.key);
+  }
+
+  const criativoPorCard = new Map<string, boolean>();
+  for (const card of cards) {
+    const chave = chaveDoCanal.get(card.boardId);
+    const resposta = chave ? parseValues(card.values)[chave] : undefined;
+    criativoPorCard.set(card.id, contaComoCriativo(typeof resposta === "string" ? resposta : null));
+  }
+
+  const soma = new Map<string, PecasDoCriador>();
+  for (const entrega of entregas) {
+    const atual = soma.get(entrega.creatorId) ?? { total: 0, criativas: 0 };
+    atual.total += entrega.pieces;
+    /*
+     * Entrega sem card é das que vieram do Slack, antes de o quadro existir —
+     * e naquela época só se registrava criativo de anúncio. Contá-las como
+     * criativo preserva o histórico; tratá-las como "não sei" apagaria meses de
+     * meta batida.
+     */
+    if (!entrega.cardId || criativoPorCard.get(entrega.cardId)) atual.criativas += entrega.pieces;
+    soma.set(entrega.creatorId, atual);
+  }
+
+  return soma;
 }

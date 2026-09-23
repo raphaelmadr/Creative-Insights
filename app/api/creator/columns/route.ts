@@ -10,6 +10,7 @@ import { NextResponse } from "next/server";
 import prisma from "@/lib/prisma";
 import { getCurrentCreator } from "@/lib/auth";
 import { CREATOR_ONLY_ERROR } from "@/lib/roles";
+import { isOrdemDaEtapa } from "@/lib/kanban";
 
 export async function POST(request: Request) {
   const user = await getCurrentCreator();
@@ -104,6 +105,7 @@ export async function PUT(request: Request) {
       isDone,
       isProduction,
       wipLimit,
+      sortRule,
       notifySlackOnEnter,
       slackChannelId,
       slackMessageTemplate,
@@ -171,6 +173,12 @@ export async function PUT(request: Request) {
         ...(isProduction !== undefined ? { isProduction: !!isProduction } : {}),
         ...(wipLimit !== undefined
           ? { wipLimit: wipLimit === null || wipLimit === "" ? null : Number(wipLimit) }
+          : {}),
+        /* Regra desconhecida vira nulo, e nulo é o padrão (prazo): um valor
+           inventado gravado aqui deixaria a coluna ordenada por nada, sem erro
+           em lugar nenhum. Ver `ordemDaEtapa`. */
+        ...(sortRule !== undefined
+          ? { sortRule: isOrdemDaEtapa(sortRule) ? sortRule : null }
           : {}),
         ...(notifySlackOnEnter !== undefined ? { notifySlackOnEnter: !!notifySlackOnEnter } : {}),
         ...(slackChannelId !== undefined ? { slackChannelId: String(slackChannelId ?? "").trim() || null } : {}),

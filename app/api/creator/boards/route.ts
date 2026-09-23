@@ -58,7 +58,9 @@ export async function GET(request: Request) {
      * visita os cards que acabaram de ser arquivados, e eles só desapareceriam
      * no recarregamento seguinte.
      */
-    if (activeId) await archiveDeliveredBeforeThisMonth(activeId);
+    /* As etapas vão junto: o quadro acabou de ser lido, e relê-las só para
+       saber quais são de entrega seria uma ida ao banco por visita. */
+    if (activeId) await archiveDeliveredBeforeThisMonth(activeId, board?.columns ?? []);
 
     const cards = activeId
       ? await prisma.boardCard.findMany({

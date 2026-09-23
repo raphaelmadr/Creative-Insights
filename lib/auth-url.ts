@@ -21,7 +21,7 @@
  * de quem está tentando entrar.
  */
 
-import prisma from "./prisma";
+import { configuracaoDaAutenticacao } from "./auth-settings";
 
 /** Caminho fixo do NextAuth para o retorno do Google. */
 export const GOOGLE_CALLBACK_PATH = "/api/auth/callback/google";
@@ -47,10 +47,7 @@ const isLocal = (url: string): boolean =>
   /^https?:\/\/(localhost|127\.0\.0\.1|0\.0\.0\.0|\[::1\])(:|\/|$)/i.test(url);
 
 export async function resolveAuthUrl(): Promise<AuthUrlResolution> {
-  const panelUrl = await prisma.systemSettings
-    .findUnique({ where: { id: 1 }, select: { nextAuthUrl: true } })
-    .then((s) => s?.nextAuthUrl)
-    .catch(() => null);
+  const panelUrl = (await configuracaoDaAutenticacao())?.nextAuthUrl ?? null;
 
   const candidates: { value: string | null; source: AuthUrlSource }[] = [
     { value: normalize(process.env.NEXTAUTH_URL), source: "NEXTAUTH_URL" },
