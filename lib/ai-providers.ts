@@ -69,7 +69,11 @@ export const AI_PROVIDERS: AiProviderMeta[] = [
   { id: "groq", label: "Groq", keyField: "groqApiKey", vision: true, note: "O mais rápido da fila", maxOutputTokens: 8192 },
   { id: "openrouter", label: "OpenRouter", keyField: "openRouterApiKey", vision: true, note: "Roteia para vários modelos", maxOutputTokens: 4096 },
   { id: "openai", label: "OpenAI", keyField: "openaiApiKey", vision: true, note: "Lê imagens", maxOutputTokens: 16384 },
-  { id: "anthropic", label: "Anthropic", keyField: "anthropicApiKey", vision: true, note: "Lê imagens", maxOutputTokens: 8192 },
+  /* 16000, e não os 8192 de antes: o raciocínio dos modelos atuais sai do mesmo
+     orçamento da resposta, então o teto velho passou a ser resposta longa
+     cortada no meio. Não é o máximo do modelo (128k) — acima disso a requisição
+     precisa ser em streaming para não estourar o tempo de espera. */
+  { id: "anthropic", label: "Anthropic", keyField: "anthropicApiKey", vision: true, note: "Lê imagens", maxOutputTokens: 16000 },
   { id: "cohere", label: "Cohere", keyField: "cohereApiKey", vision: false, note: "Só texto", maxOutputTokens: 4000 },
   { id: "huggingface", label: "HuggingFace", keyField: "huggingFaceApiKey", vision: false, note: "Só texto; modelos abertos", maxOutputTokens: 4096 },
 ];
