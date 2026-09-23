@@ -15,6 +15,7 @@ import CredentialsProvider from "next-auth/providers/credentials";
 import { PrismaAdapter } from "@next-auth/prisma-adapter";
 import prisma from "@/lib/prisma";
 import { ensureAuthUrlEnv } from "@/lib/auth-url";
+import { configuracaoDaAutenticacao } from "@/lib/auth-settings";
 import { DEV_USER_EMAIL } from "@/lib/dev-user";
 
 /*
@@ -42,7 +43,7 @@ export async function getAuthOptions(): Promise<NextAuthOptions> {
    */
   await ensureAuthUrlEnv();
 
-  const settings = await prisma.systemSettings.findUnique({ where: { id: 1 } });
+  const settings = await configuracaoDaAutenticacao();
 
   return {
     adapter: PrismaAdapter(prisma),

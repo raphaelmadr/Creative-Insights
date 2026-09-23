@@ -18,7 +18,11 @@ export interface UpdateItem {
 }
 
 /**
- * Uma demanda do Kanban atribuída a quem está olhando.
+ * Um aviso do quadro para quem está olhando.
+ *
+ * Duas coisas chegam aqui: uma demanda que entrou na FASE da pessoa (todo o
+ * time da fase recebe, antes de qualquer atribuição) e uma demanda que outra
+ * pessoa atribuiu a ela. O que ela mesma fez nunca vira aviso — ver a rota.
  *
  * Vem pronta do servidor, `message` inclusive: é ele que conhece o número da
  * demanda, e montar a frase aqui abriria uma segunda versão dela para divergir
@@ -43,7 +47,7 @@ interface NotificationContextType {
   /** Canais conectados. Vem do mesmo resumo que traz o estado da sincronização. */
   integrations: { meta: boolean; tiktok: boolean; google: boolean };
 
-  /** As demandas atribuídas a quem está logado — o conteúdo da aba do sino. */
+  /** Os avisos de quadro de quem está logado — o conteúdo da aba do sino. */
   taskNotifications: TaskNotification[];
   taskUnreadCount: number;
   /** Limpa tudo, no servidor: some para esta pessoa, em qualquer navegador. */

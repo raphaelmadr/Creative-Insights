@@ -3,6 +3,7 @@
 import React, { useState, useEffect } from "react";
 import { Save, Loader2, Plus, Trash2, ArrowUp, ArrowDown } from "lucide-react";
 import Modal from "@/components/Modal";
+import { lerConfiguracoes, esquecerConfiguracoes } from "../configuracoes-compartilhadas";
 
 const formatCurrencyInput = (value: number | string) => {
   if (value === undefined || value === null || value === "") return "";
@@ -75,7 +76,7 @@ export default function MetasPage() {
   useEffect(() => {
     setFetching(true);
     Promise.all([
-      fetch("/api/settings").then(r => r.json()),
+      lerConfiguracoes(),
       fetch(`/api/goals?month=${selectedGoalMonth}&year=${selectedGoalYear}`).then(r => r.json()),
     ]).then(([settingsRes, goalsRes]) => {
       if (settingsRes.success && settingsRes.data) {
@@ -124,6 +125,9 @@ export default function MetasPage() {
         creativeCategories: JSON.stringify(categories)
       };
       
+      /* Gravou: a leitura compartilhada entre as abas precisa ser refeita, ou a
+         aba seguinte mostraria o valor anterior. Ver `configuracoes-compartilhadas`. */
+      esquecerConfiguracoes();
       const res = await fetch("/api/settings", {
         method: "POST",
         headers: { "Content-Type": "application/json" },

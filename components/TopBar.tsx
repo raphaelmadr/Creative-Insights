@@ -211,7 +211,7 @@ export default function TopBar() {
         
         {taskNotifications.length === 0 ? (
           <div style={{ padding: '2rem 1rem', textAlign: 'center', color: 'var(--muted)', fontSize: '0.85rem' }}>
-            Nenhuma tarefa atribuída a você.
+            Nada de novo para você por aqui.
           </div>
         ) : (
           taskNotifications.map(nota => {
@@ -469,7 +469,7 @@ export default function TopBar() {
             <button 
               className={styles.iconButton} 
               onClick={() => setIsNotificationsOpen(!isNotificationsOpen)} 
-              title="Tarefas atribuídas a você"
+              title="Suas demandas e as que chegaram para a sua fase"
             >
               <Bell size={20} />
               {taskUnreadCount > 0 && (

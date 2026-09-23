@@ -13,6 +13,7 @@ import CardLinkField from "./CardLinkField";
 import DeliveryUploadPanel from "./DeliveryUploadPanel";
 import { parseCopyVariations } from "@/lib/copy-parse";
 import { parseAttachments } from "@/lib/attachments";
+import DatePicker from "@/components/DatePicker";
 import { parseRawVideos, type RawVideo } from "@/lib/raw-videos";
 import { RawVideoList } from "./RawVideoField";
 import { describeCardLink } from "@/lib/card-link";
@@ -65,6 +66,15 @@ export interface CardData {
    *  link informado à mão. Nulo enquanto nada foi entregue. Ver
    *  `BoardCard.deliveryUrl`. */
   deliveryUrl: string | null;
+  /**
+   * A posição gravada dentro da etapa.
+   *
+   * Não é mais a ordem que se vê: a coluna ordena pelo critério dela (ver
+   * `ordenarCardsDaEtapa`). Continua sendo o DESEMPATE — duas demandas com o
+   * mesmo prazo precisam de uma ordem estável entre si, ou a lista embaralha
+   * sozinha a cada renderização.
+   */
+  position: number;
   /** Fora do quadro: arquivada à mão ou pela regra de fim de mês. */
   archived: boolean;
   completedAt: string | null;
@@ -578,6 +588,33 @@ export default function CardDialog({
         </div>
         </>
         )}
+      </div>
+      )}
+
+      {/*
+        O prazo, editável aqui — e não só na abertura.
+
+        A data combinada na abertura é a primeira a mudar: a peça volta da
+        revisão, a campanha adia, o pedido cresce. Sem este campo, a única
+        saída era abrir outra demanda ou deixar o card vencido no quadro
+        mentindo a data — e é o prazo que pinta o card de vermelho.
+        `parseDueDate`, do outro lado, ancora a data ao meio-dia local, então
+        `slice(0, 10)` devolve o mesmo dia civil que a pessoa escolheu.
+      */}
+      {mostra("dueDate") && (
+      <div className="field" style={{ maxWidth: "240px" }}>
+        <label className="field-label" htmlFor="card-prazo">
+          Prazo
+        </label>
+        <DatePicker
+          id="card-prazo"
+          value={card.dueDate ? card.dueDate.slice(0, 10) : ""}
+          disabled={travado}
+          /* Vazio é "sem prazo", e o servidor entende: `parseDueDate` devolve
+             nulo, o selo some do card e ele deixa de vencer. */
+          onChange={(valor) => patch({ id: card.id, dueDate: valor || null })}
+          placeholder="Sem prazo"
+        />
       </div>
       )}
 

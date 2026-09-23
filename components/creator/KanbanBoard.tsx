@@ -9,6 +9,8 @@ import type { PersonOption } from "./DemandDialog";
 import {
   groupColumns,
   reorderColumns,
+  ordenarCardsDaEtapa,
+  ordemDaEtapa,
   type ColumnPlacement,
   DEFAULT_CARD_BADGES,
   type FormBuiltinKey,
@@ -71,6 +73,18 @@ export default function KanbanBoard({
   const [draggingColumn, setDraggingColumn] = useState<string | null>(null);
   const [overColumnDrop, setOverColumnDrop] = useState<string | null>(null);
 
+  /*
+   * Os cards de cada etapa, já na ordem que ELA pede.
+   *
+   * A ordem não é mais a do arrasto. Ela nunca foi controlável — soltar um card
+   * o jogava para o fim da coluna —, e o efeito prático era que uma demanda
+   * aberta depois, com prazo antes, ficava no pé da fila. Agora cada etapa
+   * responde por sua ordem (`sortRule`), e o padrão é o prazo mais próximo.
+   *
+   * A regra é aplicada AQUI, e não no servidor, porque cada coluna tem a sua: a
+   * consulta devolve os cards do quadro inteiro de uma vez, e uma ordenação por
+   * etapa no SQL seria uma consulta por coluna.
+   */
   const byColumn = useMemo(() => {
     const map = new Map<string, CardData[]>();
     columns.forEach((c) => map.set(c.id, []));
@@ -78,6 +92,10 @@ export default function KanbanBoard({
       const list = map.get(card.columnId);
       if (list) list.push(card);
     });
+    for (const coluna of columns) {
+      const lista = map.get(coluna.id);
+      if (lista?.length) map.set(coluna.id, ordenarCardsDaEtapa(lista, ordemDaEtapa(coluna.sortRule)));
+    }
     return map;
   }, [columns, cards]);
 

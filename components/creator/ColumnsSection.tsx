@@ -2,7 +2,7 @@
 
 import React, { useState } from "react";
 import { Plus, Trash2, ChevronDown, ChevronRight } from "lucide-react";
-import {  type GroupDefinition } from "@/lib/kanban";
+import { ORDENS_DA_ETAPA, ordemDaEtapa, type GroupDefinition } from "@/lib/kanban";
 import { useRascunho, type SecaoHandle } from "./useRascunho";
 
 export interface ColumnDefinition {
@@ -21,6 +21,8 @@ export interface ColumnDefinition {
   /** Libera o painel "Entrega de demanda" dentro do card. Ver `CardDialog`. */
   isProduction: boolean;
   wipLimit: number | null;
+  /** Em que ordem os cards desta etapa aparecem. Ver `ORDENS_DA_ETAPA`. */
+  sortRule: string | null;
   /** Avisa no Slack quando um card entra nesta etapa. */
   notifySlackOnEnter: boolean;
   /** Canal alternativo do aviso. Vazio usa o canal padrão de Configurações › Sistema. */
@@ -218,6 +220,7 @@ const ColumnsSection = React.forwardRef<
           isDone: c.isDone,
           isProduction: c.isProduction,
           wipLimit: c.wipLimit,
+          sortRule: c.sortRule,
           notifySlackOnEnter: c.notifySlackOnEnter,
           slackChannelId: c.slackChannelId,
           slackMessageTemplate: c.slackMessageTemplate,
@@ -447,6 +450,38 @@ const ColumnsSection = React.forwardRef<
                   </span>
                 </div>
               )}
+
+              {/*
+                A ordem dos cards DENTRO desta etapa.
+
+                Por etapa, e não por quadro: o que vem primeiro num backlog é o
+                prazo que vence antes; numa coluna de concluído, prazo não diz
+                nada. Antes disto a ordem era a dos arrastos — e ela nunca foi
+                controlável, porque soltar um card o jogava para o fim da
+                coluna. O sintoma: demanda aberta depois, com prazo antes,
+                ficava no pé da fila.
+              */}
+              <div className="field">
+                <label className="field-label" htmlFor={`ordem-${column.id}`}>
+                  Ordem dos cards
+                </label>
+                <select
+                  id={`ordem-${column.id}`}
+                  className="field-input"
+                  value={ordemDaEtapa(column.sortRule)}
+                  onChange={(e) => mexer(column.id, { sortRule: e.target.value })}
+                >
+                  {ORDENS_DA_ETAPA.map((o) => (
+                    <option key={o.id} value={o.id}>
+                      {o.label}
+                    </option>
+                  ))}
+                </select>
+                <span className="field-hint">
+                  {ORDENS_DA_ETAPA.find((o) => o.id === ordemDaEtapa(column.sortRule))?.hint}
+                </span>
+              </div>
+
 
               {/*
                 A equipe NÃO se define aqui — ela mora no grupo, em "Grupos".

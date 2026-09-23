@@ -204,17 +204,58 @@ export async function copyTargetBoard() {
  *
  * Arquivar não apaga: o card sai do quadro com briefing, copy, anexos e
  * histórico intactos.
+ *
+ * QUEM sai é decidido pela etapa, e só por ela: card numa etapa de entrega.
+ * Todo o resto permanece no quadro, por mais antigo que seja — uma demanda
+ * parada há três meses no backlog é trabalho esquecido, não trabalho
+ * concluído, e tirá-la da vista seria esconder o problema em vez de mostrá-lo.
+ *
+ * QUANDO sai tem duas réguas, e a segunda existe porque a primeira tinha um
+ * buraco de fundo falso. `completedAt` é carimbado no INSTANTE do movimento
+ * para a etapa de entrega — quem entrou ali antes de a etapa ser marcada como
+ * de entrega, ou por qualquer caminho que não seja o arrasto, ficou sem
+ * carimbo. E sem carimbo o card era invisível para esta função: não saía do
+ * quadro nunca, que é o oposto do que ela promete. Dois cards do quadro real
+ * estavam nesse estado.
+ *
+ * A segunda régua cobre esses: parado numa etapa de entrega, sem carimbo e sem
+ * ninguém tocar nele desde antes deste mês, é entrega de mês anterior do mesmo
+ * jeito. `updatedAt` é aproximação — um comentário de ontem adia o
+ * arquivamento por um mês —, e é aproximação deliberada: só alcança o card que
+ * já estava fora da regra, e errar para o lado de manter no quadro é o erro
+ * barato.
  */
-export async function archiveDeliveredBeforeThisMonth(boardId: string): Promise<number> {
+export async function archiveDeliveredBeforeThisMonth(
+  boardId: string,
+  /** As etapas do quadro, quando quem chama já as tem em mãos — evita reler. */
+  colunas?: { id: string; isDone: boolean }[]
+): Promise<number> {
   const inicioDoMes = startOfCurrentMonth();
+
+  const deEntrega = (
+    colunas ??
+    (await prisma.boardColumn.findMany({ where: { boardId }, select: { id: true, isDone: true } }))
+  )
+    .filter((c) => c.isDone)
+    .map((c) => c.id);
+
+  // Quadro sem etapa de entrega não tem o que arquivar — e a consulta abaixo,
+  // sem essa guarda, casaria com a lista vazia e varreria o quadro inteiro.
+  if (!deEntrega.length) return 0;
 
   const vencidos = await prisma.boardCard.findMany({
     where: {
       boardId,
       archived: false,
-      // `completedAt` é carimbado ao entrar na coluna de entrega e apagado ao
-      // sair dela: um card que voltou para revisão não é uma entrega antiga.
-      completedAt: { lt: inicioDoMes },
+      // A etapa é a condição de todas: fora dela, nada sai do quadro.
+      columnId: { in: deEntrega },
+      OR: [
+        // `completedAt` é carimbado ao entrar na coluna de entrega e apagado ao
+        // sair dela: um card que voltou para revisão não é uma entrega antiga.
+        { completedAt: { lt: inicioDoMes } },
+        // Sem carimbo: quem chegou à etapa por um caminho que não carimba.
+        { completedAt: null, updatedAt: { lt: inicioDoMes } },
+      ],
     },
     select: { id: true },
   });
@@ -240,6 +281,34 @@ export async function archiveDeliveredBeforeThisMonth(boardId: string): Promise<
   ]);
 
   return ids.length;
+}
+
+/**
+ * Arquiva as entregas vencidas em TODOS os quadros.
+ *
+ * Existe para a batida do cron: a regra é "a entrega sai quando o mês vira, à
+ * meia-noite", e rodando só na leitura do quadro ela acontecia na primeira vez
+ * que alguém abria o kanban no mês novo — podia ser às 9h do dia 1º, ou na
+ * segunda-feira, se o dia 1º caísse num sábado. O card ficava à vista horas
+ * depois da hora marcada.
+ *
+ * Não substitui a passada da leitura, soma-se a ela: o cron é um cadastro no
+ * painel da hospedagem e já falhou antes (é por isso que existe a prova de
+ * vida). Com os dois, a hora certa vem do cron e a garantia vem da leitura —
+ * e chamar duas vezes não tem efeito nenhum, porque o que já saiu não casa
+ * mais com a regra.
+ */
+export async function arquivarEntregasVencidas(): Promise<number> {
+  const quadros = await prisma.board.findMany({
+    where: { archived: false },
+    select: { id: true, columns: { select: { id: true, isDone: true } } },
+  });
+
+  let total = 0;
+  for (const quadro of quadros) {
+    total += await archiveDeliveredBeforeThisMonth(quadro.id, quadro.columns);
+  }
+  return total;
 }
 
 /**

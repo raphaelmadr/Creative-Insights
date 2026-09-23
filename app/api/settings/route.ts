@@ -4,6 +4,7 @@ import { isStorageConfigured, resolveStorageConfig } from "@/lib/media-upload";
 import { buildIntegrationStatuses } from "@/lib/integrations";
 import { DEFAULT_ANDROMEDA_PROMPT, DEFAULT_HYPOTHESIS_PROMPT } from "@/lib/ai-prompts";
 import { getCurrentAdmin, getCurrentUser } from "@/lib/auth";
+import { esquecerConfiguracaoDaAutenticacao } from "@/lib/auth-settings";
 import { toPublicSettings } from "@/lib/settings-visibility";
 import { serializeAiProviderOrder } from "@/lib/ai-providers";
 
@@ -272,6 +273,12 @@ export async function POST(request: Request) {
         ...(driveRootFolderId !== undefined && { driveRootFolderId }),
       }
     });
+
+    /* As credenciais do login são lidas de um cache curto (ver
+       `lib/auth-settings.ts`). Limpar aqui é o que faz uma troca de client id,
+       segredo ou URL pública valer no próximo clique, e não daqui a meio
+       minuto. */
+    esquecerConfiguracaoDaAutenticacao();
 
     return NextResponse.json({ success: true, data: settings });
   } catch (error) {

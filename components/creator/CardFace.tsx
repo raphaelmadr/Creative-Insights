@@ -86,7 +86,7 @@ export default function CardFace({
 }: {
   card: CardData;
   /** A etapa onde o card está — o selo de etapa mostra o nome e a cor dela. */
-  column: { name: string; color?: string | null };
+  column: { name: string; color?: string | null; isDone?: boolean };
   people: PersonOption[];
   /** Todos os campos do quadro; só os marcados como visíveis são desenhados. */
   fields: FieldDefinition[];
@@ -151,7 +151,18 @@ export default function CardFace({
   // Um prazo vencido precisa saltar aos olhos no quadro, não só
   // dentro do card — é a informação que muda o que se faz agora.
   const due = card.dueDate ? new Date(card.dueDate) : null;
-  const late = !card.completedAt && isOverdue(card.dueDate);
+  /*
+   * Chegou à etapa de conclusão? Então está entregue, e o prazo deixa de ser
+   * cobrança para virar registro.
+   *
+   * A ETAPA decide, e não só o `completedAt`: o carimbo é zerado toda vez que o
+   * card sai de uma coluna de conclusão — inclusive quando ele só segue viagem
+   * para a fase seguinte —, e o quadro real tem cards parados em "Concluído"
+   * com o carimbo vazio, pintados de vermelho por um prazo que eles cumpriram.
+   * Onde o card ESTÁ é o fato que a equipe enxerga; o carimbo é histórico.
+   */
+  const entregue = !!card.completedAt || column.isDone === true;
+  const late = !entregue && isOverdue(card.dueDate);
   const anexos = parseAttachments(card.attachments);
   const origem = origemDoCard(card.origin);
   const link = describeCardLink(card.linkUrl);
@@ -277,16 +288,22 @@ export default function CardFace({
           <span
             className="card-badge"
             title={
-              late
-                ? `Prazo vencido em ${due.toLocaleDateString("pt-BR")}`
-                : `Prazo: ${due.toLocaleDateString("pt-BR")}`
+              entregue
+                ? `Entregue — prazo era ${due.toLocaleDateString("pt-BR")}`
+                : late
+                  ? `Prazo vencido em ${due.toLocaleDateString("pt-BR")}`
+                  : `Prazo: ${due.toLocaleDateString("pt-BR")}`
             }
             // O prazo vencido também pinta a borda: entre doze cards
-            // cinzas, texto vermelho de 0,65rem passa batido.
+            // cinzas, texto vermelho de 0,65rem passa batido. Entregue pinta de
+            // verde pelo mesmo motivo — a coluna de conclusão é lida de relance,
+            // e um prazo neutro ali não diz que deu certo.
             style={
-              late
-                ? { color: "var(--danger)", borderColor: "var(--danger)", fontWeight: 600 }
-                : undefined
+              entregue
+                ? { color: "var(--success)", borderColor: "var(--success)", fontWeight: 600 }
+                : late
+                  ? { color: "var(--danger)", borderColor: "var(--danger)", fontWeight: 600 }
+                  : undefined
             }
           >
             <Clock size={10} />

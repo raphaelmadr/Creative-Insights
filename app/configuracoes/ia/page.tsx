@@ -11,6 +11,7 @@ import {
   resolveAiProviderOrder,
   type AiProviderId,
 } from "@/lib/ai-providers";
+import { lerConfiguracoes, esquecerConfiguracoes } from "../configuracoes-compartilhadas";
 
 /**
  * Os provedores e a sua ordem vêm de `lib/ai-providers.ts` — o mesmo módulo que
@@ -100,8 +101,7 @@ export default function IAPage() {
 
   useEffect(() => {
     setFetching(true);
-    fetch("/api/settings")
-      .then(r => r.json())
+    lerConfiguracoes()
       .then((settingsRes) => {
         if (settingsRes.success && settingsRes.data) {
           setSettings({
@@ -132,6 +132,9 @@ export default function IAPage() {
     if (e) e.preventDefault();
     setSavingSettings(true);
     try {
+      /* Gravou: a leitura compartilhada entre as abas precisa ser refeita, ou a
+         aba seguinte mostraria o valor anterior. Ver `configuracoes-compartilhadas`. */
+      esquecerConfiguracoes();
       const res = await fetch("/api/settings", {
         method: "POST",
         headers: { "Content-Type": "application/json" },

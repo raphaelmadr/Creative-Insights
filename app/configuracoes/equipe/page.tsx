@@ -5,6 +5,7 @@ import { Save, Loader2, Trash2, Plus } from "lucide-react";
 import { splitAcronyms } from "@/lib/acronyms";
 import Modal from "@/components/Modal";
 import { Avatar } from "@/components/Avatar";
+import { lerConfiguracoes, esquecerConfiguracoes } from "../configuracoes-compartilhadas";
 
 const formatCurrencyInput = (value: number | string) => {
   if (value === undefined || value === null || value === "") return "";
@@ -62,7 +63,7 @@ export default function EquipePage() {
   useEffect(() => {
     setFetching(true);
     Promise.all([
-      fetch("/api/settings").then(r => r.json()),
+      lerConfiguracoes(),
       fetchCreators()
     ]).then(([settingsRes]) => {
       if (settingsRes.success && settingsRes.data) {
@@ -78,6 +79,9 @@ export default function EquipePage() {
   const handleSaveSettings = async () => {
     setSavingSettings(true);
     try {
+      /* Gravou: a leitura compartilhada entre as abas precisa ser refeita, ou a
+         aba seguinte mostraria o valor anterior. Ver `configuracoes-compartilhadas`. */
+      esquecerConfiguracoes();
       const res = await fetch("/api/settings", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -232,8 +236,15 @@ function parseGoal(value: unknown, fallback: number): number {
         {/* Meta Global do Time */}
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end", marginBottom: "1rem" }}>
           <label style={{ display: "flex", flexDirection: "column", gap: "0.5rem" }}>
-            <span className="field-label">Meta Global do Time (peças/mês)</span>
+            <span className="field-label">Meta Global do Time (criativos/mês)</span>
             <input type="number" required value={settings.teamCreativeGoal} onChange={e => setSettings({...settings, teamCreativeGoal: Number(e.target.value)})} className="field-input" style={{ maxWidth: "200px" }} />
+            {/* O que a meta mede, dito onde ela é definida: sem isto, o número
+                é lido como "tudo o que o time entrega" e nasce dimensionado
+                errado. Ver `contaComoCriativo`. */}
+            <span className="field-hint" style={{ maxWidth: "440px" }}>
+              Conta só criativo de anúncio — Meta, TikTok e Google, em qualquer formato.
+              Site, CRM e parcerias entram na volumetria de cada pessoa, mas não nesta meta.
+            </span>
           </label>
           <button type="button" onClick={handleSaveSettings} disabled={savingSettings} className="btn btn-primary">
             {savingSettings ? <Loader2 size={16} className="spin" /> : <Save size={16} />}

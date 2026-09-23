@@ -249,7 +249,7 @@ function MemberCard({ stat, rank }: { stat: any; rank: number }) {
             <GoalBlock
               icon={<Layers size={13} />}
               label="Volumetria entregue"
-              hint="Tudo o que esta pessoa entregou e registrou no card — criativo, vídeo, banner, landing page, o que for. Conta no momento do registro da entrega, uma vez por demanda."
+              hint="A soma de TUDO o que esta pessoa entregou — não só criativo de anúncio: entra vídeo, banner de site, peça de CRM, landing page, material de parceria. Por isso ela não bate com a meta global de criativos, que conta apenas Meta, TikTok e Google. Conta no momento do registro da entrega, uma vez por demanda."
               value={stat.totalPieces || 0}
               goal={volumeGoal}
               format={(n: number) => n.toLocaleString("pt-BR")}
@@ -264,6 +264,10 @@ function MemberCard({ stat, rank }: { stat: any; rank: number }) {
 export default function EquipePage() {
   const [stats, setStats] = useState<any[]>([]);
   const [teamCreativeGoal, setTeamCreativeGoal] = useState(625);
+  /** Só criativo de anúncio — Meta, TikTok, Google. É o que a meta global mede. */
+  const [creativePieces, setCreativePieces] = useState(0);
+  /** Tudo o que o time entregou no mês, criativo ou não. */
+  const [deliveredPieces, setDeliveredPieces] = useState(0);
   const [showGlossary, setShowGlossary] = useState(false);
 
   const now = new Date();
@@ -291,6 +295,16 @@ export default function EquipePage() {
     if (jsonDeliveries.success) {
       globalTeamGoal = jsonDeliveries.teamCreativeGoal ?? 625;
       deliveriesRanking = jsonDeliveries.ranking || [];
+      /*
+       * Os dois totais vêm PRONTOS do servidor, e não somados aqui.
+       *
+       * Somar o ranking na tela daria outro número: ele só traz quem apareceu
+       * no relatório do mês, e a meta é do time inteiro. Além disso são contas
+       * diferentes — volumetria é tudo o que se entregou, a meta global conta
+       * só criativo de anúncio (Meta, TikTok, Google).
+       */
+      setCreativePieces(jsonDeliveries.creativePieces ?? 0);
+      setDeliveredPieces(jsonDeliveries.totalPieces ?? 0);
     }
 
     let unifiedStats: any[] = [];
@@ -329,19 +343,20 @@ export default function EquipePage() {
     return months;
   }, [selectedYear, currentYearValue, currentMonthValue]);
 
-  const totalPieces = stats.reduce((acc, curr) => acc + (curr.totalPieces || 0), 0);
   // Meta zerada é "sem meta": a barra e o percentual somem em vez de mostrar 0.
   const hasTeamGoal = teamCreativeGoal > 0;
   const globalProgressPercent = hasTeamGoal
-    ? Math.min(100, Math.round((totalPieces / teamCreativeGoal) * 100))
+    ? Math.min(100, Math.round((creativePieces / teamCreativeGoal) * 100))
     : 0;
 
+  /* A projeção é da MESMA conta da barra: projetar a volumetria numa meta de
+     criativos prometeria uma meta batida que não seria batida. */
   let paceText = "";
-  if (isCurrentMonth && totalPieces > 0) {
+  if (isCurrentMonth && creativePieces > 0) {
     const currentDay = today.getDate();
     const daysInMonth = new Date(today.getFullYear(), today.getMonth() + 1, 0).getDate();
-    const projectedPace = Math.round((totalPieces / currentDay) * daysInMonth);
-    paceText = `projeção de ${projectedPace} peças até o fim do mês`;
+    const projectedPace = Math.round((creativePieces / currentDay) * daysInMonth);
+    paceText = `projeção de ${projectedPace} criativos até o fim do mês`;
   }
 
   return (
@@ -428,15 +443,25 @@ export default function EquipePage() {
           {!loading && (
             <div className="allu-card" style={{ gap: "0.75rem", borderTop: "3px solid var(--primary)" }}>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", flexWrap: "wrap", gap: "0.75rem" }}>
+                {/* A meta é de CRIATIVO, e o rótulo diz isso: ela mede Meta,
+                    TikTok e Google. Site, CRM e parceria são trabalho entregue
+                    e entram na volumetria de cada pessoa, não aqui — ver
+                    `contaComoCriativo`. */}
                 <span className="allu-card-label" style={{ color: "var(--primary)", gap: "0.35rem" }}>
-                  <Target size={13} /> {hasTeamGoal ? "Meta global de volumetria" : "Volumetria entregue pela equipe"}
+                  <Target size={13} /> {hasTeamGoal ? "Meta global de criativos" : "Criativos entregues pela equipe"}
+                  <span
+                    title="Conta só criativo de anúncio: Meta, TikTok e Google, em qualquer formato. Site, CRM e parcerias continuam na volumetria de quem entregou, mas ficam fora desta meta."
+                    style={{ cursor: "help", opacity: 0.6, display: "flex" }}
+                  >
+                    <Info size={11} />
+                  </span>
                 </span>
                 <div style={{ display: "flex", alignItems: "baseline", gap: "0.35rem", fontVariantNumeric: "tabular-nums" }}>
                   <span className="allu-card-value" style={{ color: "var(--primary)" }}>
-                    <AnimatedNumber value={totalPieces} decimals={0} />
+                    <AnimatedNumber value={creativePieces} decimals={0} />
                   </span>
                   <span style={{ ...T.foot, opacity: 0.55 }}>
-                    {hasTeamGoal ? `/ ${teamCreativeGoal} peças` : "peças no mês"}
+                    {hasTeamGoal ? `/ ${teamCreativeGoal} criativos` : "criativos no mês"}
                   </span>
                 </div>
               </div>
@@ -454,7 +479,7 @@ export default function EquipePage() {
 
               <div style={{ display: "flex", justifyContent: "space-between", flexWrap: "wrap", gap: "0.5rem", ...T.foot, opacity: 0.7 }}>
                 <span style={{ display: "flex", alignItems: "center", gap: "0.35rem" }}>
-                  {totalPieces === 0
+                  {creativePieces === 0
                     /* Mandava sincronizar com o Slack, que não é mais a fonte — e o
                        botão que fazia isso nem existia mais. Sem entrega no mês, o
                        que há a dizer é onde ela nasce: um card chegando à etapa de
@@ -462,9 +487,15 @@ export default function EquipePage() {
                     ? <>Nenhuma entrega registrada neste mês — elas nascem dos cards que chegam à etapa de entrega do quadro.</>
                     : paceText && <><Activity size={12} /> {paceText}</>}
                 </span>
-                {hasTeamGoal && (
-                  <span style={{ fontVariantNumeric: "tabular-nums" }}>{globalProgressPercent}% da meta</span>
-                )}
+                <span style={{ fontVariantNumeric: "tabular-nums", display: "flex", gap: "0.6rem" }}>
+                  {/* O total entregue continua à vista: ele é maior que a meta
+                      quando há site, CRM ou parceria no mês, e sem esta linha a
+                      diferença entre os dois números pareceria erro de conta. */}
+                  {deliveredPieces > creativePieces && (
+                    <span style={{ opacity: 0.75 }}>{deliveredPieces} peças entregues ao todo</span>
+                  )}
+                  {hasTeamGoal && <span>{globalProgressPercent}% da meta</span>}
+                </span>
               </div>
             </div>
           )}
