@@ -125,6 +125,24 @@ async function getBestOpenAIModel(apiKey: string): Promise<string> {
   return models[0]?.id || "gpt-4o-mini";
 }
 
+/**
+ * Os modelos da Anthropic em ordem de preferência — o primeiro que a conta
+ * servir é o escolhido.
+ *
+ * Lista EXPLÍCITA, e não um `includes("claude-3-5-sonnet")` como era: a busca
+ * por pedaço de nome envelhece junto com o nome. Ela procurava a geração de
+ * 2024, não achava mais nada na conta — porque aqueles modelos foram
+ * aposentados — e caía num id fixo igualmente aposentado, devolvendo 404 na
+ * hora de gerar. O erro só aparecia para quem estava gerando copy.
+ *
+ * Com a lista, um modelo que sai do ar faz a escolha DESCER para o próximo em
+ * vez de cair num id morto, e trocar de padrão é mexer na primeira linha.
+ */
+const MODELOS_ANTHROPIC = ["claude-opus-5", "claude-sonnet-5", "claude-haiku-4-5"];
+
+/** O padrão quando a consulta à lista de modelos falha (sem rede, chave sem permissão). */
+const MODELO_ANTHROPIC_PADRAO = MODELOS_ANTHROPIC[0];
+
 async function getBestAnthropicModel(apiKey: string): Promise<string> {
   const res = await fetch("https://api.anthropic.com/v1/models", {
     headers: { 
@@ -134,11 +152,8 @@ async function getBestAnthropicModel(apiKey: string): Promise<string> {
   });
   if (!res.ok) throw new Error("Failed to fetch Anthropic models");
   const data = await res.json();
-  const models = data.data || [];
-  const hasSonnet = models.find((m: any) => m.id.includes("claude-3-5-sonnet"));
-  if (hasSonnet) return hasSonnet.id;
-  const hasHaiku = models.find((m: any) => m.id.includes("claude-3-haiku") || m.id.includes("claude-3-5-haiku"));
-  return hasHaiku ? hasHaiku.id : "claude-3-5-sonnet-20240620";
+  const disponiveis = new Set((data.data || []).map((m: any) => m.id));
+  return MODELOS_ANTHROPIC.find((id) => disponiveis.has(id)) ?? MODELO_ANTHROPIC_PADRAO;
 }
 
 async function getBestCohereModel(apiKey: string): Promise<string> {
@@ -500,7 +515,7 @@ async function tryAnthropic(
   images: AiImageInput[] | undefined,
   maxTokens: number
 ): Promise<string | null> {
-  const modelId = await getCachedModel("anthropic", () => getBestAnthropicModel(apiKey), "claude-3-5-sonnet-20240620");
+  const modelId = await getCachedModel("anthropic", () => getBestAnthropicModel(apiKey), MODELO_ANTHROPIC_PADRAO);
   const anthropic = new Anthropic({ apiKey });
 
   let messageContent: any[] = [{ type: "text", text: prompt }];
@@ -525,10 +540,26 @@ async function tryAnthropic(
 
   // A Anthropic recebe o contrato no parâmetro `system` de topo — ela não
   // aceita `role: "system"` dentro de `messages`.
+  /*
+   * Sem `temperature`, e com esforço baixo — as duas coisas são da geração
+   * atual de modelos.
+   *
+   * `temperature` foi REMOVIDA da API a partir do Opus 4.7: mandá-la agora
+   * devolve 400, e a cadeia inteira cairia por um parâmetro que só existia
+   * para afrouxar a escrita. Os outros provedores continuam recebendo
+   * `AI_TEMPERATURE`; só a Anthropic deixou de aceitá-la.
+   *
+   * O raciocínio destes modelos é ligado por padrão e COME do mesmo
+   * `max_tokens` da resposta. No esforço padrão, uma peça longa sairia cortada
+   * no meio — o que aqui não aparece como erro, e sim como copy fora do
+   * formato. `low` mantém o gasto perto do que o modelo antigo fazia (ele não
+   * raciocinava), e a geração é montagem de texto, não problema difícil. Suba
+   * para `medium` se a escrita pedir mais.
+   */
   const response = await anthropic.messages.create({
     model: modelId,
     max_tokens: maxTokens,
-    temperature: AI_TEMPERATURE,
+    output_config: { effort: "low" },
     system: AI_OUTPUT_CONTRACT,
     messages: [{ role: "user", content: messageContent }],
   });
