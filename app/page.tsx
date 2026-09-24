@@ -2,6 +2,7 @@
 
 import TopBar from "@/components/TopBar";
 import FunnelsOverview from "@/components/FunnelsOverview";
+import CreativeFunnel from "@/components/CreativeFunnel";
 import DateRangePicker from "@/components/DateRangePicker";
 import { Avatar } from "@/components/Avatar";
 import { useEffect, useState, useMemo, useRef } from "react";
@@ -490,6 +491,16 @@ export default function Home() {
               onSearchClose={() => setSearchOpen(false)}
             />
           </div>
+
+          <CreativeFunnel
+            dateFrom={dateFrom}
+            dateTo={dateTo}
+            statusFilter={statusFilter}
+            channelFilter={channelFilter}
+            selectedDesigner={selectedDesigner}
+            creators={creators}
+            hideOldAds={hideOldAds}
+          />
         </section>
       </div>
     </main>

@@ -371,6 +371,19 @@ export default function CopyPage() {
     productIds: catalogIds,
     productName: productIsOther ? productName : "",
     objective,
+    /*
+     * `channelId`/`formatId` guardam o RÓTULO da opção do quadro desde a
+     * migração para canal/formato dinâmicos (ver o comentário acima do
+     * `<select>` de canal) — não são mais ids da lista fixa antiga. `buildBrief`
+     * no servidor prioriza `channel`/`format` exatamente por isso; sem
+     * mandá-los, a rota caía no fallback `findChannel(channelId)`, que procura
+     * o valor na lista fixa e nunca encontra um rótulo do quadro — o card
+     * chegava recusado com "Canal é obrigatório" mesmo com o campo preenchido.
+     * `channelId`/`formatId` continuam indo juntos para não quebrar uma aba
+     * aberta antes desta mudança.
+     */
+    channel: channelId ?? undefined,
+    format: formatId ?? undefined,
     channelId,
     formatId,
     toneId: toneIsOther ? null : toneId,
