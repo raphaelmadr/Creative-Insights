@@ -47,9 +47,27 @@ export function comCamposDeFabrica<T extends { fields: { key: string }[] }>(
  * desenvolvimento e em produção, e um seed que precisa ser lembrado é um seed
  * que não roda no dia da estreia.
  */
+/**
+ * Já se sabe que existe quadro — não vale perguntar de novo.
+ *
+ * A contagem roda em toda abertura do Kanban só para descobrir algo que, uma
+ * vez verdadeiro, não volta atrás: o quadro é ARQUIVADO, nunca apagado (ver o
+ * DELETE em `/api/creator/boards`), então a linha continua lá. Era uma ida ao
+ * banco por visita para confirmar o que já se confirmou.
+ *
+ * Em processo, e não em cache com validade: a resposta não expira. Um processo
+ * novo pergunta uma vez e pronto.
+ */
+let sabemosQueExisteQuadro = false;
+
 export async function ensureDefaultBoard() {
+  if (sabemosQueExisteQuadro) return;
+
   const existing = await prisma.board.count();
-  if (existing > 0) return;
+  if (existing > 0) {
+    sabemosQueExisteQuadro = true;
+    return;
+  }
 
   const keys = new Set<string>();
   /** Rótulo → chave gerada, para resolver as dependências do molde. */
@@ -95,6 +113,8 @@ export async function ensureDefaultBoard() {
       },
     },
   });
+
+  sabemosQueExisteQuadro = true;
 }
 
 /**
@@ -147,7 +167,11 @@ export async function logActivity(
   cardId: string,
   type: string,
   message: string,
-  actor?: Actor
+  actor?: Actor,
+  /* Os mencionados, só nos comentários — ver `lib/mentions.ts`. Lista vazia
+     grava nulo: "ninguém" e "não se aplica" se leem igual no banco, e é o que
+     a consulta das notificações espera. */
+  mentions?: string[]
 ) {
   try {
     await prisma.cardActivity.create({
@@ -157,6 +181,7 @@ export async function logActivity(
         message,
         authorEmail: actor?.email ?? null,
         authorName: actor?.name ?? null,
+        mentions: mentions?.length ? JSON.stringify(mentions) : null,
       },
     });
   } catch (error) {

@@ -52,6 +52,8 @@ interface NotificationContextType {
   taskUnreadCount: number;
   /** Limpa tudo, no servidor: some para esta pessoa, em qualquer navegador. */
   clearTaskNotifications: () => Promise<void>;
+  /** Dispensa o aviso de UMA demanda. O que acontecer nela depois volta a avisar. */
+  dismissTaskNotification: (cardId: string) => Promise<void>;
   refreshTaskNotifications: () => Promise<void>;
   loading: boolean;
   loadingText: string;
@@ -86,6 +88,7 @@ const NotificationContext = createContext<NotificationContextType>({
   taskNotifications: [],
   taskUnreadCount: 0,
   clearTaskNotifications: async () => {},
+  dismissTaskNotification: async () => {},
   refreshTaskNotifications: async () => {},
   loading: true,
   loadingText: "Iniciando...",
@@ -204,6 +207,28 @@ export default function NotificationProvider({ children }: { children: ReactNode
       console.error("Falha ao carregar o resumo de configurações:", err);
     }
   }, []);
+
+  /*
+   * O "x" de um aviso. Mesma ida e volta do "limpar todas", com o id da demanda
+   * — e o mesmo cuidado: some da tela na hora, volta se o servidor recusar.
+   *
+   * Por demanda, e não por aviso: a lista mostra um aviso por demanda, então
+   * dispensar o item é dispensar a demanda até que algo novo aconteça nela.
+   */
+  const dismissTaskNotification = React.useCallback(async (cardId: string) => {
+    setTaskNotifications((atuais) => atuais.filter((n) => n.cardId !== cardId));
+    try {
+      const res = await fetch("/api/creator/notifications", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ cardId }),
+      });
+      if (!res.ok) throw new Error(String(res.status));
+    } catch (err) {
+      console.error("Falha ao dispensar notificação:", err);
+      refreshTaskNotifications();
+    }
+  }, [refreshTaskNotifications]);
 
   const clearTaskNotifications = React.useCallback(async () => {
     // A lista some na hora; o servidor confirma depois. Esperar a ida e volta
@@ -612,7 +637,7 @@ export default function NotificationProvider({ children }: { children: ReactNode
       integrations,
       taskNotifications,
       taskUnreadCount: taskNotifications.length,
-      clearTaskNotifications, refreshTaskNotifications,
+      clearTaskNotifications, dismissTaskNotification, refreshTaskNotifications,
       
       searchForUpdates, markAllAsRead, hasMore, isFetchingMore, 
       loadMoreUpdates,

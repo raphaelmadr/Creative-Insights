@@ -2,6 +2,44 @@
 
 import { useState, useEffect, useCallback } from 'react';
 
+/**
+ * As buscas em voo, por URL — para que duas telas montando juntas façam UMA.
+ *
+ * O painel pedia `/api/db-ads` duas vezes em toda abertura: os funis e o funil
+ * de maturidade montam ao mesmo tempo, com o mesmo período e o mesmo status, e
+ * cada um chamava este hook por conta própria. São 1,4 MB por resposta, cinco
+ * agregações no banco e um JSON inteiro para interpretar — tudo em dobro, pela
+ * mesma pergunta, no mesmo instante.
+ *
+ * O cache do `sessionStorage` não resolvia isso: ele só vale para a busca
+ * SEGUINTE, e as duas partem juntas, antes de qualquer resposta ter chegado.
+ *
+ * Aqui os dois assinam a MESMA promessa. Nenhum dos dois precisa saber que o
+ * outro existe — que era a razão de eles não compartilharem a resposta em
+ * memória —, e continua valendo: o hook é que deixou de repetir a pergunta.
+ *
+ * O registro é apagado assim que a resposta chega. Isto não é um cache de
+ * dados; é uma fila de quem está esperando pela mesma coisa agora.
+ */
+const emVoo = new Map<string, Promise<unknown>>();
+
+function buscarUmaVez(url: string): Promise<unknown> {
+  const jaPedida = emVoo.get(url);
+  if (jaPedida) return jaPedida;
+
+  const pedido = fetch(url)
+    .then((res) => {
+      if (!res.ok) throw new Error(`HTTP error! status: ${res.status}`);
+      return res.json();
+    })
+    .finally(() => {
+      emVoo.delete(url);
+    });
+
+  emVoo.set(url, pedido);
+  return pedido;
+}
+
 export function useCacheFetch<T>(url: string | null) {
   const [data, setData] = useState<T | null>(null);
   const [loading, setLoading] = useState(true);
@@ -37,11 +75,7 @@ export function useCacheFetch<T>(url: string | null) {
     }
 
     // 2. Fetch fresh data in background
-    fetch(url)
-      .then(res => {
-        if (!res.ok) throw new Error(`HTTP error! status: ${res.status}`);
-        return res.json();
-      })
+    (buscarUmaVez(url) as Promise<T>)
       .then(freshData => {
         if (!isMounted) return;
         

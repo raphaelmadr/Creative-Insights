@@ -57,10 +57,19 @@ export async function GET(req: Request) {
      * Só entram dias em que o anúncio de fato rodou (teve impressão ou gasto);
      * linhas zeradas não deslocam a data de estreia.
      */
-    const lifetime = await prisma.adDailyMetrics.groupBy({
+    /*
+     * Os dois recortes e a configuração saem JUNTOS.
+     *
+     * Nenhum depende do resultado do outro — os dois agrupam a mesma lista de
+     * anúncios, e a configuração não depende de nada. Em fila eram três esperas
+     * somadas na rota mais pesada do painel; lado a lado, é a maior delas.
+     */
+    const ids = ads.map(ad => ad.id);
+    const [lifetime, period, settingsRow] = await Promise.all([
+      prisma.adDailyMetrics.groupBy({
       by: ["adCreativeId"],
       where: {
-        adCreativeId: { in: ads.map(ad => ad.id) },
+        adCreativeId: { in: ids },
         OR: [{ impressions: { gt: 0 } }, { spend: { gt: 0 } }],
       },
       _sum: {
@@ -69,25 +78,28 @@ export async function GET(req: Request) {
       },
       _min: { date: true },
       _max: { date: true },
-    });
+      }),
 
-    /**
-     * Segundo recorte: apenas o período selecionado.
-     *
-     * Os KPIs do topo comparam contra a META DO MÊS, então precisam do valor do
-     * período — não do acumulado de veiculação, que é o que vai nos cards.
-     */
-    const period = await prisma.adDailyMetrics.groupBy({
-      by: ["adCreativeId"],
-      where: {
-        adCreativeId: { in: ads.map(ad => ad.id) },
-        date: { gte: startDate, lte: endDate },
-      },
-      _sum: {
-        spend: true, impressions: true, clicks: true,
-        riskApprovedValue: true, grossValue: true, purchases: true, netOrders: true,
-      },
-    });
+      /*
+       * Segundo recorte: apenas o período selecionado.
+       *
+       * Os KPIs do topo comparam contra a META DO MÊS, então precisam do valor
+       * do período — não do acumulado de veiculação, que é o que vai nos cards.
+       */
+      prisma.adDailyMetrics.groupBy({
+        by: ["adCreativeId"],
+        where: {
+          adCreativeId: { in: ids },
+          date: { gte: startDate, lte: endDate },
+        },
+        _sum: {
+          spend: true, impressions: true, clicks: true,
+          riskApprovedValue: true, grossValue: true, purchases: true, netOrders: true,
+        },
+      }),
+
+      prisma.systemSettings.findUnique({ where: { id: 1 } }),
+    ]);
 
     const periodByAd = new Map<string, CreativeTotals>();
     for (const row of period) {
@@ -117,7 +129,7 @@ export async function GET(req: Request) {
       });
     }
 
-    let settings = await prisma.systemSettings.findUnique({ where: { id: 1 } });
+    let settings = settingsRow;
     
     // A regra de categoria é a de `lib/creative-categories.ts`, a mesma que o
     // gerador de copy usa para decidir quais peças viram referência.

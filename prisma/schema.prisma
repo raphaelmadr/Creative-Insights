@@ -868,6 +868,14 @@ model CardActivity {
 
   message String @db.Text
 
+  /// Os e-mails mencionados no comentário (`@Nome`), em JSON. Nulo em tudo que
+  /// não é comentário — e nos comentários que não mencionaram ninguém.
+  ///
+  /// Resolvidos na gravação, e não na leitura: quem se chamava "Ana" quando o
+  /// comentário foi escrito continua sendo quem foi avisado, mesmo que mude de
+  /// nome depois. Ver `lib/mentions.ts`.
+  mentions String? @db.Text
+
   authorEmail String?
   authorName  String?
 

@@ -35,6 +35,8 @@ import { normalizeCardLink } from "@/lib/card-link";
 import { enviarMensagemSlack, montarMensagemEntrega, buscarIdsSlackPorEmails } from "@/lib/slack-delivery";
 import { resolveCronBaseUrl } from "@/lib/cron-url";
 import { logWarning } from "@/lib/logger";
+import { excludeDevUserWhere } from "@/lib/dev-user";
+import { mencoesNoTexto } from "@/lib/mentions";
 
 /**
  * O histórico de um card — e o arquivo do quadro.
@@ -444,8 +446,35 @@ export async function PUT(request: Request) {
       if (!cardId || !text?.trim()) {
         return NextResponse.json({ error: "O comentário está vazio." }, { status: 400 });
       }
-      await logActivity(cardId, "COMMENT", text.trim().slice(0, 2000), user);
-      return NextResponse.json({ success: true });
+
+      const texto = text.trim().slice(0, 2000);
+
+      /*
+       * Quem foi mencionado sai do TEXTO, resolvido contra os usuários reais —
+       * e não de uma lista que o navegador mande junto. Assim o aviso e o
+       * comentário dizem a mesma coisa: quem escolheu um nome na lista e depois
+       * o apagou da frase não mencionou ninguém.
+       *
+       * O corte é pelo texto: a consulta só acontece quando há uma arroba,
+       * porque a esmagadora maioria dos comentários não menciona ninguém e não
+       * vale uma ida ao banco por comentário.
+       */
+      let mencionados: string[] = [];
+      if (texto.includes("@")) {
+        const pessoas = await prisma.user.findMany({
+          where: excludeDevUserWhere(),
+          select: { email: true, name: true },
+        });
+        mencionados = mencoesNoTexto(
+          texto,
+          pessoas
+            .filter((p): p is { email: string; name: string | null } => !!p.email)
+            .map((p) => ({ email: p.email, name: p.name?.trim() || p.email }))
+        );
+      }
+
+      await logActivity(cardId, "COMMENT", texto, user, mencionados);
+      return NextResponse.json({ success: true, mentions: mencionados });
     }
 
     const { id, title, description, priority, dueDate, assignees, columnId, linkUrl } = body;

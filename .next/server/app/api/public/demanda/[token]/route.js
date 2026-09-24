@@ -2,9 +2,9 @@ var R=require("../../../../../chunks/[turbopack]_runtime.js")("server/app/api/pu
 R.c("server/chunks/lib_1xvw4st._.js")
 R.c("server/chunks/lib_kanban_ts_05nod6l._.js")
 R.c("server/chunks/[root-of-the-server]__0jz5la9._.js")
-R.c("server/chunks/[root-of-the-server]__15bjnu5._.js")
-R.c("server/chunks/node_modules_next_1zdbrne._.js")
 R.c("server/chunks/node_modules_next_dist_13kw1hb._.js")
+R.c("server/chunks/node_modules_next_1zdbrne._.js")
+R.c("server/chunks/[root-of-the-server]__15bjnu5._.js")
 R.c("server/chunks/_next-internal_server_app_api_public_demanda_[token]_route_actions_0z89cp2.js")
 R.m(88793)
 module.exports=R.m(88793).exports

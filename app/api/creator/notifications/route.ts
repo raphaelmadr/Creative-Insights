@@ -19,15 +19,19 @@
  * ele, a regra fica a que a equipe descreve em voz alta: **avisa o que os
  * outros fizeram e me diz respeito**, nunca o que eu mesmo fiz.
  *
- * Duas coisas dizem respeito a alguém:
+ * Três coisas dizem respeito a alguém:
  *
  *   - a demanda chegou à FASE dela (`BoardGroup.assignees` — a fase é o time,
  *     ver o modelo), seja aberta ali ou passada de outra fase. Todo mundo da
  *     fase recebe, sem depender de atribuição;
- *   - ela foi atribuída à demanda por outra pessoa.
+ *   - ela foi atribuída à demanda por outra pessoa;
+ *   - alguém a MENCIONOU em um comentário, pelo nome (`@Ana Paula`). O resto do
+ *     acompanhamento continua fora: comentário é história do card, mas ser
+ *     citado é um pedido direto. Ver `lib/mentions.ts`.
  *
- * O preço continua sendo não existir "lida" por item, só "limpei tudo" — um
- * carimbo em `User.preferences`. É exatamente o controle que a aba oferece.
+ * "Já vi" é um carimbo em `User.preferences`: um geral, de "limpei tudo", e um
+ * por demanda, do "x" de cada aviso. Nenhum dos dois apaga nada — o que
+ * acontecer DEPOIS do carimbo volta a avisar, porque aí é fato novo.
  */
 
 import { NextResponse } from "next/server";
@@ -57,8 +61,11 @@ export async function GET() {
       select: { preferences: true },
     });
 
-    const { notificationsReadAt } = parsePreferences(record?.preferences);
+    const { notificationsReadAt, notificationsDismissed } = parsePreferences(record?.preferences);
     const limpoEm = notificationsReadAt ? new Date(notificationsReadAt) : null;
+    const dispensadaEm = new Map(
+      Object.entries(notificationsDismissed).map(([cardId, quando]) => [cardId, new Date(quando)])
+    );
 
     const meu = user.email.trim().toLowerCase();
 
@@ -112,7 +119,21 @@ export async function GET() {
      */
     const atividades = await prisma.cardActivity.findMany({
       where: {
-        type: { in: ["CREATED", "MOVED", "ASSIGNED"] },
+        OR: [
+          { type: { in: ["CREATED", "MOVED", "ASSIGNED"] } },
+          /*
+           * O comentário entra só quando cita ESTA pessoa.
+           *
+           * Comentário continua não sendo tarefa de ninguém — é história do
+           * card, e por isso não avisa o quadro inteiro. Ser citado é outra
+           * coisa: é alguém pedindo você, pelo nome, naquela demanda.
+           *
+           * O `contains` compara com as aspas em volta de propósito: sem elas,
+           * `ana@x.com` casaria dentro de `joana@x.com`. Ainda assim a lista é
+           * conferida item a item mais abaixo — LIKE é filtro, não prova.
+           */
+          { type: "COMMENT", mentions: { contains: `"${meu}"` } },
+        ],
         ...(limpoEm ? { createdAt: { gt: limpoEm } } : {}),
         card: { archived: false },
       },
@@ -122,6 +143,8 @@ export async function GET() {
         id: true,
         type: true,
         authorEmail: true,
+        authorName: true,
+        mentions: true,
         createdAt: true,
         card: {
           select: {
@@ -189,6 +212,10 @@ export async function GET() {
       const card = atividade.card;
       if (!card || jaAvisados.has(card.id)) continue;
 
+      /* Dispensada no "x": esconde o que já era, não o que vier depois. */
+      const dispensada = dispensadaEm.get(card.id);
+      if (dispensada && atividade.createdAt <= dispensada) continue;
+
       const code = formatCardCode(card.code);
       const fase = colunaParaFase.get(card.columnId) ?? null;
       const nomeDaFase = fase ? minhasFases.get(fase) : undefined;
@@ -196,7 +223,28 @@ export async function GET() {
 
       let message: string | null = null;
 
-      if (atividade.type === "ASSIGNED") {
+      if (atividade.type === "COMMENT") {
+        /* A prova, depois do filtro: o LIKE encontrou o texto, aqui se confere
+           a lista de verdade. JSON quebrado não avisa ninguém. */
+        let citados: unknown = null;
+        try {
+          citados = JSON.parse(atividade.mentions || "[]");
+        } catch {
+          citados = null;
+        }
+        const souCitado =
+          Array.isArray(citados) &&
+          citados.some((e) => typeof e === "string" && e.trim().toLowerCase() === meu);
+
+        if (souCitado) {
+          const autor = atividade.authorName?.trim() || "Alguém";
+          message = frase(
+            code,
+            `${autor} mencionou você em ${code}`,
+            `${autor} mencionou você em uma demanda`
+          );
+        }
+      } else if (atividade.type === "ASSIGNED") {
         if (souResponsavel) {
           message = frase(
             code,
@@ -255,35 +303,51 @@ export async function GET() {
 }
 
 /**
- * Limpar tudo.
+ * Limpar — tudo, ou uma demanda só.
  *
- * Grava o instante, e não apaga nada: a demanda continua atribuída a ela, o que
- * some é o aviso. Uma demanda que mudar depois disso volta a aparecer — é uma
- * tarefa dela que mudou, e é justamente o que a aba existe para dizer.
+ * Sem corpo, é "limpar todas": carimba o instante e zera os carimbos
+ * individuais, que a partir dali não dizem mais nada. Com `{ cardId }`, é o "x"
+ * de um aviso: carimba AQUELA demanda, e só ela.
+ *
+ * Nenhum dos dois apaga coisa alguma — a demanda continua onde estava, o que
+ * some é o aviso. O que acontecer nela depois do carimbo volta a aparecer, e é
+ * justamente o que a aba existe para dizer.
+ *
+ * O instante é o do servidor, e não um enviado pelo navegador: um relógio
+ * adiantado na máquina de quem clica esconderia avisos que ainda nem
+ * aconteceram.
  */
-export async function POST() {
+export async function POST(request: Request) {
   const user = await getCurrentUser();
   if (!user?.email) {
     return NextResponse.json({ success: false, error: "Não autenticado" }, { status: 401 });
   }
 
   try {
+    /* Corpo vazio é o caso mais comum — "limpar todas" não manda nada. */
+    const corpo = await request.json().catch(() => ({}));
+    const cardId = typeof corpo?.cardId === "string" && corpo.cardId.length <= 64 ? corpo.cardId : null;
+
     const record = await prisma.user.findUnique({
       where: { email: user.email },
       select: { preferences: true },
     });
 
     const agora = new Date().toISOString();
-    const atualizado = mergePreferences(parsePreferences(record?.preferences), {
-      notificationsReadAt: agora,
-    });
+    const atuais = parsePreferences(record?.preferences);
+    const atualizado = mergePreferences(
+      atuais,
+      cardId
+        ? { notificationsDismissed: { ...atuais.notificationsDismissed, [cardId]: agora } }
+        : { notificationsReadAt: agora, notificationsDismissed: {} }
+    );
 
     await prisma.user.update({
       where: { email: user.email },
       data: { preferences: serializePreferences(atualizado) },
     });
 
-    return NextResponse.json({ success: true, clearedAt: agora });
+    return NextResponse.json({ success: true, clearedAt: agora, cardId });
   } catch (error: any) {
     console.error("[Notificações] Falha ao limpar:", error);
     return NextResponse.json(
