@@ -25,6 +25,8 @@ export interface CreativeCategory {
   id: string;
   name: string;
   color?: string;
+  /** O símbolo que a tela de metas põe ao lado do nome. */
+  emoji?: string;
   /** Regras por canal (`META`, `TIKTOK`, `GOOGLE`), com `META` como reserva. */
   rules: Record<string, CategoryRule>;
   /**
@@ -49,6 +51,7 @@ export const DEFAULT_CATEGORIES: CreativeCategory[] = [
     id: "cat_super_winners",
     name: "Super Winners",
     color: "var(--success)",
+    emoji: "🏆",
     rules: {
       META: { minSpend: 1000, minReturn: 5000, maxCpa: 50 },
       TIKTOK: { minSpend: 1000, minReturn: 5000, maxCpa: 50 },
@@ -59,6 +62,7 @@ export const DEFAULT_CATEGORIES: CreativeCategory[] = [
     id: "cat_winners",
     name: "Winners",
     color: "var(--primary)",
+    emoji: "🚀",
     rules: {
       META: { minSpend: 500, minReturn: 2000, maxCpa: 60 },
       TIKTOK: { minSpend: 500, minReturn: 2000, maxCpa: 60 },
@@ -93,10 +97,10 @@ export function loadCategories(settings: LegacyCategorySettings | null | undefin
     } catch {
       /* cai no padrão abaixo */
     }
-    return JSON.parse(JSON.stringify(DEFAULT_CATEGORIES));
+    return structuredClone(DEFAULT_CATEGORIES);
   }
 
-  const categories: CreativeCategory[] = JSON.parse(JSON.stringify(DEFAULT_CATEGORIES));
+  const categories: CreativeCategory[] = structuredClone(DEFAULT_CATEGORIES);
   if (settings) {
     categories[0].rules.META.minSpend = settings.superWinnerSpend ?? 1000;
     categories[0].rules.META.minReturn = settings.superWinnerReturn ?? 5000;

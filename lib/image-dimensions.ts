@@ -143,24 +143,3 @@ export function isUsableCreativeImage(
   return Math.max(dimensions.width, dimensions.height) >= minEdge;
 }
 
-/** Baixa só o cabeçalho de uma imagem remota e devolve suas dimensões. */
-export async function probeRemoteImageDimensions(
-  url: string,
-  timeoutMs = 15000
-): Promise<{ dimensions: ImageDimensions | null; error: string | null }> {
-  try {
-    const response = await fetch(url, {
-      headers: { Range: `bytes=0-${IMAGE_HEADER_BYTES - 1}` },
-      signal: AbortSignal.timeout(timeoutMs),
-    });
-
-    if (!response.ok) return { dimensions: null, error: `HTTP ${response.status}` };
-
-    const buffer = Buffer.from(await response.arrayBuffer());
-    const dimensions = readImageDimensions(buffer);
-
-    return { dimensions, error: dimensions ? null : "formato não reconhecido" };
-  } catch (error) {
-    return { dimensions: null, error: (error as Error).message };
-  }
-}

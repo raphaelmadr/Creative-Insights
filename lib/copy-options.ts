@@ -331,6 +331,14 @@ export const COPY_FORMATS = [
       "Ícone de navegação ou de selo. O texto é um rótulo de uma ou duas palavras — não há espaço para frase.",
   },
   {
+    id: "site-lp",
+    channelId: "site",
+    label: "Criação de LP",
+    cardLabel: "Landing pages",
+    guidance:
+      "Landing page inteira, e não uma peça dentro do site: a copy tem de cobrir a página do topo ao rodapé — headline, subtítulo, blocos de argumento e a chamada final. Quem chega aqui veio de um anúncio e espera encontrar o que ele prometeu, então a headline conversa com a peça de origem em vez de recomeçar o assunto. É o único formato do site em que há espaço para desenvolver: use-o para responder objeção, não para repetir a promessa em outras palavras.",
+  },
+  {
     id: "crm-email",
     channelId: "crm",
     label: "Disparo Email",

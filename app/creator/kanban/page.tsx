@@ -2,6 +2,7 @@
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSession } from "next-auth/react";
+import { useRouter, useSearchParams } from "next/navigation";
 import { isAdminRole } from "@/lib/roles";
 import { Plus, SlidersHorizontal, LayoutGrid, Layers, Archive, Link2, Search } from "lucide-react";
 import KanbanBoard from "@/components/creator/KanbanBoard";
@@ -88,13 +89,30 @@ export default function KanbanPage() {
   /** O movimento que parou à espera de um dono. */
   const [openCard, setOpenCard] = useState<CardData | null>(null);
 
-  /**
-   * O link direto de um card (`?board=...&card=...`, montado pelo aviso do
-   * Slack — ver `lib/slack-delivery.ts`) só se aplica uma vez. Sem a marca,
-   * fechar o card reaberto por link e voltar a arrastar cards reabriria o
-   * mesmo painel a cada nova leitura de `cards`.
+  /*
+   * O pedido que veio na URL — do sino, do Slack ou de um link colado.
+   *
+   * Lido pelo roteador, e não de `window.location`: quem já está no Kanban e
+   * clica num aviso não recarrega a página, e `window.location` só é
+   * consultado quando algo manda ler. `useSearchParams` avisa.
    */
-  const linkDireto = useRef(false);
+  const router = useRouter();
+  const parametrosDaUrl = useSearchParams();
+  const cardPedido = parametrosDaUrl.get("card");
+  const quadroPedido = parametrosDaUrl.get("board");
+
+  /**
+   * O último card aberto por link direto (`?board=...&card=...`).
+   *
+   * Guardar QUAL, e não apenas "já aconteceu": o link chega tanto de fora
+   * (o aviso do Slack, o e-mail) quanto de dentro, pelo sino — e quem já está
+   * no quadro clica num aviso atrás do outro sem recarregar a página. Uma
+   * marca booleana abria o primeiro e ignorava todos os seguintes.
+   *
+   * A marca continua sendo necessária: sem ela, fechar o card e voltar a
+   * arrastar reabriria o mesmo painel a cada nova leitura de `cards`.
+   */
+  const linkDireto = useRef<string | null>(null);
 
   /**
    * A impressão digital do quadro na última leitura — a base de comparação da
@@ -150,8 +168,10 @@ export default function KanbanPage() {
 
   useEffect(() => {
     // O board do link direto (`?board=...&card=...`) precisa ser o carregado
-    // de início — o card do aviso do Slack pode não estar no último quadro
-    // que esta pessoa deixou aberto.
+    // de início — o card do aviso pode não estar no último quadro que esta
+    // pessoa deixou aberto. Lido de `window.location` porque aqui interessa o
+    // valor da ABERTURA, uma vez só: como dependência, a limpeza da URL logo
+    // adiante recarregaria o quadro padrão por cima do que acabou de chegar.
     const paramsDeAbertura = new URLSearchParams(window.location.search);
     load(paramsDeAbertura.get("board") || undefined);
 
@@ -180,30 +200,41 @@ export default function KanbanPage() {
   }, [cards, openCard]);
 
   /**
-   * Abre sozinho o card do link direto, assim que o quadro certo terminar de
-   * carregar. Só tenta uma vez: sem achar (card arquivado, ou já entregue e
-   * fora da lista carregada), desiste em silêncio — a pessoa ainda está no
-   * quadro, só sem o painel aberto.
+   * O quadro do link direto, quando não é o que está na tela.
+   *
+   * Vale para quem JÁ está no Kanban e clica num aviso de uma demanda de outra
+   * fase: a carga inicial não se repete numa navegação de cliente, então sem
+   * isto o card pedido simplesmente não estaria na lista.
+   *
+   * Fica de fora da primeira montagem — ali `loading` ainda é verdadeiro e a
+   * carga com o mesmo parâmetro já está a caminho, e disparar de novo seria a
+   * mesma pergunta duas vezes.
    */
   useEffect(() => {
-    if (linkDireto.current || loading) return;
+    if (!quadroPedido || loading || quadroPedido === activeId) return;
+    load(quadroPedido);
+  }, [quadroPedido, activeId, loading, load]);
 
-    const params = new URLSearchParams(window.location.search);
-    const cardId = params.get("card");
-    if (!cardId) {
-      linkDireto.current = true;
-      return;
-    }
+  /**
+   * Abre sozinho o card do link direto, assim que o quadro certo terminar de
+   * carregar. Sem achar (card arquivado, ou de um quadro que não é este),
+   * desiste em silêncio — a pessoa ainda está no quadro, só sem o painel
+   * aberto.
+   *
+   * A limpeza da URL passa pelo roteador, e não pelo `history` do navegador:
+   * é ela que faz `useSearchParams` esquecer o pedido. Feito por fora, o
+   * parâmetro sumiria da barra de endereço mas continuaria valendo aqui, e o
+   * painel reabriria sozinho a cada conferência periódica.
+   */
+  useEffect(() => {
+    if (loading || !cardPedido || linkDireto.current === cardPedido) return;
 
-    const alvo = cards.find((c) => c.id === cardId);
+    const alvo = cards.find((c) => c.id === cardPedido);
     if (alvo) setOpenCard(alvo);
-    linkDireto.current = true;
+    linkDireto.current = cardPedido;
 
-    const url = new URL(window.location.href);
-    url.searchParams.delete("card");
-    url.searchParams.delete("board");
-    window.history.replaceState({}, "", url.toString());
-  }, [cards, loading]);
+    router.replace("/creator/kanban", { scroll: false });
+  }, [cardPedido, cards, loading, router]);
 
   /**
    * Os grupos que têm para onde receber uma demanda.

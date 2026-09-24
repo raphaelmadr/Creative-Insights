@@ -276,8 +276,12 @@ export default function TopBar() {
             return (
               <div key={nota.id} style={{ position: 'relative', borderBottom: '1px solid var(--card-border)' }}>
                 {podeCriar ? (
+                  /* Direto NA demanda, e não no quadro: quem foi mencionado
+                     não deve ter de procurar em qual etapa o card parou. O
+                     Kanban abre o painel sozinho a partir destes dois
+                     parâmetros — ver o efeito do link direto na página. */
                   <Link
-                    href="/creator/kanban"
+                    href={`/creator/kanban?board=${nota.boardId}&card=${nota.cardId}`}
                     onClick={() => setIsNotificationsOpen(false)}
                     style={{ textDecoration: 'none', color: 'inherit', display: 'block' }}
                   >

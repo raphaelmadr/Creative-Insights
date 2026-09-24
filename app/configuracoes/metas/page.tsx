@@ -4,8 +4,16 @@ import React, { useState, useEffect } from "react";
 import { Save, Loader2, Plus, Trash2, ArrowUp, ArrowDown } from "lucide-react";
 import Modal from "@/components/Modal";
 import { lerConfiguracoes, esquecerConfiguracoes } from "../configuracoes-compartilhadas";
+/* O catálogo e a regra moram em um lugar só: esta tela edita as MESMAS
+   categorias que classificam os anúncios. A cópia que vivia aqui era uma
+   segunda verdade esperando para divergir na primeira mudança de critério. */
+import {
+  DEFAULT_CATEGORIES,
+  type CategoryRule,
+  type CreativeCategory,
+} from "@/lib/creative-categories";
 
-const formatCurrencyInput = (value: number | string) => {
+const formatCurrencyInput = (value: number | string | undefined) => {
   if (value === undefined || value === null || value === "") return "";
   const num = typeof value === "string" ? Number(value.replace(/\D/g, "")) / 100 : value;
   return num.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -15,46 +23,6 @@ const parseCurrencyInput = (value: string) => {
   const numericValue = value.replace(/\D/g, "");
   return Number(numericValue) / 100;
 };
-
-type PlatformRules = {
-  minSpend: number;
-  minReturn: number;
-  maxCpa: number;
-};
-
-type CreativeCategory = {
-  id: string;
-  name: string;
-  emoji: string;
-  rules: {
-    META: PlatformRules;
-    TIKTOK: PlatformRules;
-    GOOGLE: PlatformRules;
-  };
-};
-
-const DEFAULT_CATEGORIES: CreativeCategory[] = [
-  {
-    id: "cat_super_winners",
-    name: "Super Winners",
-    emoji: "🏆",
-    rules: {
-      META: { minSpend: 1000, minReturn: 5000, maxCpa: 50 },
-      TIKTOK: { minSpend: 1000, minReturn: 5000, maxCpa: 50 },
-      GOOGLE: { minSpend: 1000, minReturn: 5000, maxCpa: 50 },
-    }
-  },
-  {
-    id: "cat_winners",
-    name: "Winners",
-    emoji: "🚀",
-    rules: {
-      META: { minSpend: 500, minReturn: 2000, maxCpa: 60 },
-      TIKTOK: { minSpend: 500, minReturn: 2000, maxCpa: 60 },
-      GOOGLE: { minSpend: 500, minReturn: 2000, maxCpa: 60 },
-    }
-  }
-];
 
 export default function MetasPage() {
   const [fetching, setFetching] = useState(true);
@@ -92,7 +60,7 @@ export default function MetasPage() {
           // O campo é `maxCpa`. Escrito como `minCpa`, o teto de CPA configurado
           // era jogado numa chave que ninguém lê, e a categoria ficava com o teto
           // embutido no padrão em vez do que está gravado.
-          const cats = JSON.parse(JSON.stringify(DEFAULT_CATEGORIES));
+          const cats = structuredClone(DEFAULT_CATEGORIES);
           cats[0].rules.META.minSpend = settingsRes.data.superWinnerSpend ?? 1000;
           cats[0].rules.META.minReturn = settingsRes.data.superWinnerReturn ?? 5000;
           cats[0].rules.META.maxCpa = settingsRes.data.superWinnerCpa ?? 50;
@@ -205,7 +173,7 @@ export default function MetasPage() {
     }
   };
 
-  const updateCategoryRule = (catId: string, platform: 'META'|'TIKTOK'|'GOOGLE', field: keyof PlatformRules, value: number) => {
+  const updateCategoryRule = (catId: string, platform: 'META'|'TIKTOK'|'GOOGLE', field: keyof CategoryRule, value: number) => {
     setCategories(categories.map(c => {
       if (c.id === catId) {
         return {
@@ -354,7 +322,7 @@ export default function MetasPage() {
             const cat = categories.find(c => c.id === editingCategory);
             if (!cat) return null;
             const activePlatform = activeTabs[cat.id] || 'META';
-            const regra = cat.rules[activePlatform];
+            const regra: CategoryRule = cat.rules[activePlatform] ?? {};
 
             return (
               <Modal

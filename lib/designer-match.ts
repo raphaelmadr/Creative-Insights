@@ -2,8 +2,7 @@
  * Vinculação de criativos a criadores a partir da sigla no nome do anúncio.
  *
  * Fonte única da verdade — antes essa regra estava duplicada (com variações
- * sutis e incompatíveis) em meta-sync, tiktok-sync, meta-sync-sql e
- * app/api/meta-ads/route.ts.
+ * sutis e incompatíveis) em meta-sync, tiktok-sync e app/api/meta-ads/route.ts.
  */
 
 import prisma from "./prisma";

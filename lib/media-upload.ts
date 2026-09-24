@@ -7,6 +7,7 @@
  * copiado com sucesso NÃO pode ser gravado no banco como se fosse permanente.
  */
 
+import { setTimeout as delay } from "node:timers/promises";
 import { constants as fsConstants, promises as fs } from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -43,7 +44,7 @@ export interface ResolvedStorageConfig {
   uploadSecretSource: ConfigSource;
 }
 
-const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
 
 /**
  * Resolve a configuração de armazenamento a partir do painel, caindo para o

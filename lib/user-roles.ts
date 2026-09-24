@@ -39,23 +39,6 @@ export type RoleChangeResult =
   | { ok: false; reason: "not-found" }
   | { ok: false; reason: "last-admin" };
 
-/**
- * Quantos administradores existem além deste usuário.
- *
- * Em produção a conta de desenvolvimento não entra na conta: ninguém consegue
- * entrar com ela fora da máquina local, então deixá-la sustentar a regra
- * significaria dar o painel por protegido enquanto, no ar, não sobrou nenhum
- * administrador utilizável. Foi exatamente o estado em que o sistema ficou.
- */
-export async function countOtherAdmins(userId: string): Promise<number> {
-  return prisma.user.count({
-    where: {
-      role: "ADMIN",
-      NOT: { id: userId },
-      ...(isDevEnvironment() ? {} : { email: { not: DEV_USER_EMAIL } }),
-    },
-  });
-}
 
 /**
  * Aplica o novo papel, respeitando a trava do último administrador.
