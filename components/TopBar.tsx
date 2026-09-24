@@ -8,6 +8,7 @@ import { useSession } from "next-auth/react";
 import { useTheme } from "./ThemeProvider";
 import { hasCreatorAccess } from "@/lib/roles";
 import { useNotifications } from "./NotificationProvider";
+import { Logotipo } from "./BrandingProvider";
 import { SyncStatusView, summarizeSyncStatus } from "./SyncStatusView";
 import { useNow } from "@/hooks/useNow";
 import OnlineUsers from "./OnlineUsers";
@@ -391,8 +392,7 @@ export default function TopBar() {
           </button>
 
           <Link href="/" className={styles.logo} style={{ textDecoration: "none", display: "flex", alignItems: "center" }}>
-            <img src="/logo.png" alt="allu.mkt creative insights" className="logo-light" style={{ height: "32px", width: "auto" }} />
-            <img src="/logo-dark.png" alt="allu.mkt creative insights" className="logo-dark" style={{ height: "32px", width: "auto" }} />
+            <Logotipo altura={32} />
           </Link>
 
           {viewSwitcher && (

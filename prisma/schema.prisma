@@ -181,6 +181,17 @@ model AdDailyMetrics {
 }
 
 model SystemSettings {
+
+  /// A marca do painel — nome e logotipo. Ver `lib/branding.ts`.
+  ///
+  /// Fica no banco, e não no código, porque quem troca o nome ou a arte é quem
+  /// administra, não quem publica: uma instalação nova não deveria precisar de
+  /// um deploy para deixar de se chamar "Creative Insights".
+  ///
+  /// Nulo é "use o padrão" — o nome e os arquivos que vêm no repositório.
+  siteName    String?
+  logoUrl     String? @db.Text
+  logoDarkUrl String? @db.Text
   id Int @id @default(1)
 
   // Metas Gerais
