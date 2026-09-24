@@ -3,6 +3,7 @@
   "/_not-found/page": "app/_not-found/page.js",
   "/api/auth/[...nextauth]/route": "app/api/auth/[...nextauth]/route.js",
   "/api/auth/config-check/route": "app/api/auth/config-check/route.js",
+  "/api/creative-funnel/refs/route": "app/api/creative-funnel/refs/route.js",
   "/api/creatives/vision/route": "app/api/creatives/vision/route.js",
   "/api/creator/attachments/route": "app/api/creator/attachments/route.js",
   "/api/creator/boards/pulse/route": "app/api/creator/boards/pulse/route.js",

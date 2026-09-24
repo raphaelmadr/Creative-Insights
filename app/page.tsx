@@ -492,15 +492,27 @@ export default function Home() {
             />
           </div>
 
-          <CreativeFunnel
-            dateFrom={dateFrom}
-            dateTo={dateTo}
-            statusFilter={statusFilter}
-            channelFilter={channelFilter}
-            selectedDesigner={selectedDesigner}
-            creators={creators}
-            hideOldAds={hideOldAds}
-          />
+          {/* A numeração das seções mora aqui, e não dentro do componente:
+              quem decide que este é o segundo assunto da home é a ordem desta
+              página. O cabeçalho é o mesmo do 01, para que os dois se leiam
+              como uma sequência. */}
+          <div style={{ marginTop: "2rem" }}>
+            <div className="section-header" style={{ marginBottom: "0.5rem" }}>
+              <span className="section-number">02</span>
+              <h2 className="section-title">funil de maturidade dos criativos</h2>
+              <span className="section-subtitle">período selecionado</span>
+            </div>
+
+            <CreativeFunnel
+              dateFrom={dateFrom}
+              dateTo={dateTo}
+              statusFilter={statusFilter}
+              channelFilter={channelFilter}
+              selectedDesigner={selectedDesigner}
+              creators={creators}
+              hideOldAds={hideOldAds}
+            />
+          </div>
         </section>
       </div>
     </main>

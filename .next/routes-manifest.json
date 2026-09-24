@@ -73,6 +73,12 @@
       "namedRegex": "^/api/auth/config\\-check(?:/)?$"
     },
     {
+      "page": "/api/creative-funnel/refs",
+      "regex": "^/api/creative\\-funnel/refs(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/api/creative\\-funnel/refs(?:/)?$"
+    },
+    {
       "page": "/api/creatives/vision",
       "regex": "^/api/creatives/vision(?:/)?$",
       "routeKeys": {},

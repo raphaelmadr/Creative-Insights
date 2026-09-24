@@ -27,6 +27,20 @@ export interface CreativeCategory {
   color?: string;
   /** Regras por canal (`META`, `TIKTOK`, `GOOGLE`), com `META` como reserva. */
   rules: Record<string, CategoryRule>;
+  /**
+   * A quebra esperada nesta etapa, em % da etapa anterior, por canal —
+   * `{ META: 31, TIKTOK: 17 }`. É o alvo com que o funil de maturidade compara
+   * o resultado do período.
+   *
+   * Fica ao lado de `rules`, e não dentro, porque não classifica nada: nenhum
+   * anúncio muda de categoria por causa dela, e `matchCategoryIndex` não a
+   * consulta. Critério é de `rules`; isto é leitura.
+   *
+   * Sem valor, o funil compara com a própria quebra do mês anterior — o que ele
+   * fazia antes deste campo existir, e que só vale quando o mês anterior está
+   * inteiro no banco.
+   */
+  refs?: Record<string, number>;
 }
 
 /** O que vale enquanto ninguém configurou categorias em Configurações → Metas. */
