@@ -86,7 +86,14 @@ export default function SistemaPage() {
     slackChannelId: "",
     driveServiceAccountJson: "",
     driveRootFolderId: "",
+    siteName: "",
+    logoUrl: "",
+    logoDarkUrl: "",
   });
+
+  /** O envio de logotipo em curso, por campo — e o erro dele, se houver. */
+  const [subindoLogo, setSubindoLogo] = useState<string | null>(null);
+  const [erroLogo, setErroLogo] = useState<string | null>(null);
 
   /*
    * O estado da automação NÃO é montado aqui.
@@ -152,6 +159,9 @@ export default function SistemaPage() {
         slackChannelId: data.slackChannelId ?? "",
         driveServiceAccountJson: data.driveServiceAccountJson ?? "",
         driveRootFolderId: data.driveRootFolderId ?? "",
+        siteName: data.siteName ?? "",
+        logoUrl: data.logoUrl ?? "",
+        logoDarkUrl: data.logoDarkUrl ?? "",
       });
       setStatus({
         /*
@@ -184,6 +194,28 @@ export default function SistemaPage() {
   useEffect(() => {
     runLoad();
   }, [runLoad]);
+
+  /**
+   * Sobe um logotipo e guarda a URL no formulário — quem grava é o "Salvar" da
+   * tela, como em todo o resto. Envio que a pessoa desistiu de salvar não muda
+   * a marca de ninguém.
+   */
+  const enviarLogo = async (campo: "logoUrl" | "logoDarkUrl", file: File) => {
+    setSubindoLogo(campo);
+    setErroLogo(null);
+    try {
+      const corpo = new FormData();
+      corpo.append("file", file);
+      const res = await fetch("/api/settings/logo", { method: "POST", body: corpo });
+      const json = await res.json();
+      if (!res.ok || !json.url) throw new Error(json.error || "Não foi possível subir o arquivo.");
+      setSettings((atual) => ({ ...atual, [campo]: json.url }));
+    } catch (err) {
+      setErroLogo(err instanceof Error ? err.message : "Não foi possível subir o arquivo.");
+    } finally {
+      setSubindoLogo(null);
+    }
+  };
 
   const handleSaveSettings = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
@@ -381,6 +413,103 @@ export default function SistemaPage() {
           lembra onde se gera um token do TikTok — e ir procurar fora do produto
           era parte do trabalho.
         */}
+        {/* A marca vem primeiro: é a identidade da instalação, e é o que muda
+            quando alguém monta o painel para outra operação. */}
+        <SettingsSection
+          title="Marca"
+          description="Nome e logotipo do painel. Valem para a aba do navegador, o cabeçalho, a tela de login e o formulário público de demanda."
+          status={!!(settings.siteName || settings.logoUrl)}
+        >
+          <FieldGrid>
+            <SettingsField
+              label="Nome do site"
+              value={settings.siteName}
+              onChange={v => setSettings({ ...settings, siteName: v })}
+              placeholder="Creative Insights"
+              mono={false}
+              hint="Vai no título da aba e no texto alternativo do logotipo. Em branco, volta ao padrão."
+            />
+          </FieldGrid>
+
+          {/* Dois arquivos porque a troca entre temas é de CSS, sem piscar —
+              ver `.logo-light` / `.logo-dark`. Sem a versão escura, a clara
+              vale nos dois. */}
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(230px, 1fr))", gap: "0.75rem" }}>
+            {([
+              ["logoUrl", "Logotipo — tema claro", "var(--surface-sunken)"],
+              /* Fundo escuro literal, e não um token: aqui a caixa SIMULA o
+                 tema escuro para quem está no claro, então ela não pode
+                 acompanhar o tema de quem olha. */
+              ["logoDarkUrl", "Logotipo — tema escuro", "#111827"],
+            ] as const).map(([campo, rotulo, fundo]) => (
+              <div key={campo} className="field">
+                <span className="field-label">{rotulo}</span>
+
+                <div
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    minHeight: "72px",
+                    padding: "0.75rem",
+                    background: fundo,
+                    border: "1px solid var(--card-border)",
+                    borderRadius: "var(--radius-block)",
+                  }}
+                >
+                  {settings[campo] ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img src={settings[campo]} alt="" style={{ maxHeight: "40px", maxWidth: "100%" }} />
+                  ) : (
+                    <span style={{ fontSize: "var(--text-caption)", color: "var(--muted)" }}>
+                      {campo === "logoDarkUrl" && settings.logoUrl ? "usa o do tema claro" : "padrão do sistema"}
+                    </span>
+                  )}
+                </div>
+
+                <div style={{ display: "flex", gap: "0.4rem", marginTop: "0.4rem" }}>
+                  <label className="btn btn-secondary btn-compact" style={{ cursor: "pointer" }}>
+                    {subindoLogo === campo ? "Enviando…" : "Enviar arquivo"}
+                    <input
+                      type="file"
+                      accept="image/png,image/jpeg,image/webp,image/gif"
+                      style={{ display: "none" }}
+                      disabled={!!subindoLogo}
+                      onChange={e => {
+                        const arquivo = e.target.files?.[0];
+                        if (arquivo) enviarLogo(campo, arquivo);
+                        // Permite reenviar o MESMO arquivo depois de um erro.
+                        e.target.value = "";
+                      }}
+                    />
+                  </label>
+                  {settings[campo] && (
+                    <button
+                      type="button"
+                      className="btn btn-ghost btn-compact"
+                      onClick={() => setSettings({ ...settings, [campo]: "" })}
+                    >
+                      Remover
+                    </button>
+                  )}
+                </div>
+
+                <input
+                  className="field-input"
+                  style={{ marginTop: "0.4rem", fontSize: "var(--text-caption)" }}
+                  value={settings[campo]}
+                  onChange={e => setSettings({ ...settings, [campo]: e.target.value })}
+                  placeholder="ou cole uma URL"
+                />
+              </div>
+            ))}
+          </div>
+
+          {erroLogo && (
+            <p className="field-hint" style={{ color: "var(--danger)" }}>{erroLogo}</p>
+          )}
+        </SettingsSection>
+
         <SettingsSection
           brand="meta"
           description="Conta de anúncios e token da Marketing API. É a fonte dos criativos, das métricas e das conversões que definem CPA e receita."

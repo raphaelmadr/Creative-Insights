@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useEffect, useMemo, useState } from "react";
+import { Logotipo } from "@/components/BrandingProvider";
 import { useParams } from "next/navigation";
 import { Check, Loader2, LinkIcon } from "lucide-react";
 import FieldInput, { type FieldDefinition } from "@/components/creator/FieldInput";
@@ -55,19 +56,8 @@ interface BoardPublico {
   fields: FieldDefinition[];
 }
 
-/** A marca, nas duas versões — a troca é de CSS. Ver `.logo-light`/`.logo-dark`. */
-function Marca() {
-  const alt = "allu.mkt creative insights";
-  const medida: React.CSSProperties = { height: "34px", width: "auto" };
-  return (
-    <>
-      {/* eslint-disable-next-line @next/next/no-img-element */}
-      <img src="/logo.png" alt={alt} className="logo-light" style={medida} />
-      {/* eslint-disable-next-line @next/next/no-img-element */}
-      <img src="/logo-dark.png" alt={alt} className="logo-dark" style={medida} />
-    </>
-  );
-}
+/** A marca configurada — ver `components/BrandingProvider`. */
+const Marca = () => <Logotipo altura={34} />;
 
 export default function DemandaPublica() {
   const { token } = useParams<{ token: string }>();

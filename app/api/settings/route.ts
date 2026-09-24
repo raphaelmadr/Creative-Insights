@@ -5,6 +5,7 @@ import { buildIntegrationStatuses } from "@/lib/integrations";
 import { DEFAULT_ANDROMEDA_PROMPT, DEFAULT_HYPOTHESIS_PROMPT } from "@/lib/ai-prompts";
 import { getCurrentAdmin, getCurrentUser } from "@/lib/auth";
 import { esquecerConfiguracaoDaAutenticacao } from "@/lib/auth-settings";
+import { esquecerMarca } from "@/lib/branding";
 import { toPublicSettings } from "@/lib/settings-visibility";
 import { serializeAiProviderOrder } from "@/lib/ai-providers";
 
@@ -141,6 +142,7 @@ export async function POST(request: Request) {
       openaiApiKey, anthropicApiKey, tavilyApiKey,
       groqApiKey, openRouterApiKey, cohereApiKey, huggingFaceApiKey,
       aiProviderOrder,
+      siteName, logoUrl, logoDarkUrl,
       slackBotToken, slackChannelId,
       driveServiceAccountJson, driveRootFolderId,
       teamCreativeGoal, cronSyncEnabled, cronSyncInterval,
@@ -176,6 +178,9 @@ export async function POST(request: Request) {
     if (hypothesisPrompt) updateData.hypothesisPrompt = hypothesisPrompt;
     if (visionPrompt !== undefined) updateData.visionPrompt = visionPrompt || null;
     if (creativeCategories !== undefined) updateData.creativeCategories = creativeCategories;
+    if (siteName !== undefined) updateData.siteName = String(siteName).trim() || null;
+    if (logoUrl !== undefined) updateData.logoUrl = String(logoUrl).trim() || null;
+    if (logoDarkUrl !== undefined) updateData.logoDarkUrl = String(logoDarkUrl).trim() || null;
     if (andromedaPrompt) updateData.andromedaPrompt = andromedaPrompt;
     if (tavilySearchQuery) updateData.tavilySearchQuery = tavilySearchQuery;
     if (marketInsightsPrompt) updateData.marketInsightsPrompt = marketInsightsPrompt;
@@ -239,6 +244,9 @@ export async function POST(request: Request) {
         ...(hypothesisPrompt && { hypothesisPrompt }),
         ...(visionPrompt !== undefined && { visionPrompt: visionPrompt || null }),
         ...(creativeCategories !== undefined && { creativeCategories }),
+        ...(siteName !== undefined && { siteName: String(siteName).trim() || null }),
+        ...(logoUrl !== undefined && { logoUrl: String(logoUrl).trim() || null }),
+        ...(logoDarkUrl !== undefined && { logoDarkUrl: String(logoDarkUrl).trim() || null }),
         ...(andromedaPrompt && { andromedaPrompt }),
         ...(tavilySearchQuery && { tavilySearchQuery }),
         ...(marketInsightsPrompt && { marketInsightsPrompt }),
@@ -279,6 +287,10 @@ export async function POST(request: Request) {
        segredo ou URL pública valer no próximo clique, e não daqui a meio
        minuto. */
     esquecerConfiguracaoDaAutenticacao();
+
+    /* Mesma razão para a marca: o nome e o logotipo também são lidos de um
+       cache curto, e quem acabou de trocá-los tem de vê-los trocados. */
+    esquecerMarca();
 
     return NextResponse.json({ success: true, data: settings });
   } catch (error) {

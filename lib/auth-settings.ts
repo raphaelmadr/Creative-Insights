@@ -28,10 +28,20 @@ import prisma from "./prisma";
 
 const TTL = 30_000;
 
-let cache: { em: number; linha: SystemSettings | null } | null = null;
+/*
+ * No `globalThis` pelo mesmo motivo de `lib/branding.ts`: a rota que grava as
+ * configurações e as rotas que autenticam recebem instâncias diferentes deste
+ * módulo, então uma variável local faria `esquecerConfiguracaoDaAutenticacao()`
+ * limpar um cache que ninguém lê — e a troca de credencial só valeria quando os
+ * trinta segundos vencessem, contrariando o que está escrito logo acima.
+ */
+declare global {
+  var cacheDaAutenticacao: { em: number; linha: SystemSettings | null } | null | undefined;
+}
 
 export async function configuracaoDaAutenticacao(): Promise<SystemSettings | null> {
   const agora = Date.now();
+  const cache = globalThis.cacheDaAutenticacao;
   if (cache && agora - cache.em < TTL) return cache.linha;
 
   /*
@@ -42,14 +52,14 @@ export async function configuracaoDaAutenticacao(): Promise<SystemSettings | nul
    */
   try {
     const linha = await prisma.systemSettings.findUnique({ where: { id: 1 } });
-    cache = { em: agora, linha };
+    globalThis.cacheDaAutenticacao = { em: agora, linha };
     return linha;
   } catch {
-    return cache?.linha ?? null;
+    return globalThis.cacheDaAutenticacao?.linha ?? null;
   }
 }
 
 /** Chamada por quem grava as configurações — a troca de credencial vale na hora. */
 export function esquecerConfiguracaoDaAutenticacao(): void {
-  cache = null;
+  globalThis.cacheDaAutenticacao = null;
 }

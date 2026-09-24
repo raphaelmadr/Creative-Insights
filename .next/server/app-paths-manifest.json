@@ -42,6 +42,7 @@
   "/api/public/demanda/[token]/route": "app/api/public/demanda/[token]/route.js",
   "/api/reports/creators/route": "app/api/reports/creators/route.js",
   "/api/settings/cron-trigger/route": "app/api/settings/cron-trigger/route.js",
+  "/api/settings/logo/route": "app/api/settings/logo/route.js",
   "/api/settings/route": "app/api/settings/route.js",
   "/api/settings/summary/route": "app/api/settings/summary/route.js",
   "/api/sync-all/route": "app/api/sync-all/route.js",

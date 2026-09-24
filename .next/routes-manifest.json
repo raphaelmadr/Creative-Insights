@@ -307,6 +307,12 @@
       "namedRegex": "^/api/settings/cron\\-trigger(?:/)?$"
     },
     {
+      "page": "/api/settings/logo",
+      "regex": "^/api/settings/logo(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/api/settings/logo(?:/)?$"
+    },
+    {
       "page": "/api/settings/summary",
       "regex": "^/api/settings/summary(?:/)?$",
       "routeKeys": {},

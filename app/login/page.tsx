@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import { Logotipo, useMarca } from "@/components/BrandingProvider";
 import { signIn } from "next-auth/react";
 import { motion } from "framer-motion";
 
@@ -85,9 +86,10 @@ export default function LoginPage() {
         }}
       >
         <div style={{ marginBottom: "2rem" }}>
-          <img src="/logo.png" alt="allu.mkt creative insights" className="logo-light" style={{ height: "40px", margin: "0 auto 1.5rem" }} />
-          <img src="/logo-dark.png" alt="allu.mkt creative insights" className="logo-dark" style={{ height: "40px", margin: "0 auto 1.5rem" }} />
-          <h1 style={{ fontSize: "var(--text-metric-lg)", fontWeight: 700, marginBottom: "0.5rem" }}>Bem-vindo ao Insights</h1>
+          <div style={{ display: "flex", justifyContent: "center", marginBottom: "1.5rem" }}>
+            <Logotipo altura={40} />
+          </div>
+          <h1 style={{ fontSize: "var(--text-metric-lg)", fontWeight: 700, marginBottom: "0.5rem" }}>Bem-vindo ao {useMarca().nome}</h1>
           <p style={{ color: "var(--muted)", fontSize: "var(--text-cardtitle)" }}>
             Faça login com seu e-mail corporativo para acessar o painel de performance de criativos.
           </p>
