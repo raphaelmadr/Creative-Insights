@@ -34,22 +34,41 @@ export async function GET(request: Request) {
     const url = new URL(request.url);
     const boardId = url.searchParams.get("boardId");
 
-    const boards = await prisma.board.findMany({
-      where: { archived: false },
-      orderBy: { position: "asc" },
-      select: { id: true, name: true, description: true, receivesCopy: true, position: true },
-    });
+    /*
+     * A lista de quadros e o quadro pedido saem JUNTOS.
+     *
+     * A lista só existe para o seletor do topo; quem decide o que carregar é o
+     * `boardId` que a tela manda — e ela manda em toda visita depois da
+     * primeira. Esperar a lista para só então começar a ler o quadro era uma
+     * ida ao banco de espera pura, com a resposta da outra já disponível.
+     *
+     * O pedido é conferido pelo próprio registro (`archived`), e não pela
+     * lista: assim as duas leituras não dependem uma da outra.
+     */
+    const [boards, pedido] = await Promise.all([
+      prisma.board.findMany({
+        where: { archived: false },
+        orderBy: { position: "asc" },
+        select: { id: true, name: true, description: true, receivesCopy: true, position: true },
+      }),
+      boardId
+        ? prisma.board.findUnique({ where: { id: boardId }, include: BOARD_INCLUDE })
+        : Promise.resolve(null),
+    ]);
 
     // Sem quadro pedido, abre o primeiro: é o que a pessoa via da última vez em
     // 99% das visitas, e escolher um quadro antes de ver qualquer coisa é uma
     // pergunta a mais para quem só quer olhar o andamento.
-    const activeId = boardId && boards.some((b) => b.id === boardId) ? boardId : boards[0]?.id;
+    const valido = pedido && !pedido.archived ? pedido : null;
+    const activeId = valido?.id ?? boards[0]?.id;
 
-    const board = activeId
-      ? comCamposDeFabrica(
-          await prisma.board.findUnique({ where: { id: activeId }, include: BOARD_INCLUDE })
-        )
-      : null;
+    /* Só relê quando o palpite não serviu — quadro arquivado, id inventado, ou
+       nenhum id pedido. */
+    const bruto =
+      valido ??
+      (activeId ? await prisma.board.findUnique({ where: { id: activeId }, include: BOARD_INCLUDE }) : null);
+
+    const board = activeId ? comCamposDeFabrica(bruto) : null;
 
     /*
      * As entregas de meses anteriores saem do quadro antes de ele ser lido.
@@ -62,28 +81,28 @@ export async function GET(request: Request) {
        saber quais são de entrega seria uma ida ao banco por visita. */
     if (activeId) await archiveDeliveredBeforeThisMonth(activeId, board?.columns ?? []);
 
-    const cards = activeId
-      ? await prisma.boardCard.findMany({
-          where: { boardId: activeId, archived: false },
-          orderBy: [{ position: "asc" }, { createdAt: "asc" }],
-        })
-      : [];
-
     /*
-     * Quantos cards estão no arquivo — o card fixo do quadro mostra esse número
-     * sem precisar abrir a lista. Uma contagem é mais barata que trazer as
-     * linhas, e é tudo o que a frente do quadro precisa saber.
-     */
-    const archivedCount = activeId
-      ? await prisma.boardCard.count({ where: { boardId: activeId, archived: true } })
-      : 0;
-
-    /*
+     * Cards, contagem do arquivo e pulso: três perguntas independentes, feitas
+     * de uma vez. Em fila, cada uma esperava a anterior por nada — nenhuma
+     * depende do resultado da outra.
+     *
+     * A contagem do arquivo alimenta o card fixo do quadro; é mais barata que
+     * trazer as linhas, e é tudo o que a frente precisa saber.
+     *
      * O pulso sai junto com os dados, e não numa chamada à parte, porque a tela
      * precisa dos dois casados: guardando um pulso lido depois, ela recarregaria
      * o quadro por causa da própria leitura, em laço.
      */
-    const pulse = activeId ? await boardPulse(activeId) : null;
+    const [cards, archivedCount, pulse] = activeId
+      ? await Promise.all([
+          prisma.boardCard.findMany({
+            where: { boardId: activeId, archived: false },
+            orderBy: [{ position: "asc" }, { createdAt: "asc" }],
+          }),
+          prisma.boardCard.count({ where: { boardId: activeId, archived: true } }),
+          boardPulse(activeId),
+        ])
+      : [[], 0, null];
 
     return NextResponse.json({ success: true, boards, board, cards, archivedCount, pulse });
   } catch (error: any) {

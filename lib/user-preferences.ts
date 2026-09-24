@@ -26,17 +26,30 @@ export interface UserPreferences {
   filters: DashboardFilters;
 
   /**
-   * O instante em que esta pessoa limpou as notificações, em ISO.
+   * O instante em que esta pessoa limpou TODAS as notificações, em ISO.
    *
-   * É o estado inteiro de "já vi": as notificações não são linhas guardadas, e
-   * sim as demandas atribuídas a ela — limpar não apaga nada, marca até onde ela
-   * já leu. Um carimbo só, e não uma marca por notificação, porque a aba tem um
-   * botão só: "limpar tudo". Guardar por item seria descrever um controle que a
-   * interface não oferece.
-   *
-   * Nulo é quem nunca limpou: vê tudo o que está atribuído a ela.
+   * As notificações não são linhas guardadas, e sim uma leitura do histórico do
+   * quadro — limpar não apaga nada, marca até onde ela já leu. Nulo é quem
+   * nunca limpou: vê tudo o que lhe diz respeito.
    */
   notificationsReadAt: string | null;
+
+  /**
+   * O mesmo carimbo, por demanda: `{ [cardId]: instante ISO }`.
+   *
+   * Existe desde que a aba passou a ter um "x" em cada aviso. É por DEMANDA, e
+   * não por evento, porque cada demanda aparece uma vez só na lista, com o
+   * evento mais recente: carimbar o evento faria o anterior da mesma demanda
+   * tomar o lugar dele — dispensar um aviso traria outro no lugar, que é o
+   * contrário do que o "x" promete.
+   *
+   * E é um instante, e não um "sim": o que acontecer DEPOIS na mesma demanda
+   * volta a avisar. Dispensar é "já vi isto", não "não me fale mais dela".
+   *
+   * Some inteiro quando a pessoa limpa tudo — daí em diante o carimbo geral já
+   * cobre o que estes cobriam, e mantê-los só faria o campo crescer para sempre.
+   */
+  notificationsDismissed: Record<string, string>;
 }
 
 export const DEFAULT_FILTERS: DashboardFilters = {
@@ -52,6 +65,7 @@ export const DEFAULT_PREFERENCES: UserPreferences = {
   theme: "dark",
   filters: DEFAULT_FILTERS,
   notificationsReadAt: null,
+  notificationsDismissed: {},
 };
 
 const DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
@@ -89,6 +103,30 @@ const asInstant = (value: unknown): string | null => {
   return Number.isNaN(parsed.getTime()) ? null : parsed.toISOString();
 };
 
+/**
+ * O mapa de demandas dispensadas, limpo de tudo que não presta.
+ *
+ * Teto de entradas porque isto mora dentro de um JSON de preferências que é
+ * lido em toda visita: sem limite, quem nunca clica em "limpar todas" levaria o
+ * campo a crescer sem fim. As mais recentes ficam — as antigas já saíram da
+ * janela da aba de qualquer forma.
+ */
+const TETO_DISPENSADAS = 100;
+
+function parseDismissed(raw: unknown): Record<string, string> {
+  if (!raw || typeof raw !== "object") return {};
+
+  const pares: [string, string][] = [];
+  for (const [id, valor] of Object.entries(raw as Record<string, unknown>)) {
+    if (!id || id.length > 64) continue;
+    const instante = asInstant(valor);
+    if (instante) pares.push([id, instante]);
+  }
+
+  pares.sort((a, b) => b[1].localeCompare(a[1]));
+  return Object.fromEntries(pares.slice(0, TETO_DISPENSADAS));
+}
+
 function parseFilters(raw: unknown): DashboardFilters {
   if (!raw || typeof raw !== "object") return { ...DEFAULT_FILTERS };
   const source = raw as Record<string, unknown>;
@@ -123,6 +161,7 @@ export function parsePreferences(stored: string | null | undefined): UserPrefere
     theme: asTheme(source.theme) || DEFAULT_PREFERENCES.theme,
     filters: parseFilters(source.filters),
     notificationsReadAt: asInstant(source.notificationsReadAt),
+    notificationsDismissed: parseDismissed(source.notificationsDismissed),
   };
 }
 
@@ -153,7 +192,14 @@ export function mergePreferences(
       ? asInstant(source.notificationsReadAt)
       : current.notificationsReadAt;
 
-  return { theme, filters, notificationsReadAt };
+  /* Substitui, não funde: quem dispensa uma demanda manda o mapa inteiro já
+     montado, e é assim que "limpar todas" consegue esvaziá-lo. */
+  const notificationsDismissed =
+    "notificationsDismissed" in source
+      ? parseDismissed(source.notificationsDismissed)
+      : current.notificationsDismissed;
+
+  return { theme, filters, notificationsReadAt, notificationsDismissed };
 }
 
 export function serializePreferences(preferences: UserPreferences): string {

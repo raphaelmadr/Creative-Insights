@@ -12,6 +12,7 @@ import { ALLOWED_EMAIL_DOMAIN } from "./corporate-email";
 import { hasCreatorAccess, isAdminRole, type UserRole } from "./roles";
 import GoogleProvider from "next-auth/providers/google";
 import CredentialsProvider from "next-auth/providers/credentials";
+import { cache } from "react";
 import { PrismaAdapter } from "@next-auth/prisma-adapter";
 import prisma from "@/lib/prisma";
 import { ensureAuthUrlEnv } from "@/lib/auth-url";
@@ -125,27 +126,35 @@ export async function getAuthOptions(): Promise<NextAuthOptions> {
  *
  * Devolve `null` quando não há sessão, ou quando o e-mail da sessão não
  * corresponde a nenhum usuário — um token velho de alguém removido não deve
- * valer como acesso.
+ * valer como acesso. É o `session` de `getAuthOptions` que faz essa leitura, e
+ * é por isso que a ausência de `id` responde por ela aqui: sem linha no banco,
+ * o retorno de lá não carimba identidade nenhuma.
+ *
+ * Não repete a consulta do `session`. Eram duas idas ao banco à mesma linha da
+ * mesma tabela, uma atrás da outra, por chamada — e as rotas chamam esta função
+ * mais de uma vez (`getCurrentCreator` para o portão, `getCurrentUserEmail`
+ * para saber quem assina o que vai ser gravado). No quadro deu QUATRO consultas
+ * de usuário para abrir uma tela.
+ *
+ * `cache` é do React, e vale por requisição — é o que a documentação do Next
+ * indica para exatamente isto (ver `02-guides/authentication`). Duas chamadas
+ * na mesma requisição devolvem o mesmo resultado sem tocar no banco de novo;
+ * requisições diferentes não se enxergam.
  */
-export async function getCurrentUser(): Promise<CurrentUser | null> {
+export const getCurrentUser = cache(async (): Promise<CurrentUser | null> => {
   const session = await getServerSession(await getAuthOptions());
-  if (!session?.user?.email) return null;
+  const email = session?.user?.email;
 
-  const user = await prisma.user.findUnique({
-    where: { email: session.user.email },
-    select: { id: true, name: true, email: true, image: true, role: true },
-  });
-
-  if (!user?.email) return null;
+  if (!email || !session.user.id) return null;
 
   return {
-    id: user.id,
-    name: user.name,
-    email: user.email,
-    image: user.image,
-    role: (user.role as UserRole) || "MEMBER",
+    id: session.user.id,
+    name: session.user.name ?? null,
+    email,
+    image: session.user.image ?? null,
+    role: (session.user.role as UserRole) || "MEMBER",
   };
-}
+});
 
 /**
  * A pessoa autenticada, desde que seja admin. `null` cobre os dois casos —

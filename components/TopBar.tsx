@@ -137,7 +137,7 @@ export default function TopBar() {
    * na mesma. Quem protege é o layout, e cada rota de `/api/creator`.
    */
   const podeCriar = hasCreatorAccess(session?.user?.role);
-  const { isSyncingAll, syncStatus, syncAll, isSyncingMeta, syncMessage, syncProgress, isSearching, loadingText, integrations, taskNotifications, taskUnreadCount, clearTaskNotifications } = useNotifications();
+  const { isSyncingAll, syncStatus, syncAll, isSyncingMeta, syncMessage, syncProgress, isSearching, loadingText, integrations, taskNotifications, taskUnreadCount, clearTaskNotifications, dismissTaskNotification } = useNotifications();
 
   /*
    * O botão é um só para toda a equipe.
@@ -160,6 +160,20 @@ export default function TopBar() {
    */
   const now = useNow();
   const syncSummary = summarizeSyncStatus(syncStatus, now, isSyncingAll);
+
+  /*
+   * O carimbo da última sincronização, curto — dia e hora, sem o ano e sem
+   * quem disparou: no cabeçalho, o que se quer saber é se os números da tela
+   * são de agora ou de ontem. O resto continua no `title`.
+   */
+  const ultimaAtualizacao = syncStatus?.lastSyncAt
+    ? new Date(syncStatus.lastSyncAt).toLocaleString('pt-BR', {
+        day: '2-digit',
+        month: '2-digit',
+        hour: '2-digit',
+        minute: '2-digit',
+      })
+    : null;
   const [isNotificationsOpen, setIsNotificationsOpen] = useState(false);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   /*
@@ -176,16 +190,28 @@ export default function TopBar() {
 
   const notificationsContent = (
     <div className={styles.notificationsPopup}>
-      <div style={{ padding: '1rem', borderBottom: '1px solid var(--card-border)', fontWeight: 600, display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '0.5rem' }}>
-        <span style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+      {/* Faixa de cabeçalho, e não um título de página: o conteúdo da aba são
+          os avisos: quanto menos altura ela gastar dizendo o próprio nome,
+          mais avisos cabem antes da rolagem. */}
+      <div style={{ padding: '0.6rem 0.75rem', borderBottom: '1px solid var(--card-border)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '0.5rem' }}>
+        <span style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', fontSize: 'var(--text-caption)', fontWeight: 600 }}>
           Notificações
-          {taskUnreadCount > 0 && <span style={{ fontSize: '0.75rem', background: 'var(--primary)', color: '#fff', padding: '0.1rem 0.5rem', borderRadius: '10px' }}>{taskUnreadCount}</span>}
+          {taskUnreadCount > 0 && <span style={{ fontSize: '0.7rem', background: 'var(--primary)', color: '#fff', padding: '0 0.4rem', borderRadius: '10px' }}>{taskUnreadCount}</span>}
         </span>
 
         {/* Limpar não apaga demanda nenhuma: marca até onde esta pessoa já leu,
-            no servidor. A tarefa continua dela — o que some é o aviso. */}
+            no servidor. A tarefa continua dela — o que some é o aviso.
+
+            Texto puro, no tamanho da nota: é uma ação de arremate, e um botão
+            desenhado ao lado do título disputava a atenção com os avisos, que
+            são o que se vem ler aqui. */}
         {taskUnreadCount > 0 && (
-          <button onClick={(e) => { e.stopPropagation(); clearTaskNotifications(); }} title="Limpar todas as notificações" className="btn btn-ghost">
+          <button
+            onClick={(e) => { e.stopPropagation(); clearTaskNotifications(); }}
+            title="Limpar todas as notificações"
+            className="btn btn-ghost"
+            style={{ padding: '0.15rem 0.3rem', fontSize: 'var(--text-caption)', fontWeight: 500, minHeight: 'auto' }}
+          >
             Limpar todas
           </button>
         )}
@@ -217,7 +243,9 @@ export default function TopBar() {
           taskNotifications.map(nota => {
             const corpo = (
               <div
-                style={{ padding: '1rem', borderBottom: '1px solid var(--card-border)', display: 'flex', flexDirection: 'column', gap: '0.25rem', cursor: podeCriar ? 'pointer' : 'default', transition: 'background 0.2s' }}
+                /* Folga à direita para o "x": sem ela, a frase do aviso passa
+                   por baixo do botão nos títulos mais longos. */
+                style={{ padding: '1rem 2.25rem 1rem 1rem', display: 'flex', flexDirection: 'column', gap: '0.25rem', cursor: podeCriar ? 'pointer' : 'default', transition: 'background 0.2s' }}
                 onMouseOver={(e) => { e.currentTarget.style.background = 'rgba(255,255,255,0.05)' }}
                 onMouseOut={(e) => { e.currentTarget.style.background = 'transparent' }}
               >
@@ -239,17 +267,39 @@ export default function TopBar() {
              * o quadro, e um aviso clicável que responde "área restrita" é pior
              * do que um aviso que não clica.
              */
-            return podeCriar ? (
-              <Link
-                key={nota.id}
-                href="/creator/kanban"
-                onClick={() => setIsNotificationsOpen(false)}
-                style={{ textDecoration: 'none', color: 'inherit', display: 'block' }}
-              >
-                {corpo}
-              </Link>
-            ) : (
-              <React.Fragment key={nota.id}>{corpo}</React.Fragment>
+            /*
+             * O "x" fica FORA do link, e não dentro do corpo: um botão dentro
+             * de uma âncora é HTML inválido, e o clique nele abriria o quadro
+             * junto. Daí o invólucro posicionado — é ele que guarda a divisa
+             * entre um aviso e o próximo.
+             */
+            return (
+              <div key={nota.id} style={{ position: 'relative', borderBottom: '1px solid var(--card-border)' }}>
+                {podeCriar ? (
+                  <Link
+                    href="/creator/kanban"
+                    onClick={() => setIsNotificationsOpen(false)}
+                    style={{ textDecoration: 'none', color: 'inherit', display: 'block' }}
+                  >
+                    {corpo}
+                  </Link>
+                ) : (
+                  corpo
+                )}
+
+                {/* Dispensa ESTA demanda — o que acontecer nela depois volta a
+                    avisar. Ver a rota: o carimbo é por demanda, não "some para
+                    sempre". */}
+                <button
+                  onClick={(e) => { e.stopPropagation(); e.preventDefault(); dismissTaskNotification(nota.cardId); }}
+                  title="Limpar esta notificação"
+                  aria-label={`Limpar a notificação de ${nota.code || nota.title}`}
+                  className="btn btn-icon"
+                  style={{ position: 'absolute', top: '0.4rem', right: '0.4rem', width: '1.6rem', height: '1.6rem', padding: 0 }}
+                >
+                  <X size={13} />
+                </button>
+              </div>
             );
           })
         )}
@@ -427,42 +477,48 @@ export default function TopBar() {
             {integrationsIcons}
           </div>
 
-          <div className={styles.desktopSync} style={{ position: 'relative', marginRight: '1rem' }}>
-            {/* Só o ícone aqui — mesmo padrão circular dos outros botões da
-                barra (Sino, etc.), em vez do botão-pílula com texto. O estado
-                (saudável, atrasado, desligado...) mora dentro do próprio
-                ícone: a bolinha no canto carrega a cor, e o resumo por
-                extenso vai para o title — em vez do rótulo flutuando embaixo
-                do botão, que só cabia bem quando havia texto do lado. Por
-                escrito, sem abreviar, continua na versão do menu mobile
-                abaixo, onde o botão tem a largura toda pra si. */}
+          <div className={styles.desktopSync} style={{ marginRight: '1rem', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '0.15rem' }}>
+            {/* Botão escrito, e não só o ícone circular dos vizinhos (Sino,
+                tema): sincronizar não é uma preferência da barra, é a ação que
+                traz os dados — e um ícone sozinho obriga a passar o mouse para
+                descobrir isso. É o mesmo botão do menu mobile, com o mesmo
+                rótulo, pelo mesmo motivo.
+
+                O estado (saudável, atrasado, desligado...) continua na bolinha
+                colorida, agora ao lado do texto, e o resumo por extenso no
+                title. */}
             <button
               onClick={() => syncAll()}
               disabled={syncBloqueado}
               title={syncSummary ? `${syncTitle}\n${syncSummary.resumo}` : syncTitle}
               aria-label={syncSummary ? `${syncTitle}. ${syncSummary.resumo}` : syncTitle}
-              className={styles.iconButton}
+              className="btn btn-secondary btn-compact"
               style={{ color: syncBloqueado ? 'var(--muted)' : 'var(--foreground)' }}
             >
               <RefreshCw size={16} className={syncBloqueado ? "spin" : ""} style={{ animation: syncBloqueado ? "spin 2s linear infinite" : "none" }} />
-              {/* Escondida enquanto gira: o ícone girando já diz "em
-                  andamento", e a bolinha por cima só competiria com ele. */}
-              {syncSummary && !syncSummary.emCurso && (
-                <span
-                  aria-hidden="true"
-                  style={{
-                    position: 'absolute',
-                    bottom: 4,
-                    right: 4,
-                    width: 8,
-                    height: 8,
-                    borderRadius: '50%',
-                    background: syncSummary.color,
-                    border: '1.5px solid var(--card-bg)',
-                  }}
-                />
-              )}
+              {syncBloqueado ? "Sincronizando..." : "Sincronizar"}
             </button>
+
+            {/* Quando os dados chegaram, por extenso e embaixo do botão — no
+                lugar da bolinha colorida, que carregava o estado sem dizer o
+                que era: verde, para quem olhava, era "está tudo bem", e "tudo
+                bem" não é o que se quer saber de uma sincronização. A data
+                responde a pergunta de verdade, que é "isto aqui está velho?".
+
+                A cor só aparece quando há o que avisar — desligada, sem
+                disparador, sem fontes. Em dia, a linha fica discreta. */}
+            {syncStatus && (
+              <span
+                style={{
+                  fontSize: 'var(--text-eyebrow)',
+                  lineHeight: 1.2,
+                  whiteSpace: 'nowrap',
+                  color: syncStatus.health === 'em-dia' ? 'var(--muted)' : (syncSummary?.color ?? 'var(--muted)'),
+                }}
+              >
+                Última atualização: {ultimaAtualizacao ?? 'nunca'}
+              </span>
+            )}
           </div>
 
           <div style={{ position: "relative" }}>

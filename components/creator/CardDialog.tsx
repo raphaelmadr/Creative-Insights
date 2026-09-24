@@ -17,6 +17,7 @@ import DatePicker from "@/components/DatePicker";
 import { parseRawVideos, type RawVideo } from "@/lib/raw-videos";
 import { RawVideoList } from "./RawVideoField";
 import { describeCardLink } from "@/lib/card-link";
+import { mencaoEmCurso, separarMencoes, sugestoesDeMencao } from "@/lib/mentions";
 import type { PersonOption } from "./DemandDialog";
 import {
   PRIORITIES,
@@ -143,6 +144,48 @@ export default function CardDialog({
   /** O histórico começa fechado — ver o comentário na seção. */
   const [historicoAberto, setHistoricoAberto] = useState(false);
   const [comment, setComment] = useState("");
+
+  /*
+   * A menção em curso no campo de comentário.
+   *
+   * O que decide se a lista aparece é o texto ANTES do cursor — daí guardar a
+   * posição dele: escrever "@ana" no meio de uma frase já escrita tem de abrir
+   * a lista igual, e sem a posição o campo só saberia o fim do texto.
+   *
+   * `mencaoDispensada` é o Esc: fecha a lista sem apagar o que foi digitado, e
+   * some sozinho na próxima arroba.
+   */
+  const campoDeComentario = useRef<HTMLInputElement>(null);
+  const [cursor, setCursor] = useState(0);
+  const [mencaoDispensada, setMencaoDispensada] = useState(false);
+  const [sugestaoAtiva, setSugestaoAtiva] = useState(0);
+
+  const mencaoAberta = mencaoDispensada ? null : mencaoEmCurso(comment, cursor);
+  const sugestoes = mencaoAberta ? sugestoesDeMencao(mencaoAberta.termo, people) : [];
+
+  /** Troca o `@parcial` pelo nome inteiro e deixa o cursor depois dele. */
+  const inserirMencao = (pessoa: PersonOption) => {
+    if (!mencaoAberta) return;
+    const antes = comment.slice(0, mencaoAberta.inicio);
+    const depois = comment.slice(cursor);
+    const novoCursor = antes.length + pessoa.name.length + 2; // "@" + nome + espaço
+
+    setComment(`${antes}@${pessoa.name} ${depois}`);
+    setSugestaoAtiva(0);
+
+    /*
+     * O cursor é reposicionado depois que o React reescreve o valor do campo —
+     * antes disso ele salta para o fim do texto, e quem mencionou alguém no
+     * meio da frase continuaria digitando lá no final.
+     */
+    requestAnimationFrame(() => {
+      const campo = campoDeComentario.current;
+      if (!campo) return;
+      campo.focus();
+      campo.setSelectionRange(novoCursor, novoCursor);
+      setCursor(novoCursor);
+    });
+  };
 
   /**
    * As respostas em edição — o rascunho de quem está FAZENDO a demanda.
@@ -1016,26 +1059,122 @@ export default function CardDialog({
         {historicoAberto && (
           <>
         <div style={{ display: "flex", gap: "0.5rem" }}>
-          <input
-            className="field-input"
-            style={{ flex: 1, minWidth: 0 }}
-            value={comment}
-            disabled={travado}
-            placeholder={arquivado ? "Arquivada — sem novas atualizações." : "Escreva uma atualização…"}
-            aria-label="Novo comentário"
-            onChange={(e) => setComment(e.target.value)}
-            onKeyDown={async (e) => {
-              if (e.key === "Enter" && comment.trim()) {
-                if (await patch({ comment: { cardId: card.id, text: comment } })) setComment("");
-              }
-            }}
-          />
+          <div style={{ flex: 1, minWidth: 0, position: "relative" }}>
+            {/* A lista sobe, e não desce: o campo de comentário fica no pé do
+                diálogo, e para baixo ela nasceria fora da área visível. */}
+            {sugestoes.length > 0 && (
+              <div
+                role="listbox"
+                aria-label="Pessoas para mencionar"
+                style={{
+                  position: "absolute",
+                  bottom: "calc(100% + 0.35rem)",
+                  left: 0,
+                  right: 0,
+                  zIndex: 5,
+                  background: "var(--card-bg)",
+                  border: "1px solid var(--card-border)",
+                  borderRadius: "var(--radius-block)",
+                  boxShadow: "0 8px 24px rgba(0,0,0,0.18)",
+                  overflow: "hidden",
+                }}
+              >
+                {sugestoes.map((pessoa, i) => (
+                  <button
+                    key={pessoa.email}
+                    type="button"
+                    role="option"
+                    aria-selected={i === sugestaoAtiva}
+                    /* `onMouseDown`, e não `onClick`: o clique tira o foco do
+                       campo antes de disparar, e a lista fecharia no caminho. */
+                    onMouseDown={(e) => { e.preventDefault(); inserirMencao(pessoa); }}
+                    onMouseEnter={() => setSugestaoAtiva(i)}
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      gap: "0.5rem",
+                      width: "100%",
+                      padding: "0.4rem 0.6rem",
+                      border: "none",
+                      cursor: "pointer",
+                      textAlign: "left",
+                      fontSize: "var(--text-control)",
+                      color: "var(--foreground)",
+                      background: i === sugestaoAtiva ? "var(--card-border)" : "transparent",
+                    }}
+                  >
+                    <Avatar name={pessoa.name} src={pessoa.avatarUrl} size="xs" />
+                    <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                      {pessoa.name}
+                    </span>
+                  </button>
+                ))}
+              </div>
+            )}
+
+            <input
+              ref={campoDeComentario}
+              className="field-input"
+              style={{ width: "100%", minWidth: 0 }}
+              value={comment}
+              disabled={travado}
+              placeholder={arquivado ? "Arquivada — sem novas atualizações." : "Escreva uma atualização… use @ para mencionar"}
+              aria-label="Novo comentário"
+              onChange={(e) => {
+                setComment(e.target.value);
+                setCursor(e.target.selectionStart ?? e.target.value.length);
+                setMencaoDispensada(false);
+                setSugestaoAtiva(0);
+              }}
+              /* Cobre o cursor movido por clique ou seta, que não passa pelo
+                 `onChange` — sem isto a lista não abre ao voltar para um `@`
+                 escrito antes. */
+              onSelect={(e) => setCursor((e.target as HTMLInputElement).selectionStart ?? 0)}
+              onKeyDown={async (e) => {
+                if (sugestoes.length > 0) {
+                  if (e.key === "ArrowDown") {
+                    e.preventDefault();
+                    setSugestaoAtiva((i) => (i + 1) % sugestoes.length);
+                    return;
+                  }
+                  if (e.key === "ArrowUp") {
+                    e.preventDefault();
+                    setSugestaoAtiva((i) => (i - 1 + sugestoes.length) % sugestoes.length);
+                    return;
+                  }
+                  if (e.key === "Enter" || e.key === "Tab") {
+                    e.preventDefault();
+                    inserirMencao(sugestoes[sugestaoAtiva] ?? sugestoes[0]);
+                    return;
+                  }
+                  if (e.key === "Escape") {
+                    /* Fecha só a lista. Sem segurar o evento, o Esc chegaria ao
+                       diálogo e fecharia o card inteiro, levando junto o
+                       comentário pela metade. */
+                    e.preventDefault();
+                    e.stopPropagation();
+                    setMencaoDispensada(true);
+                    return;
+                  }
+                }
+                if (e.key === "Enter" && comment.trim()) {
+                  if (await patch({ comment: { cardId: card.id, text: comment } })) {
+                    setComment("");
+                    setCursor(0);
+                  }
+                }
+              }}
+            />
+          </div>
           <button
             type="button"
             className="btn btn-primary"
             disabled={travado || !comment.trim()}
             onClick={async () => {
-              if (await patch({ comment: { cardId: card.id, text: comment } })) setComment("");
+              if (await patch({ comment: { cardId: card.id, text: comment } })) {
+                setComment("");
+                setCursor(0);
+              }
             }}
           >
             <Send size={14} />
@@ -1060,7 +1199,21 @@ export default function CardDialog({
                     )}
                   </span>
                   {a.type === "COMMENT" && (
-                    <span style={{ fontSize: "var(--text-body)", lineHeight: 1.5 }}>{a.message}</span>
+                    /* As menções saem destacadas — pela MESMA regra que decidiu
+                       quem foi avisado, em `lib/mentions.ts`. Se a tela usasse
+                       outra, um nome apareceria aceso sem ter notificado
+                       ninguém. */
+                    <span style={{ fontSize: "var(--text-body)", lineHeight: 1.5 }}>
+                      {separarMencoes(a.message, people).map((parte, i) =>
+                        parte.mencao ? (
+                          <strong key={i} style={{ color: "var(--primary)", fontWeight: 600 }}>
+                            {parte.texto}
+                          </strong>
+                        ) : (
+                          <React.Fragment key={i}>{parte.texto}</React.Fragment>
+                        )
+                      )}
+                    </span>
                   )}
                   <span style={{ fontSize: "var(--text-eyebrow)", color: "var(--muted)" }}>
                     {stamp(a.createdAt)}
