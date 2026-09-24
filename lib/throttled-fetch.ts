@@ -33,10 +33,6 @@ function resolveWallClockLimit(): number {
 
 const WALL_CLOCK_LIMIT = resolveWallClockLimit();
 
-/** Existe orçamento de tempo? Falso é o padrão: a sincronização roda até acabar. */
-export function hasWallClockLimit(): boolean {
-  return Number.isFinite(WALL_CLOCK_LIMIT);
-}
 
 export function resetWallClock() {
   START_TIME = Date.now();
@@ -85,7 +81,7 @@ export class WallClockLimitError extends Error {
   }
 }
 
-const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
+import { setTimeout as delay } from "node:timers/promises";
 
 /**
  * Quantas janelas de limite de taxa uma requisição espera antes de desistir.

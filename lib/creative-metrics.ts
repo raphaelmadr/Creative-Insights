@@ -48,13 +48,6 @@ export function calculateCpa(totals: Pick<CreativeTotals, "spend" | "netOrders">
   return totals.netOrders > 0 ? totals.spend / totals.netOrders : totals.spend;
 }
 
-/** ROAS sobre a receita de referência — o inverso do CPA, para leitura direta. */
-export function calculateRoas(
-  totals: Pick<CreativeTotals, "spend" | "grossValue" | "riskApprovedValue">
-): number | null {
-  if (totals.spend <= 0) return null;
-  return referenceRevenue(totals) / totals.spend;
-}
 
 export function calculateCtr(totals: Pick<CreativeTotals, "impressions" | "clicks">): number {
   return totals.impressions > 0 ? (totals.clicks / totals.impressions) * 100 : 0;

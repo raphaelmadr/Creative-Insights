@@ -4,12 +4,11 @@ import "./globals.css";
 import SessionProvider from "@/components/SessionProvider";
 import { UserPreferencesProvider } from "@/components/UserPreferencesProvider";
 import NotificationProvider from "@/components/NotificationProvider";
-import MuiProvider from "@/components/MuiProvider";
 
 const inter = Inter({
   subsets: ["latin"],
   // O nome da variável não cita a fonte: assim uma troca futura mexe só aqui,
-  // e não no `globals.css` nem no tema do MUI.
+  // e não no `globals.css`.
   variable: "--font-sans-family",
 });
 
@@ -37,11 +36,9 @@ export default function RootLayout({
       <body className={inter.className}>
         <SessionProvider>
           <UserPreferencesProvider>
-            <MuiProvider>
-              <NotificationProvider>
-                {children}
-              </NotificationProvider>
-            </MuiProvider>
+            <NotificationProvider>
+              {children}
+            </NotificationProvider>
           </UserPreferencesProvider>
         </SessionProvider>
       </body>
