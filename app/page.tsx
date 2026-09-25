@@ -3,6 +3,7 @@
 import TopBar from "@/components/TopBar";
 import FunnelsOverview from "@/components/FunnelsOverview";
 import CreativeFunnel from "@/components/CreativeFunnel";
+import { todayInBusinessTz } from "@/lib/date-utils";
 import DateRangePicker from "@/components/DateRangePicker";
 import { Avatar } from "@/components/Avatar";
 import { useEffect, useState, useMemo, useRef } from "react";
@@ -80,6 +81,13 @@ export default function Home() {
   const [selectedDesigner, setSelectedDesigner] = useState<string | null>(null);
   const [creators, setCreators] = useState<any[]>([]);
   const [hideOldAds, setHideOldAds] = useState(true);
+
+  /* Os funis de maturidade medem sempre o mês corrente, do dia 1 até hoje —
+     o período escolhido no painel vale para o resto da tela, não para eles. */
+  const mesAtual = useMemo(() => {
+    const hoje = todayInBusinessTz();
+    return { from: `${hoje.slice(0, 8)}01`, to: hoje };
+  }, []);
 
   /*
    * A caixa de busca de criativo. O estado mora aqui porque o ícone que a abre
@@ -499,18 +507,37 @@ export default function Home() {
           <div style={{ marginTop: "2rem" }}>
             <div className="section-header" style={{ marginBottom: "0.5rem" }}>
               <span className="section-number">02</span>
-              <h2 className="section-title">funil de maturidade dos criativos</h2>
-              <span className="section-subtitle">período selecionado</span>
+              <h2 className="section-title">funil de maturidade dos criativos · geral do mês</h2>
+              <span className="section-subtitle">mês atual</span>
             </div>
 
             <CreativeFunnel
-              dateFrom={dateFrom}
-              dateTo={dateTo}
+              dateFrom={mesAtual.from}
+              dateTo={mesAtual.to}
               statusFilter={statusFilter}
               channelFilter={channelFilter}
               selectedDesigner={selectedDesigner}
               creators={creators}
               hideOldAds={hideOldAds}
+            />
+          </div>
+
+          <div style={{ marginTop: "2rem" }}>
+            <div className="section-header" style={{ marginBottom: "0.5rem" }}>
+              <span className="section-number">03</span>
+              <h2 className="section-title">funil de maturidade dos criativos · novos</h2>
+              <span className="section-subtitle">lançados no mês atual, sem data ou mês antigo no nome</span>
+            </div>
+
+            <CreativeFunnel
+              dateFrom={mesAtual.from}
+              dateTo={mesAtual.to}
+              statusFilter={statusFilter}
+              channelFilter={channelFilter}
+              selectedDesigner={selectedDesigner}
+              creators={creators}
+              hideOldAds={hideOldAds}
+              novos
             />
           </div>
         </section>

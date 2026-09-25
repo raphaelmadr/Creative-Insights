@@ -1,11 +1,13 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useSession } from "next-auth/react";
 import { useCacheFetch } from "@/hooks/useCacheFetch";
 import { isAdminRole } from "@/lib/roles";
 import { FbIcon, TikTokIcon } from "@/components/CreativeCardPrimitives";
 import { Skeleton } from "@/components/Skeleton";
+import { useNotifications } from "@/components/NotificationProvider";
+import { nomeIndicaOutroMes } from "@/lib/ad-name-month";
 
 const CHANNELS: { key: string; label: string; color: string; Icon: React.ComponentType<{ size?: number }> }[] = [
   { key: "META", label: "Meta", color: "#1877F2", Icon: FbIcon },
@@ -37,9 +39,9 @@ function mesLabel(iso: string): string {
  */
 function contarPorCategoriaECanal(
   categorizedAds: any[],
-  { dateFrom, dateTo, hideOldAds, channelFilter, selectedDesigner, creators }: {
+  { dateFrom, dateTo, hideOldAds, channelFilter, selectedDesigner, creators, novos }: {
     dateFrom: string; dateTo: string; hideOldAds: boolean;
-    channelFilter?: string; selectedDesigner: string | null; creators: any[];
+    channelFilter?: string; selectedDesigner: string | null; creators: any[]; novos: boolean;
   }
 ): { id: string; label: string; counts: Record<string, number>; refs: Record<string, number> | null }[] {
   const start = new Date(`${dateFrom}T00:00:00Z`);
@@ -59,8 +61,10 @@ function contarPorCategoriaECanal(
     return (ad.platform || "META").toUpperCase() === channelFilter.toUpperCase();
   };
 
+  /* Nos novos, lançado no período sempre vale — o botão de ocultar antigos
+     não desliga essa regra — e o nome não pode indicar peça de outro mês. */
   const passaData = (ad: any) => {
-    if (!hideOldAds) return true;
+    if (!hideOldAds && !novos) return true;
     if (!ad.createdTime) return false;
     const criado = new Date(ad.createdTime);
     return criado >= start && criado <= end;
@@ -70,10 +74,12 @@ function contarPorCategoriaECanal(
     const counts: Record<string, number> = { META: 0, TIKTOK: 0, GOOGLE: 0 };
     for (const ad of cat.ads ?? []) {
       if (!passaCriador(ad) || !passaCanal(ad) || !passaData(ad)) continue;
+      if (novos && nomeIndicaOutroMes(ad.ad_name, dateFrom, dateTo)) continue;
       const plat = (ad.platform || "META").toUpperCase();
       if (plat in counts) counts[plat]++;
     }
-    return { id: cat.id || cat.name, label: cat.name, counts, refs: cat.refs ?? null };
+    /* Cada funil lê os próprios alvos — ver `refsNovos` em `lib/creative-categories`. */
+    return { id: cat.id || cat.name, label: cat.name, counts, refs: (novos ? cat.refsNovos : cat.refs) ?? null };
   });
 }
 
@@ -129,6 +135,8 @@ interface CreativeFunnelProps {
   selectedDesigner: string | null;
   creators: any[];
   hideOldAds: boolean;
+  /** Só peças feitas no período: lançadas nele e sem data ou mês antigo no nome. */
+  novos?: boolean;
 }
 
 /**
@@ -143,7 +151,7 @@ interface CreativeFunnelProps {
  * banco. É por isso que o alvo existe: o mês anterior nem sempre está.
  */
 export default function CreativeFunnel({
-  dateFrom, dateTo, statusFilter, channelFilter, selectedDesigner, creators, hideOldAds,
+  dateFrom, dateTo, statusFilter, channelFilter, selectedDesigner, creators, hideOldAds, novos = false,
 }: CreativeFunnelProps) {
   const { data: session } = useSession();
   /* O alvo vale para todo mundo que abre o painel, então quem o define é admin
@@ -160,13 +168,21 @@ export default function CreativeFunnel({
   const refRange = useMemo(() => previousMonthRange(dateFrom), [dateFrom]);
 
   const currentUrl = dateFrom && dateTo ? `/api/db-ads?from=${dateFrom}&to=${dateTo}&status=${statusParam}` : null;
-  const { data: currentRes, loading } = useCacheFetch<any>(currentUrl);
+  const { data: currentRes, loading, mutate } = useCacheFetch<any>(currentUrl);
 
-  const filtros = { dateFrom, dateTo, hideOldAds, channelFilter, selectedDesigner, creators };
+  /* Recarrega a cada sincronização, como `FunnelsOverview` — sem isto, as
+     categorias acima mostravam os números novos e o funil seguia com os da
+     abertura da página. */
+  const { syncCounter } = useNotifications();
+  useEffect(() => {
+    if (syncCounter > 0) mutate();
+  }, [syncCounter, mutate]);
+
+  const filtros = { dateFrom, dateTo, hideOldAds, channelFilter, selectedDesigner, creators, novos };
 
   const atual = useMemo(
     () => (currentRes?.success ? contarPorCategoriaECanal(currentRes.data.categorizedAds, filtros) : null),
-    [currentRes, dateFrom, dateTo, hideOldAds, channelFilter, selectedDesigner, creators]
+    [currentRes, dateFrom, dateTo, hideOldAds, channelFilter, selectedDesigner, creators, novos]
   );
 
   /*
@@ -199,7 +215,7 @@ export default function CreativeFunnel({
   const refFiltros = { ...filtros, dateFrom: refRange.from, dateTo: refRange.to };
   const referencia = useMemo(
     () => (refRes?.success ? contarPorCategoriaECanal(refRes.data.categorizedAds, refFiltros) : null),
-    [refRes, refRange.from, refRange.to, hideOldAds, channelFilter, selectedDesigner, creators]
+    [refRes, refRange.from, refRange.to, hideOldAds, channelFilter, selectedDesigner, creators, novos]
   );
 
   /* Só vale distinguir a origem na tela quando as duas convivem. */
@@ -231,7 +247,7 @@ export default function CreativeFunnel({
       const res = await fetch("/api/creative-funnel/refs", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ categoryId: cat.id, channel: canal, value: valor }),
+        body: JSON.stringify({ categoryId: cat.id, channel: canal, value: valor, funnel: novos ? "novos" : "geral" }),
       });
       const json = await res.json();
       if (!json?.success) throw new Error(json?.error || "Não foi possível gravar.");

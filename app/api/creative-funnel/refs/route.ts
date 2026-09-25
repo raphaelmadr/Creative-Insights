@@ -31,7 +31,9 @@ export async function POST(request: Request) {
       );
     }
 
-    const { categoryId, channel, value } = await request.json();
+    const { categoryId, channel, value, funnel } = await request.json();
+    /* Cada funil guarda os próprios alvos: o geral em `refs`, o de novos em `refsNovos`. */
+    const campo = funnel === "novos" ? "refsNovos" : "refs";
     const canal = String(channel || "").toUpperCase();
 
     if (!categoryId || !CANAIS.has(canal)) {
@@ -67,10 +69,10 @@ export async function POST(request: Request) {
       );
     }
 
-    const refs = { ...(alvo.refs || {}) };
+    const refs = { ...(alvo[campo] || {}) };
     if (numero === null) delete refs[canal];
     else refs[canal] = numero;
-    alvo.refs = Object.keys(refs).length ? refs : undefined;
+    alvo[campo] = Object.keys(refs).length ? refs : undefined;
 
     const json = JSON.stringify(categorias);
     await prisma.systemSettings.upsert({
