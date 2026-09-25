@@ -16,6 +16,9 @@ export async function GET(req: Request) {
     const fromParam = url.searchParams.get("from");
     const toParam = url.searchParams.get("to");
     const statusParam = url.searchParams.get("status") || "ACTIVE";
+    /* `view=funnel` é a referência do funil de maturidade: ele só conta peças
+       por etapa, então não precisa dos números do período nem das métricas. */
+    const soContagem = url.searchParams.get("view") === "funnel";
 
     if (!fromParam || !toParam) {
       return NextResponse.json({ success: false, error: "Parâmetros 'from' e 'to' (YYYY-MM-DD) são obrigatórios" }, { status: 400 });
@@ -86,7 +89,7 @@ export async function GET(req: Request) {
        * Os KPIs do topo comparam contra a META DO MÊS, então precisam do valor
        * do período — não do acumulado de veiculação, que é o que vai nos cards.
        */
-      prisma.adDailyMetrics.groupBy({
+      soContagem ? Promise.resolve([]) : prisma.adDailyMetrics.groupBy({
         by: ["adCreativeId"],
         where: {
           adCreativeId: { in: ids },
@@ -251,6 +254,25 @@ export async function GET(req: Request) {
     
     categorizedAds.forEach(cat => cat.ads.sort(byResultDesc));
     Object.keys(testes).forEach(k => testes[k].sort(byResultDesc));
+
+    /* Só o que `CreativeFunnel` lê para filtrar e contar — a lista completa
+       pesa mais de 1 MB e a referência usa quatro campos dela. */
+    if (soContagem) {
+      return NextResponse.json({
+        success: true,
+        data: {
+          categorizedAds: categorizedAds.map((cat) => ({
+            ...cat,
+            ads: cat.ads.map((ad) => ({
+              platform: ad.platform,
+              designer: ad.designer,
+              createdTime: ad.createdTime,
+              ad_name: ad.ad_name,
+            })),
+          })),
+        },
+      });
+    }
 
     const globalCtr = totalImpressions > 0 ? (totalClicks / totalImpressions) * 100 : 0;
 

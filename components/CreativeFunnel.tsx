@@ -207,8 +207,11 @@ export default function CreativeFunnel({
     };
   }, [atual, alvos]);
 
-  const refUrl = faltaReferencia
-    ? `/api/db-ads?from=${refRange.from}&to=${refRange.to}&status=${statusParam}`
+  /* Parte junto com o mês atual: enquanto ele não chega, não se sabe se falta
+     alvo, e esperar somava as duas buscas. Só deixa de buscar quando o mês
+     atual já mostrou todos os alvos escritos. */
+  const refUrl = !atual || faltaReferencia
+    ? `/api/db-ads?from=${refRange.from}&to=${refRange.to}&status=${statusParam}&view=funnel`
     : null;
   const { data: refRes } = useCacheFetch<any>(refUrl);
 
