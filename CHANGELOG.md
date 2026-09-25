@@ -1,6 +1,13 @@
 # Changelog: Creative Insights (Fase 1)
 Data: 31 de Agosto de 2026
 
+## ☁️ O Cloudflare Barrava o Disparador (Setembro 2026)
+Depois da mudança para `creativelab.raphaelmadureira.com.br`, o Cron Job do cPanel continuou cadastrado com o comando certo, mas as batidas pararam de chegar: "Última batida do disparador" congelou e nenhuma recusa apareceu em Configurações › Logs.
+
+* **A causa não estava no código nem no comando.** O registro DNS do domínio novo está com o proxy do Cloudflare ligado (a nuvem laranja). O proxy barra o `curl` do cron antes de a requisição chegar à aplicação. Como nada chega, também não há carimbo nem log.
+* **A correção é desligar o proxy nesse registro.** No painel do Cloudflare, em DNS, troque a nuvem laranja por "DNS only" (nuvem cinza). As batidas voltam sem mexer no cPanel.
+* **Vale para qualquer domínio novo.** Antes de concluir que o cron morreu, confira a nuvem do registro no Cloudflare. Se a tela mostra o ping parado e os Logs não mostram recusa, esse é o primeiro suspeito.
+
 ## 📦 Formato "Unboxing" na Entrega de Criativos (Setembro 2026)
 * **Quarto formato no seletor:** Estático / Vídeo / Animação / Unboxing. Sem par Feed/Story — os slots seguem direto a quantidade de peças respondida na abertura da demanda, mesmo comportamento que Vídeo já tinha. Pasta própria no Drive (`Unboxing`), extensão `.mp4`, e o nome final da peça vem do próprio arquivo enviado, no mesmo padrão de Animação.
 * **A regra de combinação de "Frente" foi suspensa.** "Duas frentes só se combinam quando uma delas é Unboxing" — herdada do ad-naming-tool — travava entregas reais (ex.: Influenciadores + Embaixadores) com uma mensagem que não dizia onde corrigir. Fica só a exigência mínima, escolher ao menos uma frente, até o time alinhar quais combinações valem. A nomenclatura do arquivo não dependia dessa regra — ela concatena os códigos de quantas frentes vierem — então nada muda na entrega já gerada sem ela.

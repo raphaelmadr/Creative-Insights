@@ -43,6 +43,8 @@ export interface CreativeCategory {
    * inteiro no banco.
    */
   refs?: Record<string, number>;
+  /** O mesmo, para o funil de novos — que tem quebras próprias e alvos próprios. */
+  refsNovos?: Record<string, number>;
 }
 
 /** O que vale enquanto ninguém configurou categorias em Configurações → Metas. */
