@@ -54,6 +54,19 @@ cat > "$SAIDA/package.json" <<'JSON'
 }
 JSON
 
+# O que o botão "Deploy HEAD Commit" do cPanel executa. O "Update from Remote"
+# só troca os arquivos; o Passenger continua servindo o build que já estava na
+# memória até alguém tocar `tmp/restart.txt`. Com isto, publicar é: Update from
+# Remote, depois Deploy HEAD Commit. O cPanel roda as tarefas a partir da pasta
+# do repositório, que é a própria pasta do app.
+cat > "$SAIDA/.cpanel.yml" <<'YML'
+---
+deployment:
+  tasks:
+    - /bin/mkdir -p tmp
+    - /bin/touch tmp/restart.txt
+YML
+
 # O schema viaja junto para que `prisma migrate deploy` e `db push` possam ser
 # rodados de lá, se um dia precisarem.
 mkdir -p "$SAIDA/prisma"

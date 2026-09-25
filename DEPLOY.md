@@ -122,8 +122,14 @@ Para testar na hora, sem esperar a janela: acrescente `?force=1` à URL, ou
 ## Publicar uma versão nova
 
 1. `git push` na `main` — a esteira do GitHub builda e publica no branch `deploy`
-2. A hospedagem espelha o `deploy`
-3. Reinicie a aplicação no *Setup Node.js App* (ou toque `tmp/restart.txt`)
+2. Espere a esteira terminar (aba *Actions* do GitHub)
+3. No cPanel, *Git Version Control › Gerenciar › Pull or Deploy*: **Update from Remote**
+4. Na mesma aba, **Deploy HEAD Commit** — roda o `.cpanel.yml` do pacote, que
+   toca `tmp/restart.txt` e reinicia a aplicação
+
+O botão só atualiza com a pasta limpa: `git status --porcelain` precisa sair
+vazio. Arquivo que só existe no servidor (`.htaccess`, `stderr.log`, `tmp/`)
+vai para `.git/info/exclude`, que vale só ali e não muda o repositório.
 
 ## Riscos ainda não medidos
 
